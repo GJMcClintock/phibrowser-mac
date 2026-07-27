@@ -329,7 +329,7 @@ struct SpaceThemeEditorView: View {
         .onReceive(NotificationCenter.default.publisher(for: .appearanceDidChange)) { _ in
             syncControls()
         }
-        .onChange(of: spaceManager.spaces.map(\.spaceId)) { _, spaceIds in
+        .onChange(of: spaceManager.spaces.map(\.spaceId)) { spaceIds in
             if !spaceIds.contains(spaceId) {
                 onDismiss()
             }

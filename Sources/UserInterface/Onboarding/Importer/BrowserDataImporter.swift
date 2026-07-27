@@ -6,7 +6,7 @@
 import Foundation
 import Combine
 import PostHog
-import SwiftData
+import CoreData
 
 struct BrowserImportAnalytics {
     enum ErrorCode: String {

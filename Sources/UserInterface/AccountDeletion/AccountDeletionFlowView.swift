@@ -110,6 +110,10 @@ struct AccountDeletionFlowView: View {
     let finalize: () -> Void
 
     @State private var code = ""
+    /// Mirrors the last state seen by `onChange` so transitions can compare
+    /// against the previous value (the pre-macOS 14 `onChange` only delivers
+    /// the new one).
+    @State private var lastObservedState: AccountDeletionCoordinator.State = .idle
 
     @Environment(\.phiAppearance) private var appearance
 
@@ -144,7 +148,12 @@ struct AccountDeletionFlowView: View {
         } actions: {
             stateActions
         }
-        .onChange(of: viewState.state) { oldState, newState in
+        .onAppear {
+            lastObservedState = viewState.state
+        }
+        .onChange(of: viewState.state) { newState in
+            let oldState = lastObservedState
+            lastObservedState = newState
             // A failed verification falls back to code entry with the error
             // copy in the status line. Clear the boxes so the user re-enters
             // a code instead of resubmitting the rejected one.

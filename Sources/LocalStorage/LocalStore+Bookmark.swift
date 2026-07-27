@@ -4,7 +4,7 @@
 // found in the LICENSE file.
 
 import Foundation
-import SwiftData
+import CoreData
 import Combine
 
 extension LocalStore {
@@ -454,6 +454,7 @@ extension LocalStore {
                     
                     let now = Date()
                     let node = TabDataModel(
+                        insertInto: context,
                         title: title,
                         guid: UUID().uuidString,
                         index: 0,
@@ -472,7 +473,6 @@ extension LocalStore {
                         isTopLevelImportFolder: parent.guid == root.guid
                     )
                     node.profile = profile
-                    context.insert(node)
                     try self.insert(node: node, to: parent, at: index, in: context)
                     insertedCount += 1
                     
@@ -976,13 +976,13 @@ extension LocalStore {
             uniqueKeysWithValues: spaces.map { ($0.spaceId, $0.profileId) }
         )
         let bookmarkRaw = TabDataType.bookmark.rawValue
-        let descriptor = FetchDescriptor<TabDataModel>(
-            predicate: #Predicate<TabDataModel> { $0.type == bookmarkRaw },
-            sortBy: [SortDescriptor(\.lastSeen, order: .reverse)]
+        let request = TabDataModel.request(
+            NSPredicate(format: "type == %d", bookmarkRaw),
+            sortBy: [NSSortDescriptor(key: "lastSeen", ascending: false)]
         )
 
         do {
-            return try context.fetch(descriptor).filter { bookmark in
+            return try context.fetch(request).filter { bookmark in
                 guard let spaceId = bookmark.spaceId,
                       let expectedProfileId = profileIdBySpaceId[spaceId] else {
                     return false
@@ -1029,13 +1029,11 @@ extension LocalStore {
             do {
                 let bookmarkRaw = TabDataType.bookmark.rawValue
                 let folderRaw = TabDataType.bookmarkFolder.rawValue
-                let predicate = #Predicate<TabDataModel> { $0.type == bookmarkRaw || $0.type == folderRaw }
-                let sortBy: [SortDescriptor<TabDataModel>] = [SortDescriptor(\.createdDate)]
-                let descriptor = FetchDescriptor<TabDataModel>(
-                    predicate: predicate,
-                    sortBy: sortBy
+                let request = TabDataModel.request(
+                    NSPredicate(format: "type == %d OR type == %d", bookmarkRaw, folderRaw),
+                    sortBy: [NSSortDescriptor(key: "createdDate", ascending: true)]
                 )
-                let bookmarks: [TabDataModel] = try context.fetch(descriptor)
+                let bookmarks: [TabDataModel] = try context.fetch(request)
                 return bookmarks.filter {
                     $0.profile?.profileId == profileId && $0.spaceId == spaceId
                 }
@@ -1077,12 +1075,12 @@ extension LocalStore {
     /// and needs no `SpaceModel`). A non-default Space must still have a live
     /// `SpaceModel`: if it was deleted or re-profiled mid-import, writing would
     /// create an orphan root the UI never shows, so the import is dropped.
-    func importTargetSpaceIsWritable(profileId: String, spaceId: String, in context: ModelContext) throws -> Bool {
+    func importTargetSpaceIsWritable(profileId: String, spaceId: String, in context: NSManagedObjectContext) throws -> Bool {
         if spaceId == Self.defaultSpaceId { return true }
-        let descriptor = FetchDescriptor<SpaceModel>(
-            predicate: #Predicate { $0.spaceId == spaceId && $0.profileId == profileId }
+        let request = SpaceModel.request(
+            NSPredicate(format: "spaceId == %@ AND profileId == %@", spaceId, profileId)
         )
-        return try context.fetchCount(descriptor) > 0
+        return try context.count(for: request) > 0
     }
 
     /// Resolves the hidden root folder for `(profileId, spaceId)`.
@@ -1096,15 +1094,15 @@ extension LocalStore {
     /// behavior is unchanged.
     func bookmarkRoot(profileId: String,
                       spaceId: String,
-                      in context: ModelContext,
+                      in context: NSManagedObjectContext,
                       createIfNeeded: Bool) throws -> TabDataModel? {
         guard let profile = try profile(with: profileId, in: context, createIfNeeded: createIfNeeded) else {
             return nil
         }
-        let spaceDescriptor = FetchDescriptor<SpaceModel>(
-            predicate: #Predicate { $0.spaceId == spaceId && $0.profileId == profileId }
+        let spaceRequest = SpaceModel.request(
+            NSPredicate(format: "spaceId == %@ AND profileId == %@", spaceId, profileId)
         )
-        let space = try context.fetch(spaceDescriptor).first
+        let space = try context.fetch(spaceRequest).first
 
         // Prefer the explicit per-Space root if already linked.
         if let existing = space?.bookmarkRoot {
@@ -1126,16 +1124,14 @@ extension LocalStore {
         // bookmarks publisher returns all of them — visible to the user
         // as duplicate "Bookmarks" folders in non-default Spaces.
         // Reclaim the first matching un-parented bookmarkFolder for this
-        // (profileId, spaceId) instead of stamping out a new one. We
-        // fetch by the simplest predicate the macro supports (just
-        // `type == folder`) and post-filter in Swift to keep the
-        // expression checkable — same pattern the publisher uses.
+        // (profileId, spaceId) instead of stamping out a new one. Fetch by
+        // type and post-filter in Swift — same pattern the publisher uses.
         let folderRaw = TabDataType.bookmarkFolder.rawValue
-        let folderDescriptor = FetchDescriptor<TabDataModel>(
-            predicate: #Predicate<TabDataModel> { $0.type == folderRaw },
-            sortBy: [SortDescriptor(\.createdDate)]
+        let folderRequest = TabDataModel.request(
+            NSPredicate(format: "type == %d", folderRaw),
+            sortBy: [NSSortDescriptor(key: "createdDate", ascending: true)]
         )
-        let candidateFolders = try context.fetch(folderDescriptor)
+        let candidateFolders = try context.fetch(folderRequest)
         let orphanRoots = candidateFolders.filter {
             $0.parent == nil &&
             $0.spaceId == spaceId &&
@@ -1154,16 +1150,16 @@ extension LocalStore {
             if orphanRoots.count > 1 {
                 for duplicate in orphanRoots.dropFirst() {
                     let dupGuid = duplicate.guid
-                    let childDescriptor = FetchDescriptor<TabDataModel>(
-                        predicate: #Predicate<TabDataModel> { $0.parent?.guid == dupGuid }
+                    let childRequest = TabDataModel.request(
+                        NSPredicate(format: "parent.guid == %@", dupGuid)
                     )
                     // Reparent before deleting. Use `try` (not `try?`): if the
                     // fetch fails we must NOT delete the duplicate, or its
-                    // children would be orphaned (SwiftData nullifies their
-                    // `parent`) and the bookmarks silently lost. The enclosing
-                    // function throws, so the error propagates and the write is
-                    // abandoned with the duplicate intact.
-                    for child in try context.fetch(childDescriptor) {
+                    // children would be cascade-deleted with it and the
+                    // bookmarks silently lost. The enclosing function throws,
+                    // so the error propagates and the write is abandoned with
+                    // the duplicate intact.
+                    for child in try context.fetch(childRequest) {
                         child.parent = primary
                     }
                     context.delete(duplicate)
@@ -1173,7 +1169,8 @@ extension LocalStore {
         }
         guard createIfNeeded else { return nil }
         let now = Date()
-        let root = TabDataModel(title: NSLocalizedString("localData.bookmarks.rootFolderTitle", value: "Bookmarks", comment: "Default root bookmarks folder title"),
+        let root = TabDataModel(insertInto: context,
+                                title: NSLocalizedString("localData.bookmarks.rootFolderTitle", value: "Bookmarks", comment: "Default root bookmarks folder title"),
                                 guid: UUID().uuidString,
                                 index: 0,
                                 url: Self.folderPlaceholderURL,
@@ -1185,7 +1182,6 @@ extension LocalStore {
         root.profile = profile
         root.spaceId = spaceId
         root.isCreatedByChromium = false
-        context.insert(root)
         space?.bookmarkRoot = root
         // Mirror onto the Profile only when this is the first time the
         // default Space materializes; non-default spaces must not pollute
@@ -1204,7 +1200,7 @@ private extension LocalStore {
     func insert(node: TabDataModel,
                 to parent: TabDataModel,
                 at index: Int?,
-                in context: ModelContext) throws {
+                in context: NSManagedObjectContext) throws {
         node.parent = parent
         var siblings = try children(of: parent, in: context).filter { $0.guid != node.guid }
         let targetIndex = Self.clamp(index: index, upperBound: siblings.count)
@@ -1212,15 +1208,12 @@ private extension LocalStore {
         normalizeIndexes(for: siblings)
     }
     
-    func children(of parent: TabDataModel, in context: ModelContext) throws -> [TabDataModel] {
-        let parentGuid = parent.guid
-        let predicate = #Predicate<TabDataModel> {
-            $0.parent?.guid == parentGuid
-        }
-
-        let sortBy: [SortDescriptor<TabDataModel>] = [SortDescriptor(\.index)]
-        let descriptor = FetchDescriptor<TabDataModel>(predicate: predicate, sortBy: sortBy)
-        return try context.fetch(descriptor)
+    func children(of parent: TabDataModel, in context: NSManagedObjectContext) throws -> [TabDataModel] {
+        let request = TabDataModel.request(
+            NSPredicate(format: "parent.guid == %@", parent.guid),
+            sortBy: [NSSortDescriptor(key: "index", ascending: true)]
+        )
+        return try context.fetch(request)
     }
     
     /// Normalizes sibling indexes into a contiguous `0...n-1` range.
@@ -1231,10 +1224,9 @@ private extension LocalStore {
         }
     }
     
-    func bookmarkNode(with guid: String, in context: ModelContext) throws -> TabDataModel? {
-        let predicate = #Predicate<TabDataModel> { $0.guid == guid }
-        let descriptor = FetchDescriptor<TabDataModel>(predicate: predicate)
-        return try context.fetch(descriptor).first
+    func bookmarkNode(with guid: String, in context: NSManagedObjectContext) throws -> TabDataModel? {
+        let request = TabDataModel.request(NSPredicate(format: "guid == %@", guid))
+        return try context.fetch(request).first
     }
 
     func hasAncestor(of node: TabDataModel, in guids: Set<String>) -> Bool {
@@ -1250,7 +1242,7 @@ private extension LocalStore {
 
     func hasSelectedDescendant(of folder: TabDataModel,
                                selectedGuids: Set<String>,
-                               in context: ModelContext) throws -> Bool {
+                               in context: NSManagedObjectContext) throws -> Bool {
         for child in try children(of: folder, in: context) {
             if selectedGuids.contains(child.guid) {
                 return true
@@ -1267,7 +1259,7 @@ private extension LocalStore {
 
     func selectedDescendantRoots(under node: TabDataModel,
                                  selectedGuids: Set<String>,
-                                 in context: ModelContext) throws -> [TabDataModel] {
+                                 in context: NSManagedObjectContext) throws -> [TabDataModel] {
         guard node.dataType == .bookmarkFolder else { return [] }
         var roots: [TabDataModel] = []
         for child in try children(of: node, in: context) {
@@ -1286,7 +1278,7 @@ private extension LocalStore {
                           to parent: TabDataModel,
                           at index: Int,
                           updatedDate: Date,
-                          in context: ModelContext) throws {
+                          in context: NSManagedObjectContext) throws {
         let originalParent = node.parent
         node.parent = parent
         node.updatedDate = updatedDate
@@ -1305,7 +1297,7 @@ private extension LocalStore {
     func liftUnselectedChildren(from folder: TabDataModel,
                                 selectedGuids: Set<String>,
                                 updatedDate: Date,
-                                in context: ModelContext) throws {
+                                in context: NSManagedObjectContext) throws {
         guard let parent = folder.parent else { return }
 
         let originalChildren = try children(of: folder, in: context)
@@ -1372,7 +1364,7 @@ private extension LocalStore {
                               profile: ProfileModel,
                               spaceId: String,
                               updatedDate: Date,
-                              in context: ModelContext) throws {
+                              in context: NSManagedObjectContext) throws {
         node.profileId = profileId
         node.profile = profile
         node.spaceId = spaceId
@@ -1393,7 +1385,7 @@ private extension LocalStore {
                               profileId: String,
                               spaceId: String,
                               createdDate: Date,
-                              in context: ModelContext) throws -> TabDataModel {
+                              in context: NSManagedObjectContext) throws -> TabDataModel {
         let clone: TabDataModel
         if source.dataType == .bookmarkFolder {
             clone = try insertDirectoryNode(title: source.title,
@@ -1442,7 +1434,7 @@ private extension LocalStore {
                                       profileId: String,
                                       spaceId: String,
                                       createdDate: Date,
-                                      in context: ModelContext) throws -> TabDataModel {
+                                      in context: NSManagedObjectContext) throws -> TabDataModel {
         guard source.dataType == .bookmarkFolder,
               try hasSelectedDescendant(of: source,
                                         selectedGuids: selectedGuids,
@@ -1490,8 +1482,9 @@ private extension LocalStore {
                              guid: String?,
                              spaceId: String?,
                              now: Date,
-                             in context: ModelContext) throws -> TabDataModel {
-        let folder = TabDataModel(title: title,
+                             in context: NSManagedObjectContext) throws -> TabDataModel {
+        let folder = TabDataModel(insertInto: context,
+                                  title: title,
                                   guid: guid ?? UUID().uuidString,
                                   index: 0,
                                   url: Self.folderPlaceholderURL,
@@ -1503,7 +1496,6 @@ private extension LocalStore {
         folder.profileId = profileId
         folder.profile = parent.profile
         folder.isCreatedByChromium = false
-        context.insert(folder)
         try insert(node: folder, to: parent, at: index, in: context)
         return folder
     }
@@ -1520,8 +1512,9 @@ private extension LocalStore {
                             layout: String? = nil,
                             favicon: Data? = nil,
                             now: Date,
-                            in context: ModelContext) throws -> TabDataModel {
-        let bookmark = TabDataModel(title: (title?.isEmpty == false ? title! : url.absoluteString),
+                            in context: NSManagedObjectContext) throws -> TabDataModel {
+        let bookmark = TabDataModel(insertInto: context,
+                                    title: (title?.isEmpty == false ? title! : url.absoluteString),
                                     guid: guid ?? UUID().uuidString,
                                     index: 0,
                                     url: url,
@@ -1536,7 +1529,6 @@ private extension LocalStore {
         bookmark.secondaryUrl = secondaryUrl
         bookmark.secondaryTitle = (secondaryTitle?.isEmpty == false) ? secondaryTitle : nil
         bookmark.layout = secondaryUrl == nil ? nil : layout
-        context.insert(bookmark)
         try insert(node: bookmark, to: parent, at: index, in: context)
         return bookmark
     }
@@ -1544,7 +1536,7 @@ private extension LocalStore {
     func resolveParent(for parentId: String?,
                        profileId: String,
                        spaceId: String = LocalStore.defaultSpaceId,
-                       in context: ModelContext,
+                       in context: NSManagedObjectContext,
                        createIfNeeded: Bool = true) throws -> TabDataModel? {
         if let parentId,
            let node = try bookmarkNode(with: parentId, in: context),
@@ -1560,13 +1552,11 @@ private extension LocalStore {
     /// Returns true if `node` is the hidden top-level folder for any Profile
     /// or Space — i.e. moving/deleting it is illegal because the bookmark tree
     /// would lose its root.
-    func isBookmarkRoot(_ node: TabDataModel, in context: ModelContext) throws -> Bool {
-        let profileDescriptor: FetchDescriptor<ProfileModel> = FetchDescriptor<ProfileModel>()
-        if try context.fetch(profileDescriptor).contains(where: { $0.bookmarkRoot?.guid == node.guid }) {
+    func isBookmarkRoot(_ node: TabDataModel, in context: NSManagedObjectContext) throws -> Bool {
+        if try context.fetch(ProfileModel.request()).contains(where: { $0.bookmarkRoot?.guid == node.guid }) {
             return true
         }
-        let spaceDescriptor: FetchDescriptor<SpaceModel> = FetchDescriptor<SpaceModel>()
-        return try context.fetch(spaceDescriptor).contains(where: { $0.bookmarkRoot?.guid == node.guid })
+        return try context.fetch(SpaceModel.request()).contains(where: { $0.bookmarkRoot?.guid == node.guid })
     }
 
     static func importedBrowserSourceValue(

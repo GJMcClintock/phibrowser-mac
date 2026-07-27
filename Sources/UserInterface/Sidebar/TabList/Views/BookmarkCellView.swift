@@ -19,35 +19,34 @@ protocol BookmarkCellViewDelegate: AnyObject {
     func bookmarkCellDidEndEditing(_ bookmark: Bookmark, newTitle: String)
 }
 
-@Observable
-private final class BookmarkCellViewState {
-    var title = ""
-    var editText = ""
-    var primaryPageURL: String?
-    var secondaryPageURL: String?
-    var primaryFaviconImage: NSImage?
-    var secondaryFaviconImage: NSImage?
-    var primaryFaviconRevision = 0
-    var secondaryFaviconRevision = 0
-    var showsSecondaryFavicon = false
+private final class BookmarkCellViewState: ObservableObject {
+    @Published var title = ""
+    @Published var editText = ""
+    @Published var primaryPageURL: String?
+    @Published var secondaryPageURL: String?
+    @Published var primaryFaviconImage: NSImage?
+    @Published var secondaryFaviconImage: NSImage?
+    @Published var primaryFaviconRevision = 0
+    @Published var secondaryFaviconRevision = 0
+    @Published var showsSecondaryFavicon = false
     /// A Peek opened from this bookmark's bound tab is alive (visible or
     /// hidden behind another tab) — drives the trailing peek indicator.
-    var showsPeek = false
-    var primaryTabIsLive = false
-    var secondaryTabIsLive = false
-    var isFolder = false
-    var isFolderExpanded = false
-    var folderIcon = BookmarkFolderIcon.standard
-    var usesStaticFolderSnapshotIcon = false
-    var folderIconPickerRequestGeneration = 0
-    var isActive = false
-    var isOpened = false
-    var isHovered = false
-    var isPressed = false
-    var isEditing = false
-    var isMultiSelected = false
-    var isDropTargetHighlighted = false
-    var showsTabPreview = false
+    @Published var showsPeek = false
+    @Published var primaryTabIsLive = false
+    @Published var secondaryTabIsLive = false
+    @Published var isFolder = false
+    @Published var isFolderExpanded = false
+    @Published var folderIcon = BookmarkFolderIcon.standard
+    @Published var usesStaticFolderSnapshotIcon = false
+    @Published var folderIconPickerRequestGeneration = 0
+    @Published var isActive = false
+    @Published var isOpened = false
+    @Published var isHovered = false
+    @Published var isPressed = false
+    @Published var isEditing = false
+    @Published var isMultiSelected = false
+    @Published var isDropTargetHighlighted = false
+    @Published var showsTabPreview = false
 }
 
 private final class VerticallyCenteredBookmarkTextFieldCell: NSTextFieldCell {
@@ -875,10 +874,10 @@ private enum BookmarkFaviconHoverAction {
 }
 
 private struct SidebarBookmarkCellContentView: View {
-    let state: BookmarkCellViewState
-    let primaryTabViewModel: TabViewModel
-    let secondaryTabViewModel: TabViewModel
-    let peekTabViewModel: TabViewModel
+    @ObservedObject var state: BookmarkCellViewState
+    @ObservedObject var primaryTabViewModel: TabViewModel
+    @ObservedObject var secondaryTabViewModel: TabViewModel
+    @ObservedObject var peekTabViewModel: TabViewModel
     let onClose: () -> Void
     let onClosePeek: () -> Void
     let onNavigatePrimaryToOriginalURL: (Bool) -> Void
@@ -1005,7 +1004,7 @@ private struct SidebarBookmarkCellContentView: View {
                     isPressed: state.isFolder ? false : state.isPressed
                 )
                 .themedForeground(textColor)
-                .fontWeight(state.isFolder ? .medium : .regular)
+                .folderTitleWeight(state.isFolder ? .medium : .regular)
                 .frame(height: 16, alignment: .center)
                 .offset(y: showBookmarkFaviconHint ? -7 : 0)
 
@@ -1122,6 +1121,9 @@ private struct BookmarkFaviconView: View {
     @State private var isCommandKeyPressed = false
     @State private var modifierFlagsMonitor: Any?
     @State private var showsFolderIconPicker = false
+    /// Last seen `folderIconPickerRequestGeneration`. The two-parameter
+    /// `onChange` that reports the previous value is macOS 14+.
+    @State private var lastFolderIconPickerGeneration = 0
 
     private static let faviconSlotSize: CGFloat = 16
     private static let faviconSize: CGFloat = 14
@@ -1172,7 +1174,7 @@ private struct BookmarkFaviconView: View {
                 .opacity(canNavigateToOriginalURL && isReturnButtonHovered ? 1 : 0)
         )
         .onHover(perform: updateReturnButtonHover)
-        .onChange(of: canNavigateToOriginalURL) { _, canNavigate in
+        .onChange(of: canNavigateToOriginalURL) { canNavigate in
             if !canNavigate {
                 updateReturnButtonHover(false)
             }
@@ -1207,13 +1209,16 @@ private struct BookmarkFaviconView: View {
                     onSelectFolderIcon(selection)
                 }
             }
-            .onChange(of: folderIconPickerRequestGeneration) { oldValue, newValue in
+            .onChange(of: folderIconPickerRequestGeneration) { newValue in
+                let oldValue = lastFolderIconPickerGeneration
+                lastFolderIconPickerGeneration = newValue
                 guard newValue > oldValue else {
                     showsFolderIconPicker = false
                     return
                 }
                 showFolderIconPicker()
             }
+            .onAppear { lastFolderIconPickerGeneration = folderIconPickerRequestGeneration }
     }
 
     private func showFolderIconPicker() {
@@ -1316,5 +1321,18 @@ extension BookmarkCellView: NSTextFieldDelegate {
             return true
         }
         return false
+    }
+}
+
+private extension View {
+    /// `View.fontWeight` requires macOS 13; macOS 12 renders folder titles at
+    /// regular weight (visual-only degradation).
+    @ViewBuilder
+    func folderTitleWeight(_ weight: Font.Weight) -> some View {
+        if #available(macOS 13.0, *) {
+            self.fontWeight(weight)
+        } else {
+            self
+        }
     }
 }

@@ -3,7 +3,7 @@
 // Use of this source code is governed by an Apache license that can be
 // found in the LICENSE file.
 
-import SwiftData
+import CoreData
 import XCTest
 @testable import Phi
 
@@ -267,8 +267,9 @@ final class LocalStorePinnedTabTransferTests: XCTestCase {
             presentsCompatibilityAlerts: false
         )
         let context = try XCTUnwrap(store.getMainContext())
-        context.insert(ProfileModel(profileId: "Default"))
+        context.insert(ProfileModel(insertInto: context, profileId: "Default"))
         context.insert(SpaceModel(
+            insertInto: context,
             spaceId: "space-a",
             profileId: "Default",
             name: "A",
@@ -277,6 +278,7 @@ final class LocalStorePinnedTabTransferTests: XCTestCase {
             sortOrder: 0
         ))
         context.insert(SpaceModel(
+            insertInto: context,
             spaceId: "space-b",
             profileId: "Default",
             name: "B",
@@ -302,11 +304,12 @@ final class LocalStorePinnedTabTransferTests: XCTestCase {
     ) throws {
         let context = try XCTUnwrap(store.getMainContext())
         let profile = try XCTUnwrap(
-            try context.fetch(FetchDescriptor<ProfileModel>()).first(where: {
+            try context.fetch(ProfileModel.request()).first(where: {
                 $0.profileId == profileId
             })
         )
         let model = TabDataModel(
+            insertInto: context,
             title: title,
             guid: guid,
             index: index,

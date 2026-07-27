@@ -475,9 +475,7 @@ private struct KioskCopyURLButtonView: View {
                     .opacity(isButtonHovering ? 1 : 0)
 
                 Image(systemName: iconName)
-                    .contentTransition(
-                        .symbolEffect(.replace, options: .speed(3))
-                    )
+                    .symbolReplaceTransition()
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(iconColor)
             }
@@ -701,5 +699,18 @@ private struct KioskSpaceMenuSegmentButtonStyle: ButtonStyle {
                         : isHovered ? KioskToolbarStyle.hoverColorOpacity : 0
                 )
             )
+    }
+}
+
+private extension View {
+    /// `ContentTransition.symbolEffect` requires macOS 14; older systems swap
+    /// the symbol with no transition.
+    @ViewBuilder
+    func symbolReplaceTransition() -> some View {
+        if #available(macOS 14.0, *) {
+            self.contentTransition(.symbolEffect(.replace, options: .speed(3)))
+        } else {
+            self
+        }
     }
 }

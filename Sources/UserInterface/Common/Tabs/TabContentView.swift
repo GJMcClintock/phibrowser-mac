@@ -177,7 +177,7 @@ struct TabDiscardedFaviconOutline: View {
 }
 
 struct UnifiedTabTitleView: View {
-    let viewModel: TabViewModel
+    @ObservedObject var viewModel: TabViewModel
 
     var body: some View {
         UnifiedTabTitleTextView(
@@ -335,7 +335,7 @@ private struct TabTitleShimmerMask: View {
 }
 
 struct UnifiedTabFaviconView: View {
-    let viewModel: TabViewModel
+    @ObservedObject var viewModel: TabViewModel
     @Environment(\.phiAppearance) private var phiAppearance
 
     private static let faviconSize: CGFloat = 14
@@ -402,7 +402,7 @@ struct UnifiedTabCloseButton: View {
 }
 
 struct UnifiedTabMuteButton: View {
-    let viewModel: TabViewModel
+    @ObservedObject var viewModel: TabViewModel
     @State private var isHovered = false
 
     private var isMuteInteractive: Bool {

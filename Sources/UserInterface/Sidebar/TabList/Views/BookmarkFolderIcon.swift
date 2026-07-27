@@ -140,14 +140,15 @@ struct BookmarkFolderIconView: View {
             }
         }
         .id("\(icon.rawValue)-\(theme.id)-\(appearance.description)")
-        .onChange(of: icon) { _, _ in
+        .onChange(of: icon) { _ in
             pauseAtCurrentState()
         }
-        .onChange(of: isExpanded) { oldValue, newValue in
-            guard oldValue != newValue else { return }
+        .onChange(of: isExpanded) { newValue in
+            // One-parameter `onChange` (the macOS 12 form) reports only the new
+            // value; for a Bool the previous one is its inverse.
             playbackMode = .playing(
                 .fromProgress(
-                    BookmarkFolderIcon.animationProgress(isExpanded: oldValue),
+                    BookmarkFolderIcon.animationProgress(isExpanded: !newValue),
                     toProgress: BookmarkFolderIcon.animationProgress(isExpanded: newValue),
                     loopMode: .playOnce
                 )

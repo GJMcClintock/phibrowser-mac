@@ -292,7 +292,11 @@ enum AuthenticatedSentinelSessionLifecycle {
             for _ in 0..<10 {
                 try? await Task.sleep(nanoseconds: 200_000_000)
                 if !NSApp.isActive {
-                    NSApp.activate()
+                    if #available(macOS 14.0, *) {
+                        NSApp.activate()
+                    } else {
+                        NSApp.activate(ignoringOtherApps: true)
+                    }
                     break
                 }
             }
@@ -315,6 +319,14 @@ enum SentinelHelper {
     }
 
     static func register() {
+        // SMAppService is macOS 13+; macOS 12 falls back to the legacy
+        // login-item flag (deprecated but functional there).
+        guard #available(macOS 13.0, *) else {
+            let identifier = loginItemIdentifier()
+            let ok = SMLoginItemSetEnabled(identifier as CFString, true)
+            AppLogInfo("Sentinel legacy login item registration (macOS 12) id=\(identifier) ok=\(ok)")
+            return
+        }
         let identifier = loginItemIdentifier()
         let service = SMAppService.loginItem(identifier: identifier)
         AppLogInfo("Sentinel login item identifier: \(identifier)")
@@ -329,6 +341,12 @@ enum SentinelHelper {
     }
 
     static func unregister() async {
+        guard #available(macOS 13.0, *) else {
+            let identifier = loginItemIdentifier()
+            let ok = SMLoginItemSetEnabled(identifier as CFString, false)
+            AppLogInfo("Sentinel legacy login item unregistration (macOS 12) id=\(identifier) ok=\(ok)")
+            return
+        }
         let identifier = loginItemIdentifier()
         let service = SMAppService.loginItem(identifier: identifier)
         guard service.status != .notRegistered,

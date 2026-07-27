@@ -93,11 +93,18 @@ struct SidebarBottomBarSwiftUI: View {
             Spacer(minLength: 0)
 
             if !state.isFeedbackHidden {
-                ViewThatFits(in: .horizontal) {
-                    FeedbackButtonSwiftUI(action: onFeedbackTap)
+                if #available(macOS 13.0, *) {
+                    ViewThatFits(in: .horizontal) {
+                        FeedbackButtonSwiftUI(action: onFeedbackTap)
+                        FeedbackButtonSwiftUI(action: onFeedbackTap, isIconOnly: true)
+                    }
+                    .layoutPriority(1)
+                } else {
+                    // ViewThatFits requires macOS 13; the icon-only variant
+                    // fits at every sidebar width.
                     FeedbackButtonSwiftUI(action: onFeedbackTap, isIconOnly: true)
+                        .layoutPriority(1)
                 }
-                .layoutPriority(1)
             }
 
             if !state.isChatHidden {

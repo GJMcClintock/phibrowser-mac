@@ -5,85 +5,67 @@
 
 import Foundation
 import AppKit
-import SwiftData
+import CoreData
 import Combine
-
-@ModelActor
-actor LocalStoreActor {
-    func perform(_ block: (ModelContext) -> Void) {
-        block(modelContext)
-        do {
-            try modelContext.save()
-        } catch {
-            AppLogError("[LocalStore] save error: \(error)")
-        }
-    }
-
-    func performThrowing<Result: Sendable>(
-        _ block: (ModelContext) throws -> Result
-    ) throws -> Result {
-        do {
-            let result = try block(modelContext)
-            try modelContext.save()
-            return result
-        } catch {
-            modelContext.rollback()
-            throw error
-        }
-    }
-}
 
 class LocalStore {
     static let defaultProfileId = "Default"
+    /// Format 11 is the Core Data store; formats 1...10 are SwiftData stores
+    /// that `LocalStoreLegacyImport` converts on first open (macOS 14+ only —
+    /// every pre-11 store was written by an app whose floor was macOS 14).
     static let compatibilityConfiguration = LocalStoreCompatibilityConfiguration(
-        currentStoreFormatVersion: 10,
-        readableStoreFormatVersions: 1...10,
+        currentStoreFormatVersion: 11,
+        readableStoreFormatVersions: 1...11,
+        // A manifest-less store can only have been written by a SwiftData
+        // build: format-11 stores are created together with their manifest.
+        legacyFallbackStoreFormatVersion: 10,
         storeFilename: "LocalStore.sqlite"
     )
 
-    private(set) var container: ModelContainer?
+    private(set) var container: NSPersistentContainer?
     let account: Account
     private let userStorageURL: URL
     private var cancellable: AnyCancellable?
-    private var writeActor: LocalStoreActor?
+    /// Single background context that executes every write; the FIFO stream
+    /// below serializes job submission order on top of it.
+    private var writeContext: NSManagedObjectContext?
     /// True only after an explicitly requested terminal migration barrier.
     /// A store that merely failed to open must not be mistaken for a sealed
     /// source that can resume from its durable migration snapshot.
     @MainActor private(set) var isClosedForAccountDirectoryRemoval = false
 
-    /// Serial FIFO queue for background writes. `writeActor` serializes write
-    /// *execution*, but `performBackgroundWrite` previously dispatched each
-    /// write as an independent `Task`, and unstructured tasks carry no
-    /// guarantee of reaching the actor in submission order. A "create record"
-    /// write could therefore land after a follow-up "update field" write that
-    /// targets it, and the update would silently no-op (its fetch finds no
-    /// row). This broke pinned-split pairing: the `splitPartnerGuid` set right
-    /// after the two pinned rows were created would sometimes apply before the
-    /// rows existed, leaving the pair unlinked and rendering as two cells once
-    /// the live SplitGroup went away (e.g. on close). Funnelling every write
-    /// through this stream restores submit-order == apply-order, which every
-    /// caller already assumes.
+    /// Serial FIFO queue for background writes. The write context serializes
+    /// write *execution*, but dispatching each write as an independent `Task`
+    /// carries no guarantee of reaching the context in submission order. A
+    /// "create record" write could therefore land after a follow-up "update
+    /// field" write that targets it, and the update would silently no-op (its
+    /// fetch finds no row). This broke pinned-split pairing: the
+    /// `splitPartnerGuid` set right after the two pinned rows were created
+    /// would sometimes apply before the rows existed, leaving the pair
+    /// unlinked and rendering as two cells once the live SplitGroup went away
+    /// (e.g. on close). Funnelling every write through this stream restores
+    /// submit-order == apply-order, which every caller already assumes.
     private var writeJobContinuation: AsyncStream<() async -> Void>.Continuation?
     private(set) var compatibilityStatus: LocalStoreCompatibilityStatus = .notChecked
 
-    @MainActor var mainContext: ModelContext? {
-        container?.mainContext
+    @MainActor var mainContext: NSManagedObjectContext? {
+        container?.viewContext
     }
-    
+
     init(
         account: Account,
         storeDirectoryURL: URL? = nil,
         presentsCompatibilityAlerts: Bool = true
     ) {
         self.account = account
-        
+
         let userDir = account.userDataStorage
         let storeURL = storeDirectoryURL ?? userDir.appendingPathComponent("localDB")
         userStorageURL = storeURL
         if storeDirectoryURL == nil {
             Self.migrateOldDatabaseIfNeeded(from: userDir, to: storeURL)
         }
-        
+
         try? FileManager.default.createDirectory(at: userStorageURL,
                                                  withIntermediateDirectories: true)
 
@@ -97,7 +79,7 @@ class LocalStore {
             AppLogError("[LocalStore] Failed to prepare local store compatibility state: \(error)")
             compatibilityStatus = .failed(error.localizedDescription)
             container = nil
-            writeActor = nil
+            writeContext = nil
             writeJobContinuation = nil
             return
         }
@@ -113,29 +95,44 @@ class LocalStore {
             )
             compatibilityStatus = .requiresNewerApp(issue)
             container = nil
-            writeActor = nil
+            writeContext = nil
             writeJobContinuation = nil
             if presentsCompatibilityAlerts {
                 Self.runRequiresNewerAppAlert()
             }
             return
         }
-        
-        let configuration = ModelConfiguration(url: userStorageURL.appendingPathComponent("LocalStore.sqlite"))
-        
+
+        let storeFileURL = userStorageURL.appendingPathComponent(Self.compatibilityConfiguration.storeFilename)
+
+        // Formats 1...9 are SwiftData stores: convert once before opening.
+        if openPlan.activeStoreFormatVersion < 10,
+           FileManager.default.fileExists(atPath: storeFileURL.path) {
+            do {
+                try LocalStoreLegacyImport.convertStore(
+                    at: userStorageURL,
+                    storeFilename: Self.compatibilityConfiguration.storeFilename
+                )
+            } catch {
+                AppLogError("[LocalStore] Failed to convert legacy store: \(error)")
+                compatibilityStatus = .failed(error.localizedDescription)
+                container = nil
+                writeContext = nil
+                writeJobContinuation = nil
+                return
+            }
+        }
+
         do {
-            let modelContainer = try ModelContainer(
-                for: TabDataModel.self,
-                ProfileModel.self,
-                SpaceModel.self,
-                SpaceURLRule.self,
-                BrowserDataSettingsModel.self,
-                migrationPlan: TabDataModelMigrationPlan.self,
-                configurations: configuration
-            )
-            container = modelContainer
-            let actor = LocalStoreActor(modelContainer: modelContainer)
-            writeActor = actor
+            let persistentContainer = try Self.makeContainer(storeFileURL: storeFileURL)
+            container = persistentContainer
+            let backgroundContext = persistentContainer.newBackgroundContext()
+            backgroundContext.mergePolicy = NSMergeByPropertyObjectTrumpMergePolicy
+            // The write context is long-lived; without merging it would keep
+            // serving rows from its first-load snapshot and miss edits saved
+            // on the main context (e.g. profile display-name upserts).
+            backgroundContext.automaticallyMergesChangesFromParent = true
+            writeContext = backgroundContext
             // Drain queued writes one at a time, in submission order. Buffering
             // is unbounded so no write is ever dropped, and yields made before
             // this consumer starts are replayed in order.
@@ -152,11 +149,27 @@ class LocalStore {
                 AppLogError("[LocalStore] Failed to record opened local store format: \(error)")
             }
         } catch {
-            AppLogError("Failed to create ModelContainer: \(error)")
+            AppLogError("Failed to create persistent container: \(error)")
             container = nil
-            writeActor = nil
+            writeContext = nil
             writeJobContinuation = nil
         }
+    }
+
+    static func makeContainer(storeFileURL: URL) throws -> NSPersistentContainer {
+        let container = NSPersistentContainer(name: "LocalStore", managedObjectModel: LocalStoreSchema.model)
+        let description = NSPersistentStoreDescription(url: storeFileURL)
+        description.type = NSSQLiteStoreType
+        description.shouldAddStoreAsynchronously = false
+        container.persistentStoreDescriptions = [description]
+        var loadError: Error?
+        container.loadPersistentStores { _, error in loadError = error }
+        if let loadError {
+            throw loadError
+        }
+        container.viewContext.automaticallyMergesChangesFromParent = true
+        container.viewContext.mergePolicy = NSMergeByPropertyObjectTrumpMergePolicy
+        return container
     }
 
     private static func runRequiresNewerAppAlert() {
@@ -180,39 +193,39 @@ extension LocalStore {
     private static func migrateOldDatabaseIfNeeded(from oldDir: URL, to newDir: URL) {
         let fileManager = FileManager.default
         let oldDBFile = oldDir.appendingPathComponent("LocalStore.sqlite")
-        
+
         guard fileManager.fileExists(atPath: oldDBFile.path) else {
             AppLogDebug("No old database found, skipping migration")
             return
         }
-        
+
         let newDBFile = newDir.appendingPathComponent("LocalStore.sqlite")
         if fileManager.fileExists(atPath: newDBFile.path) {
             AppLogDebug("New database already exists, skipping migration")
             return
         }
-        
+
         AppLogInfo("Migrating database from \(oldDir.path) to \(newDir.path)")
-        
+
         do {
             try fileManager.createDirectory(at: newDir, withIntermediateDirectories: true)
-            
+
             let filesToMigrate = [
                 "LocalStore.sqlite",
                 "LocalStore.sqlite-shm",
                 "LocalStore.sqlite-wal",
             ]
-            
+
             for fileName in filesToMigrate {
                 let oldFile = oldDir.appendingPathComponent(fileName)
                 let newFile = newDir.appendingPathComponent(fileName)
-                
+
                 if fileManager.fileExists(atPath: oldFile.path) {
                     try fileManager.moveItem(at: oldFile, to: newFile)
                     AppLogDebug("Migrated: \(fileName)")
                 }
             }
-            
+
             AppLogInfo("Database migration completed successfully")
         } catch {
             AppLogError("Failed to migrate database: \(error)")
@@ -225,7 +238,7 @@ extension LocalStore {
     func backupDatabase() -> URL? {
         let dbURL = userStorageURL.appendingPathComponent("LocalStore.sqlite")
         let backupURL = userStorageURL.appendingPathComponent("LocalStore_backup_\(Date().timeIntervalSince1970).sqlite")
-        
+
         do {
             try FileManager.default.copyItem(at: dbURL, to: backupURL)
             AppLogInfo("[LocalStore] Database backed up to: \(backupURL.path)")
@@ -262,50 +275,50 @@ extension LocalStore {
     func getAllTabs() -> [TabDataModel] {
         guard let context = mainContext else { return [] }
         do {
-            let sortBy: [SortDescriptor<TabDataModel>] = [SortDescriptor(\.index)]
-            let descriptor = FetchDescriptor<TabDataModel>(sortBy: sortBy)
-            return try context.fetch(descriptor)
+            let request = TabDataModel.request(sortBy: [NSSortDescriptor(key: "index", ascending: true)])
+            return try context.fetch(request)
         } catch {
             AppLogError("Failed to fetch tabs: \(error)")
             return []
         }
     }
-    
+
     @MainActor
     func getTab(by guid: String) -> TabDataModel? {
         guard let context = mainContext else { return nil }
         do {
-            let predicate = #Predicate<TabDataModel> { $0.guid == guid }
-            let descriptor = FetchDescriptor<TabDataModel>(predicate: predicate)
-            return try context.fetch(descriptor).first
+            let request = TabDataModel.request(NSPredicate(format: "guid == %@", guid))
+            return try context.fetch(request).first
         } catch {
             AppLogError("Failed to fetch tab with guid \(guid): \(error)")
             return nil
         }
     }
-    
+
     @MainActor
     func getTabs(by url: URL) -> [TabDataModel] {
         guard let context = mainContext else { return [] }
         do {
-            let predicate = #Predicate<TabDataModel> { $0.url == url }
-            let sortBy: [SortDescriptor<TabDataModel>] = [SortDescriptor(\.index)]
-            let descriptor = FetchDescriptor<TabDataModel>(predicate: predicate, sortBy: sortBy)
-            return try context.fetch(descriptor)
+            let request = TabDataModel.request(
+                NSPredicate(format: "url == %@", url as NSURL),
+                sortBy: [NSSortDescriptor(key: "index", ascending: true)]
+            )
+            return try context.fetch(request)
         } catch {
             AppLogError("Failed to fetch tabs with url \(url): \(error)")
             return []
         }
     }
-    
+
     @MainActor
     func getOpenTabs() -> [TabDataModel] {
         guard let context = mainContext else { return [] }
         do {
-            let predicate = #Predicate<TabDataModel> { $0.isOpenned == true }
-            let sortBy: [SortDescriptor<TabDataModel>] = [SortDescriptor(\.index)]
-            let descriptor = FetchDescriptor<TabDataModel>(predicate: predicate, sortBy: sortBy)
-            return try context.fetch(descriptor)
+            let request = TabDataModel.request(
+                NSPredicate(format: "isOpenned == YES"),
+                sortBy: [NSSortDescriptor(key: "index", ascending: true)]
+            )
+            return try context.fetch(request)
         } catch {
             AppLogError("Failed to fetch open tabs: \(error)")
             return []
@@ -315,9 +328,8 @@ extension LocalStore {
     func updateTabURL(_ guid: String, url: URL) {
         performBackgroundWrite { context in
             do {
-                let predicate = #Predicate<TabDataModel> { $0.guid == guid }
-                let descriptor = FetchDescriptor<TabDataModel>(predicate: predicate)
-                if let tab = try context.fetch(descriptor).first {
+                let request = TabDataModel.request(NSPredicate(format: "guid == %@", guid))
+                if let tab = try context.fetch(request).first {
                     tab.url = url
                     tab.needUpdateMetaData = true
                     tab.updatedDate = Date()
@@ -339,13 +351,12 @@ extension LocalStore {
         }
         updateTabURL(guid, url: url)
     }
-    
+
     func updateTabTitle(_ guid: String, title: String) {
         performBackgroundWrite { context in
             do {
-                let predicate = #Predicate<TabDataModel> { $0.guid == guid }
-                let descriptor = FetchDescriptor<TabDataModel>(predicate: predicate)
-                if let tab = try context.fetch(descriptor).first {
+                let request = TabDataModel.request(NSPredicate(format: "guid == %@", guid))
+                if let tab = try context.fetch(request).first {
                     tab.title = title
                     tab.updatedDate = Date()
                 }
@@ -357,13 +368,12 @@ extension LocalStore {
 
     /// Sets the persisted split-partner guid on a pinned tab record. Pass nil
     /// to clear it (called when a split is unpinned or one half is destroyed).
-    /// Writes happen on the background actor, same as the other tab updates.
+    /// Writes happen on the background context, same as the other tab updates.
     func updateTabSplitPartner(_ guid: String, partnerGuid: String?) {
         performBackgroundWrite { context in
             do {
-                let predicate = #Predicate<TabDataModel> { $0.guid == guid }
-                let descriptor = FetchDescriptor<TabDataModel>(predicate: predicate)
-                if let tab = try context.fetch(descriptor).first {
+                let request = TabDataModel.request(NSPredicate(format: "guid == %@", guid))
+                if let tab = try context.fetch(request).first {
                     let layoutAlreadyCleared = partnerGuid != nil || tab.layout == nil
                     if tab.splitPartnerGuid == partnerGuid, layoutAlreadyCleared {
                         return
@@ -388,13 +398,11 @@ extension LocalStore {
                                layout: String) {
         performBackgroundWrite { context in
             do {
-                let primaryPredicate = #Predicate<TabDataModel> { $0.guid == primaryGuid }
-                let secondaryPredicate = #Predicate<TabDataModel> { $0.guid == secondaryGuid }
                 guard let primary = try context.fetch(
-                    FetchDescriptor<TabDataModel>(predicate: primaryPredicate)
+                    TabDataModel.request(NSPredicate(format: "guid == %@", primaryGuid))
                 ).first,
                 let secondary = try context.fetch(
-                    FetchDescriptor<TabDataModel>(predicate: secondaryPredicate)
+                    TabDataModel.request(NSPredicate(format: "guid == %@", secondaryGuid))
                 ).first,
                 primary.dataType == .pinnedTab,
                 secondary.dataType == .pinnedTab else {
@@ -421,13 +429,11 @@ extension LocalStore {
                                  layout: String) {
         performBackgroundWrite { context in
             do {
-                let firstPredicate = #Predicate<TabDataModel> { $0.guid == firstGuid }
-                let secondPredicate = #Predicate<TabDataModel> { $0.guid == secondGuid }
                 guard let first = try context.fetch(
-                    FetchDescriptor<TabDataModel>(predicate: firstPredicate)
+                    TabDataModel.request(NSPredicate(format: "guid == %@", firstGuid))
                 ).first,
                 let second = try context.fetch(
-                    FetchDescriptor<TabDataModel>(predicate: secondPredicate)
+                    TabDataModel.request(NSPredicate(format: "guid == %@", secondGuid))
                 ).first,
                 first.dataType == .pinnedTab,
                 second.dataType == .pinnedTab else {
@@ -449,9 +455,8 @@ extension LocalStore {
     func updateLastSeen(_ guid: String, seenAt: Date = Date()) {
         performBackgroundWrite { context in
             do {
-                let predicate = #Predicate<TabDataModel> { $0.guid == guid }
-                let descriptor = FetchDescriptor<TabDataModel>(predicate: predicate)
-                guard let tab = try context.fetch(descriptor).first else {
+                let request = TabDataModel.request(NSPredicate(format: "guid == %@", guid))
+                guard let tab = try context.fetch(request).first else {
                     return
                 }
                 switch tab.dataType {
@@ -506,9 +511,8 @@ extension LocalStore {
                                   onlyIfMissing: Bool) {
         performBackgroundWrite { context in
             do {
-                let predicate = #Predicate<TabDataModel> { $0.guid == guid }
-                let descriptor = FetchDescriptor<TabDataModel>(predicate: predicate)
-                if let tab = try context.fetch(descriptor).first {
+                let request = TabDataModel.request(NSPredicate(format: "guid == %@", guid))
+                if let tab = try context.fetch(request).first {
                     if pinnedOnly, tab.dataType != .pinnedTab {
                         return
                     }
@@ -536,9 +540,8 @@ extension LocalStore {
     func updateTabIcon(_ guid: String, icon: String) {
         performBackgroundWrite { context in
             do {
-                let predicate = #Predicate<TabDataModel> { $0.guid == guid }
-                let descriptor = FetchDescriptor<TabDataModel>(predicate: predicate)
-                if let tab = try context.fetch(descriptor).first {
+                let request = TabDataModel.request(NSPredicate(format: "guid == %@", guid))
+                if let tab = try context.fetch(request).first {
                     guard tab.icon != icon else { return }
                     tab.icon = icon
                     tab.updatedDate = Date()
@@ -548,14 +551,13 @@ extension LocalStore {
             }
         }
     }
-    
+
     func deleteTab(_ tab: TabDataModel) {
         let guid = tab.guid
         performBackgroundWrite { context in
             do {
-                let predicate = #Predicate<TabDataModel> { $0.guid == guid }
-                let descriptor = FetchDescriptor<TabDataModel>(predicate: predicate)
-                if let tabToDelete = try context.fetch(descriptor).first {
+                let request = TabDataModel.request(NSPredicate(format: "guid == %@", guid))
+                if let tabToDelete = try context.fetch(request).first {
                     context.delete(tabToDelete)
                 }
             } catch {
@@ -563,13 +565,12 @@ extension LocalStore {
             }
         }
     }
-    
+
     func deleteTab(by guid: String) {
         performBackgroundWrite { context in
             do {
-                let predicate = #Predicate<TabDataModel> { $0.guid == guid }
-                let descriptor = FetchDescriptor<TabDataModel>(predicate: predicate)
-                if let tab = try context.fetch(descriptor).first {
+                let request = TabDataModel.request(NSPredicate(format: "guid == %@", guid))
+                if let tab = try context.fetch(request).first {
                     context.delete(tab)
                 }
             } catch {
@@ -577,7 +578,7 @@ extension LocalStore {
             }
         }
     }
-    
+
     @MainActor
     private func saveMainContext() {
         guard let context = mainContext else { return }
@@ -587,36 +588,61 @@ extension LocalStore {
             AppLogError("[LocalStore] Failed to save main context: \(error)")
         }
     }
-    
-    func performBackgroundWrite(_ block: @escaping (ModelContext) -> Void) {
-        guard let writeActor, let writeJobContinuation else { return }
+
+    func performBackgroundWrite(_ block: @escaping (NSManagedObjectContext) -> Void) {
+        guard let writeContext, let writeJobContinuation else { return }
         writeJobContinuation.yield {
-            await writeActor.perform(block)
+            await writeContext.perform {
+                block(writeContext)
+                do {
+                    try writeContext.save()
+                } catch {
+                    AppLogError("[LocalStore] save error: \(error)")
+                    writeContext.rollback()
+                }
+            }
         }
     }
 
-    func performBackgroundWriteAndWait(_ block: @escaping (ModelContext) -> Void) async {
-        guard let writeActor, let writeJobContinuation else { return }
+    func performBackgroundWriteAndWait(_ block: @escaping (NSManagedObjectContext) -> Void) async {
+        guard let writeContext, let writeJobContinuation else { return }
         // Enqueue through the same FIFO stream so ordering relative to async
         // writes is preserved, then await this job's completion.
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
             writeJobContinuation.yield {
-                await writeActor.perform(block)
+                await writeContext.perform {
+                    block(writeContext)
+                    do {
+                        try writeContext.save()
+                    } catch {
+                        AppLogError("[LocalStore] save error: \(error)")
+                        writeContext.rollback()
+                    }
+                }
                 continuation.resume()
             }
         }
     }
 
     func performBackgroundWriteAndWaitThrowing<Result: Sendable>(
-        _ block: @escaping (ModelContext) throws -> Result
+        _ block: @escaping (NSManagedObjectContext) throws -> Result
     ) async throws -> Result {
-        guard let writeActor, let writeJobContinuation else {
+        guard let writeContext, let writeJobContinuation else {
             throw LocalStoreWriteError.storeUnavailable
         }
         return try await withCheckedThrowingContinuation { continuation in
             writeJobContinuation.yield {
                 do {
-                    let result = try await writeActor.performThrowing(block)
+                    let result = try await writeContext.perform {
+                        do {
+                            let result = try block(writeContext)
+                            try writeContext.save()
+                            return result
+                        } catch {
+                            writeContext.rollback()
+                            throw error
+                        }
+                    }
                     continuation.resume(returning: result)
                 } catch {
                     continuation.resume(throwing: error)
@@ -633,9 +659,9 @@ extension LocalStore {
     /// release. Existing queued writes still run before the final operation.
     @MainActor
     func performFinalBackgroundOperationAndClose<Result: Sendable>(
-        _ block: @escaping (ModelContext) throws -> Result
+        _ block: @escaping (NSManagedObjectContext) throws -> Result
     ) async throws -> Result {
-        guard let writeActor, let continuation = writeJobContinuation else {
+        guard let writeContext, let continuation = writeJobContinuation else {
             throw LocalStoreWriteError.storeUnavailable
         }
 
@@ -646,7 +672,16 @@ extension LocalStore {
                 (resultContinuation: CheckedContinuation<Result, Error>) in
                 continuation.yield {
                     do {
-                        let value = try await writeActor.performThrowing(block)
+                        let value = try await writeContext.perform {
+                            do {
+                                let value = try block(writeContext)
+                                try writeContext.save()
+                                return value
+                            } catch {
+                                writeContext.rollback()
+                                throw error
+                            }
+                        }
                         resultContinuation.resume(returning: value)
                     } catch {
                         resultContinuation.resume(throwing: error)
@@ -663,7 +698,7 @@ extension LocalStore {
         return result
     }
 
-    /// Drains all submitted writes and releases the SwiftData container before
+    /// Drains all submitted writes and releases the backing container before
     /// a verified account migration removes this store's directory.
     ///
     /// This is intentionally a terminal operation. Callers must freeze every
@@ -671,7 +706,7 @@ extension LocalStore {
     /// restoring interaction.
     @MainActor
     func closeForAccountDirectoryRemoval() async throws {
-        guard writeActor != nil else { return }
+        guard writeContext != nil else { return }
         _ = try await performFinalBackgroundOperationAndClose { _ in () }
     }
 
@@ -681,19 +716,19 @@ extension LocalStore {
             continuation.finish()
         }
         writeJobContinuation = nil
-        writeActor = nil
+        writeContext = nil
         cancellable?.cancel()
         cancellable = nil
         container = nil
         isClosedForAccountDirectoryRemoval = true
     }
-    
+
     // Exposes the main context for UI-bound consumers.
     @MainActor
-    func getMainContext() -> ModelContext? {
+    func getMainContext() -> NSManagedObjectContext? {
         return mainContext
     }
-    
+
     /// Checks whether a `NSManagedObjectContextDidSave` notification contains
     /// any inserted/updated/deleted object satisfying `predicate`.
     static func notificationContainsChanges(
@@ -858,13 +893,12 @@ extension LocalStore {
             }
         }
     }
-    
+
     func deleteTab(_ localGuid: String) {
         performBackgroundWrite { context in
             do {
-                let predicate = #Predicate<TabDataModel> { $0.guid == localGuid }
-                let descriptor = FetchDescriptor<TabDataModel>(predicate: predicate)
-                let results = try context.fetch(descriptor)
+                let request = TabDataModel.request(NSPredicate(format: "guid == %@", localGuid))
+                let results = try context.fetch(request)
                 results.forEach { model in
                     context.delete(model)
                 }
@@ -873,7 +907,7 @@ extension LocalStore {
             }
         }
     }
-    
+
     /// Creates a pinned-tab record directly from a URL — the headless
     /// counterpart of `moveOrCreatePinnedTab`, which needs a live `Tab`.
     /// The record lands at `index` (clamped; appended when nil) in the active
@@ -910,6 +944,7 @@ extension LocalStore {
                 )
                 let now = Date()
                 let model = TabDataModel(
+                    insertInto: context,
                     title: title,
                     guid: guid,
                     index: 0,
@@ -927,7 +962,6 @@ extension LocalStore {
                     to: model,
                     in: context
                 )
-                context.insert(model)
                 let insertIndex = min(max(index ?? pinnedTabs.count, 0), pinnedTabs.count)
                 pinnedTabs.insert(model, at: insertIndex)
                 for (position, tabModel) in pinnedTabs.enumerated() {
@@ -980,7 +1014,7 @@ extension LocalStore {
                 } else {
                     resolvedAfterGuid = nil
                 }
-                
+
                 var tabToMove: TabDataModel
                 let now = Date()
                 if let resolvedTabGuid,
@@ -995,8 +1029,9 @@ extension LocalStore {
                         AppLogWarn("[LocalStore] Invalid URL for new tab: \(tabURL ?? "nil")")
                         return
                     }
-                    
+
                     tabToMove = TabDataModel(
+                        insertInto: context,
                         title: tabTitle,
                         guid: newGuid ?? UUID().uuidString,
                         index: 0,
@@ -1008,7 +1043,6 @@ extension LocalStore {
                     tabToMove.dataType = .pinnedTab
                     tabToMove.isCreatedByChromium = false
                     tabToMove.pinLineageId = tabLineageId ?? tabToMove.guid
-                    context.insert(tabToMove)
                     AppLogInfo("[LocalStore] Created new pinned tab with guid: \(tabGuid)")
                 }
 
@@ -1021,7 +1055,7 @@ extension LocalStore {
                     to: tabToMove,
                     in: context
                 )
-                
+
                 let insertIndex: Int
                 if let resolvedAfterGuid {
                     if let afterIndex = pinnedTabs.firstIndex(where: { $0.guid == resolvedAfterGuid }) {
@@ -1033,33 +1067,29 @@ extension LocalStore {
                 } else {
                     insertIndex = 0
                 }
-                
+
                 pinnedTabs.insert(tabToMove, at: insertIndex)
-                
+
                 for (index, tabModel) in pinnedTabs.enumerated() {
                     tabModel.index = index
                     tabModel.updatedDate = now
                 }
-                
+
             } catch {
                 AppLogError("[LocalStore] Failed to move tab: \(error)")
             }
         }
     }
 
-    func profile(with profileId: String, in context: ModelContext, createIfNeeded: Bool) throws -> ProfileModel? {
-        let descriptor = FetchDescriptor<ProfileModel>(
-            predicate: #Predicate<ProfileModel> { $0.profileId == profileId }
-        )
-        let profiles: [ProfileModel] = try context.fetch(descriptor)
+    func profile(with profileId: String, in context: NSManagedObjectContext, createIfNeeded: Bool) throws -> ProfileModel? {
+        let request = ProfileModel.request(NSPredicate(format: "profileId == %@", profileId))
+        let profiles: [ProfileModel] = try context.fetch(request)
         if let existingProfile = profiles.first {
             return existingProfile
         }
         guard createIfNeeded else {
             return nil
         }
-        let profile = ProfileModel(profileId: profileId)
-        context.insert(profile)
-        return profile
+        return ProfileModel(insertInto: context, profileId: profileId)
     }
 }

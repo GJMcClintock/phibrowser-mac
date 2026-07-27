@@ -7,7 +7,7 @@ import SwiftUI
 import PostHog
 
 struct AISettingView: View {
-    @State private var connectorViewModel: AISettingsConnectorViewModel
+    @ObservedObject private var connectorViewModel: AISettingsConnectorViewModel
     @State private var showDisableAIAlert = false
     @State private var isGuest = ApplicationState.shared.isGuest
 
@@ -15,7 +15,7 @@ struct AISettingView: View {
     private var phiAIEnabled: Bool = PhiPreferences.AISettings.phiAIEnabled.defaultValue
 
     init(connectorViewModel: AISettingsConnectorViewModel) {
-        _connectorViewModel = State(initialValue: connectorViewModel)
+        _connectorViewModel = ObservedObject(initialValue: connectorViewModel)
     }
 
     private var aiFeaturesAvailable: Bool {
@@ -74,7 +74,7 @@ struct AISettingView: View {
         }
         .themedBackground(PhiPreferences.fixedWindowBackground)
         .frame(width: 680, height: 561)
-        .onChange(of: phiAIEnabled) { oldValue, newValue in
+        .onChange(of: phiAIEnabled) { newValue in
             guard PhiBuildCapabilities.supportsAI else {
                 if newValue {
                     phiAIEnabled = false
@@ -268,7 +268,7 @@ private struct PhiSentinelSectionView: View {
                 )
             }
         }
-        .onChange(of: launchSentinelOnLogin) {
+        .onChange(of: launchSentinelOnLogin) { _ in
             notifyNativeSettingsChanged()
         }
     }
@@ -298,7 +298,7 @@ private struct NewTabPageSectionView: View {
                 )
             }
         }
-        .onChange(of: enableProactiveSuggestionsOnNTP) {
+        .onChange(of: enableProactiveSuggestionsOnNTP) { _ in
             notifyNativeSettingsChanged()
         }
     }
@@ -324,7 +324,7 @@ private struct AISidebarSectionView: View {
                 )
             }
         }
-        .onChange(of: enableChatWithTabs) {
+        .onChange(of: enableChatWithTabs) { _ in
             notifyNativeSettingsChanged()
         }
     }
@@ -341,7 +341,7 @@ private struct ExternalConnectorsSectionView: View {
 
     @State private var showDisableConnectorsAlert = false
 
-    let connectorViewModel: AISettingsConnectorViewModel
+    @ObservedObject var connectorViewModel: AISettingsConnectorViewModel
     let enabled: Bool
 
     private var subItemsEnabled: Bool { enabled && enableConnectors }
@@ -399,16 +399,16 @@ private struct ExternalConnectorsSectionView: View {
             profileManager.refresh()
             prepareConnectorProfileSelection()
         }
-        .onChange(of: profileManager.userAssignableProfiles.map(\.profileId)) {
+        .onChange(of: profileManager.userAssignableProfiles.map(\.profileId)) { _ in
             prepareConnectorProfileSelection()
         }
-        .onChange(of: enableConnectors) {
+        .onChange(of: enableConnectors) { _ in
             notifyNativeSettingsChanged()
             if !enableConnectors {
                 connectorViewModel.disconnectAll()
             }
         }
-        .onChange(of: enableConnectorContext) {
+        .onChange(of: enableConnectorContext) { _ in
             notifyNativeSettingsChanged()
         }
         .alert(
@@ -484,7 +484,7 @@ private struct ConnectorProfileSelectorView: View {
 }
 
 private struct ConnectorsListView: View {
-    let connectorViewModel: AISettingsConnectorViewModel
+    @ObservedObject var connectorViewModel: AISettingsConnectorViewModel
     let enabled: Bool
 
     var body: some View {
@@ -522,7 +522,7 @@ private struct ConnectorsListView: View {
 // MARK: - Connector Row
 
 private struct ConnectorRowView: View {
-    let connector: ConnectorItemState
+    @ObservedObject var connector: ConnectorItemState
     let enabled: Bool
     let action: () -> Void
     let refreshAction: () -> Void

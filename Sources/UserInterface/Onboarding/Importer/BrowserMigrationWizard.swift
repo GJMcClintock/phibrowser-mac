@@ -1440,7 +1440,7 @@ struct BrowserMigrationWizardView: View {
             // A run with more units than fit is exactly the one whose unit in
             // flight must not be left off screen. With every unit in view there
             // is no scroll view for the proxy to find, and it does nothing.
-            .onChange(of: progress.unitIndex) { _, index in
+            .onChange(of: progress.unitIndex) { index in
                 withAnimation { proxy.scrollTo(index, anchor: .center) }
             }
             .onAppear { proxy.scrollTo(progress.unitIndex, anchor: .center) }

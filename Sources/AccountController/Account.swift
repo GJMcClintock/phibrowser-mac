@@ -86,7 +86,7 @@ class Account {
     }
     
     var userDataStorage: URL {
-        let phiDataSupportURL = URL(filePath:  FileSystemUtils.phiBrowserDataDirectory())
+        let phiDataSupportURL = URL(fileURLWithPath: FileSystemUtils.phiBrowserDataDirectory())
         return phiDataSupportURL
             .appendingPathComponent("users")
             .appendingPathComponent(userID)

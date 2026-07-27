@@ -352,6 +352,9 @@ private struct AppearanceSectionView: View {
 
 private struct LanguageSectionView: View {
     @State private var selection = PhiPreferences.GeneralSettings.loadAppLanguagePreference()
+    /// Previous value of `selection`. The two-parameter `onChange` that hands
+    /// both values to the closure is macOS 14+, so track the old one here.
+    @State private var previousSelection = PhiPreferences.GeneralSettings.loadAppLanguagePreference()
     @State private var repairedStoredLanguage = false
     @State private var hasPreparedStoredLanguage = false
 
@@ -440,7 +443,9 @@ private struct LanguageSectionView: View {
                 SentinelLanguagePreferenceSync.publish(selection)
             }
         }
-        .onChange(of: selection) { oldValue, newValue in
+        .onChange(of: selection) { newValue in
+            let oldValue = previousSelection
+            previousSelection = newValue
             guard oldValue != newValue else { return }
             PostHogSDK.shared.capture(
                 "language_changed",
@@ -636,7 +641,7 @@ private struct BrowsingSectionView: View {
                     }
                     .padding(.vertical, 12)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .onChange(of: restoreLastSessionEnabled) { _, newValue in
+                    .onChange(of: restoreLastSessionEnabled) { newValue in
                         SessionRestorePreference.isEnabled = newValue
                     }
 
@@ -766,7 +771,7 @@ private struct DeveloperModeSectionView: View {
                 hintRow
             }
         }
-        .onChange(of: developerModeEnabled) { _, newValue in
+        .onChange(of: developerModeEnabled) { newValue in
             // Deferred: applying the change rebuilds the settings window,
             // which closes the window hosting this very view — that must not
             // happen mid view-update.

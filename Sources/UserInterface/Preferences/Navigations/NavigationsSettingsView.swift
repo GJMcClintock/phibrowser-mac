@@ -219,7 +219,7 @@ private struct NavigationsSettingsToggleRow: View {
         }
         .padding(.vertical, 12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .onChange(of: isOn) { _, newValue in
+        .onChange(of: isOn) { newValue in
             onChange(newValue)
         }
     }

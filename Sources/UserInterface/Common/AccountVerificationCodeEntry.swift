@@ -61,15 +61,15 @@ struct AccountVerificationCodeEntry: View {
         }
         .disabled(isDisabled)
         .opacity(isDisabled ? 0.5 : 1)
-        .defaultFocus($isFocused, true)
+        .compatDefaultFocus($isFocused)
         .onAppear {
             DispatchQueue.main.async { isFocused = true }
         }
-        .onChange(of: code) { _, newValue in
+        .onChange(of: code) { newValue in
             let sanitized = AccountVerificationCodeInput.sanitized(newValue)
             if sanitized != newValue { code = sanitized }
         }
-        .onChange(of: isDisabled) { _, disabled in
+        .onChange(of: isDisabled) { disabled in
             if !disabled { isFocused = true }
         }
     }
@@ -106,5 +106,18 @@ struct AccountVerificationCodeEntry: View {
 
     private var activeBorder: Color {
         ThemedColor.themeColor.swiftUIColor(theme: theme, appearance: appearance)
+    }
+}
+
+private extension View {
+    /// `defaultFocus` requires macOS 13; macOS 12 relies on the `.onAppear`
+    /// focus nudge below the call site, which runs on every version anyway.
+    @ViewBuilder
+    func compatDefaultFocus(_ binding: FocusState<Bool>.Binding) -> some View {
+        if #available(macOS 13.0, *) {
+            self.defaultFocus(binding, true)
+        } else {
+            self
+        }
     }
 }

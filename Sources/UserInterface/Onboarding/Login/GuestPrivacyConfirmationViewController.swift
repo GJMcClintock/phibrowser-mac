@@ -134,7 +134,7 @@ struct GuestPrivacyGuideView: View {
                     alignment: .center
                 )
             }
-            .scrollBounceBehavior(.basedOnSize)
+            .compatScrollBounceBasedOnSize()
         }
     }
 }
@@ -337,4 +337,17 @@ final class GuestPrivacyConfirmationViewController: OnboardingBaseViewController
         nextButton.alphaValue = isEnabled ? 1 : 0.5
     }
 
+}
+
+private extension View {
+    /// `scrollBounceBehavior` requires macOS 13.3; earlier systems keep the
+    /// default bounce.
+    @ViewBuilder
+    func compatScrollBounceBasedOnSize() -> some View {
+        if #available(macOS 13.3, *) {
+            self.scrollBounceBehavior(.basedOnSize)
+        } else {
+            self
+        }
+    }
 }

@@ -122,8 +122,20 @@ enum NextStepLinkGradient {
 
 struct NextStepConsentState {
     // UN M49 region code for geographic Europe.
+    @available(macOS 13.0, *)
     private static let geographicEuropeRegion = Locale.Region("150")
+    @available(macOS 13.0, *)
     private static let europeanUnionRegions = Set(Locale.Region("EU").subRegions)
+
+    // `Locale.Region` requires macOS 13, so macOS 12 checks the ISO code
+    // against a fixed union of geographic-Europe and EU member codes.
+    private static let europeanPrivacyRegionCodes: Set<String> = [
+        "AD", "AL", "AT", "AX", "BA", "BE", "BG", "BY", "CH", "CY", "CZ",
+        "DE", "DK", "EE", "ES", "FI", "FO", "FR", "GB", "GG", "GI", "GR",
+        "HR", "HU", "IE", "IM", "IS", "IT", "JE", "LI", "LT", "LU", "LV",
+        "MC", "MD", "ME", "MK", "MT", "NL", "NO", "PL", "PT", "RO", "RS",
+        "RU", "SE", "SI", "SJ", "SK", "SM", "UA", "VA", "XK",
+    ]
 
     var hasAcceptedLegalTerms = false
     var sharesUsageMetrics: Bool
@@ -133,15 +145,23 @@ struct NextStepConsentState {
     }
 
     init(locale: Locale = .current) {
-        guard let region = locale.region else {
-            sharesUsageMetrics = false
-            return
-        }
+        if #available(macOS 13.0, *) {
+            guard let region = locale.region else {
+                sharesUsageMetrics = false
+                return
+            }
 
-        let isEuropeanPrivacyRegion =
-            region.continent == Self.geographicEuropeRegion ||
-            Self.europeanUnionRegions.contains(region)
-        sharesUsageMetrics = !isEuropeanPrivacyRegion
+            let isEuropeanPrivacyRegion =
+                region.continent == Self.geographicEuropeRegion ||
+                Self.europeanUnionRegions.contains(region)
+            sharesUsageMetrics = !isEuropeanPrivacyRegion
+        } else {
+            guard let code = locale.regionCode?.uppercased() else {
+                sharesUsageMetrics = false
+                return
+            }
+            sharesUsageMetrics = !Self.europeanPrivacyRegionCodes.contains(code)
+        }
     }
 
     var canBegin: Bool {
@@ -435,7 +455,7 @@ struct NextStepGuideView: View {
                     }
             }
             .coordinateSpace(name: Self.scrollCoordinateSpaceName)
-            .scrollBounceBehavior(.basedOnSize)
+            .compatScrollBounceBasedOnSize()
             .onPreferenceChange(NextStepGuideOverflowPreferenceKey.self) { newValue in
                 if showsOverflowIndicator != newValue {
                     showsOverflowIndicator = newValue
@@ -771,5 +791,18 @@ private extension NSAttributedString {
             stop.pointee = true
         }
         return containsLink
+    }
+}
+
+private extension View {
+    /// `scrollBounceBehavior` requires macOS 13.3; earlier systems keep the
+    /// default bounce.
+    @ViewBuilder
+    func compatScrollBounceBasedOnSize() -> some View {
+        if #available(macOS 13.3, *) {
+            self.scrollBounceBehavior(.basedOnSize)
+        } else {
+            self
+        }
     }
 }

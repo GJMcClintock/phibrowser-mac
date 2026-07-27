@@ -92,6 +92,9 @@ struct AccountDataExportFlowView: View {
     let retry: () -> Void
 
     @State private var code = ""
+    // The macOS-14 two-parameter `onChange` isn't available at this
+    // deployment target, so the previous state is tracked by hand.
+    @State private var lastObservedState: AccountDataExportCoordinator.State = .idle
     @Environment(\.phiAppearance) private var appearance
 
     private static let contentHeight: CGFloat = 144
@@ -119,7 +122,12 @@ struct AccountDataExportFlowView: View {
         } actions: {
             stateActions
         }
-        .onChange(of: viewState.state) { oldState, newState in
+        .onAppear {
+            lastObservedState = viewState.state
+        }
+        .onChange(of: viewState.state) { newState in
+            let oldState = lastObservedState
+            lastObservedState = newState
             if case .verifyingCode = oldState,
                case .awaitingVerificationCode(_, _, let error) = newState,
                error != nil {

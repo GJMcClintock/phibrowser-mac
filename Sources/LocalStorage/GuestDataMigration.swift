@@ -4,7 +4,7 @@
 // found in the LICENSE file.
 
 import Foundation
-import SwiftData
+import CoreData
 
 // MARK: - Pure-value migration records
 
@@ -1126,19 +1126,19 @@ extension LocalStore {
     }
 
     private static func makeGuestDataMigrationSnapshot(
-        in context: ModelContext,
+        in context: NSManagedObjectContext,
         sourceUserID: String,
         themes: GuestDataMigrationThemeSnapshot
     ) throws -> GuestDataMigrationSnapshot {
-            let storedProfiles = try context.fetch(FetchDescriptor<ProfileModel>())
-            let storedSpaces = try context.fetch(FetchDescriptor<SpaceModel>())
-            let allModels = try context.fetch(FetchDescriptor<TabDataModel>())
-            let allRules = try context.fetch(FetchDescriptor<SpaceURLRule>())
+            let storedProfiles = try context.fetch(ProfileModel.request())
+            let storedSpaces = try context.fetch(SpaceModel.request())
+            let allModels = try context.fetch(TabDataModel.request())
+            let allRules = try context.fetch(SpaceURLRule.request())
 
             let settingsID = BrowserDataSettingsModel.singletonId
             let settings = try context.fetch(
-                FetchDescriptor<BrowserDataSettingsModel>(
-                    predicate: #Predicate { $0.id == settingsID }
+                BrowserDataSettingsModel.request(
+                    NSPredicate(format: "id == %@", settingsID)
                 )
             ).first
             let sourceScope = PinnedTabScope(
@@ -1337,14 +1337,14 @@ extension LocalStore {
         operationID: UUID
     ) async throws -> GuestDataMigrationIdentifierMappings {
         try await performBackgroundWriteAndWaitThrowing { context in
-            let targetProfiles = try context.fetch(FetchDescriptor<ProfileModel>())
-            let targetSpaces = try context.fetch(FetchDescriptor<SpaceModel>())
-            let targetModels = try context.fetch(FetchDescriptor<TabDataModel>())
-            let targetRules = try context.fetch(FetchDescriptor<SpaceURLRule>())
+            let targetProfiles = try context.fetch(ProfileModel.request())
+            let targetSpaces = try context.fetch(SpaceModel.request())
+            let targetModels = try context.fetch(TabDataModel.request())
+            let targetRules = try context.fetch(SpaceURLRule.request())
             let settingsID = BrowserDataSettingsModel.singletonId
             let settings = try context.fetch(
-                FetchDescriptor<BrowserDataSettingsModel>(
-                    predicate: #Predicate { $0.id == settingsID }
+                BrowserDataSettingsModel.request(
+                    NSPredicate(format: "id == %@", settingsID)
                 )
             ).first
             let targetScope = PinnedTabScope(
@@ -1655,7 +1655,7 @@ extension LocalStore {
             )
             var targetProfilesByID = Dictionary(
                 uniqueKeysWithValues: try context.fetch(
-                    FetchDescriptor<ProfileModel>()
+                    ProfileModel.request()
                 ).map { ($0.profileId, $0) }
             )
             for profileID in mappings.insertedProfileIDs {
@@ -1677,7 +1677,7 @@ extension LocalStore {
             }
 
             let existingTargetSpaces = try context.fetch(
-                FetchDescriptor<SpaceModel>()
+                SpaceModel.request()
             )
             var targetSpacesByID = Dictionary(
                 uniqueKeysWithValues: existingTargetSpaces.map {
@@ -1733,7 +1733,7 @@ extension LocalStore {
                 targetSpacesByID[targetSpaceID] = space
             }
 
-            let existingModels = try context.fetch(FetchDescriptor<TabDataModel>())
+            let existingModels = try context.fetch(TabDataModel.request())
             let existingGUIDs = Set(existingModels.map(\.guid))
             let expectedNewGUIDs = Set(mappings.bookmarkGUIDs.values)
                 .union(mappings.defaultImportFolderGUID.map { [$0] } ?? [])
@@ -1769,10 +1769,8 @@ extension LocalStore {
                 }
                 let rootGUID = root.guid
                 let existingChildren = try context.fetch(
-                    FetchDescriptor<TabDataModel>(
-                        predicate: #Predicate {
-                            $0.parent?.guid == rootGUID
-                        }
+                    TabDataModel.request(
+                        NSPredicate(format: "parent.guid == %@", rootGUID)
                     )
                 )
                 let folder = TabDataModel(
@@ -1962,7 +1960,7 @@ extension LocalStore {
         }
 
         try await performBackgroundWriteAndWaitThrowing { context in
-            let profiles = try context.fetch(FetchDescriptor<ProfileModel>())
+            let profiles = try context.fetch(ProfileModel.request())
             let profileIDs = Set(profiles.map(\.profileId))
             let missingProfiles = Set(receipt.mappings.profileIDs.values)
                 .subtracting(profileIDs)
@@ -1972,7 +1970,7 @@ extension LocalStore {
                 )
             }
 
-            let spaces = try context.fetch(FetchDescriptor<SpaceModel>())
+            let spaces = try context.fetch(SpaceModel.request())
             let spacesByID = Dictionary(
                 uniqueKeysWithValues: spaces.map { ($0.spaceId, $0) }
             )
@@ -1986,7 +1984,7 @@ extension LocalStore {
                 }
             }
 
-            let models = try context.fetch(FetchDescriptor<TabDataModel>())
+            let models = try context.fetch(TabDataModel.request())
             let modelsByGUID = Dictionary(
                 models.map { ($0.guid, $0) },
                 uniquingKeysWith: { first, _ in first }
@@ -2092,7 +2090,7 @@ extension LocalStore {
                 }
             }
 
-            let rules = try context.fetch(FetchDescriptor<SpaceURLRule>())
+            let rules = try context.fetch(SpaceURLRule.request())
             let rulesByID = Dictionary(
                 uniqueKeysWithValues: rules.map { ($0.id, $0) }
             )
@@ -2541,12 +2539,12 @@ private extension LocalStore {
 
     static func guestImportPresence(
         mappings: GuestDataMigrationIdentifierMappings,
-        in context: ModelContext
+        in context: NSManagedObjectContext
     ) throws -> GuestDataMigrationTargetImportPresence {
         var expected: [(String, Bool)] = []
 
         let profiles = Set(
-            try context.fetch(FetchDescriptor<ProfileModel>()).map(\.profileId)
+            try context.fetch(ProfileModel.request()).map(\.profileId)
         )
         expected.append(
             contentsOf: mappings.insertedProfileIDs.map {
@@ -2555,7 +2553,7 @@ private extension LocalStore {
         )
 
         let spaces = Set(
-            try context.fetch(FetchDescriptor<SpaceModel>()).map(\.spaceId)
+            try context.fetch(SpaceModel.request()).map(\.spaceId)
         )
         expected.append(
             contentsOf: mappings.insertedSpaceIDs.map {
@@ -2564,7 +2562,7 @@ private extension LocalStore {
         )
 
         let modelGUIDs = Set(
-            try context.fetch(FetchDescriptor<TabDataModel>()).map(\.guid)
+            try context.fetch(TabDataModel.request()).map(\.guid)
         )
         let expectedModelGUIDs = Set(mappings.bookmarkGUIDs.values)
             .union(mappings.defaultImportFolderGUID.map { [$0] } ?? [])
@@ -2580,7 +2578,7 @@ private extension LocalStore {
         )
 
         let ruleIDs = Set(
-            try context.fetch(FetchDescriptor<SpaceURLRule>()).map(\.id)
+            try context.fetch(SpaceURLRule.request()).map(\.id)
         )
         expected.append(
             contentsOf: mappings.urlRuleTargets.map {

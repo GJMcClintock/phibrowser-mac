@@ -92,7 +92,7 @@ struct IconPicker: View {
         // Follow selection changes made from outside (switching Spaces in the
         // settings pane): land on the tab holding the new selection, whose grid
         // then reveals it on appear.
-        .onChange(of: selected) { _, newSelection in
+        .onChange(of: selected) { newSelection in
             guard let newSelection else { return }
             selectedTab = newSelection.isEmoji ? .emoji : .icon
         }
@@ -189,7 +189,7 @@ struct IconPicker: View {
             .onAppear {
                 revealSelectedIcon(selected, using: proxy)
             }
-            .onChange(of: selected) { _, newSelection in
+            .onChange(of: selected) { newSelection in
                 handleSelectionChange(newSelection) {
                     revealSelectedIcon(newSelection, using: proxy)
                 }
@@ -238,7 +238,7 @@ struct IconPicker: View {
             .onAppear {
                 revealSelectedEmoji(selected, in: layout, using: proxy)
             }
-            .onChange(of: selected) { _, newSelection in
+            .onChange(of: selected) { newSelection in
                 handleSelectionChange(newSelection) {
                     revealSelectedEmoji(newSelection, in: layout, using: proxy)
                 }

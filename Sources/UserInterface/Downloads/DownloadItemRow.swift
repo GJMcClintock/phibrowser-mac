@@ -423,7 +423,7 @@ struct DownloadFileIconView: View {
                         .allowsHitTesting(false)
                 }
             }
-            .onChange(of: openAnimationTrigger) { _, _ in
+            .onChange(of: openAnimationTrigger) { _ in
                 playOpenAnimation()
             }
     }
@@ -497,7 +497,7 @@ struct DownloadActionButton: View {
                     icon
                 } else if let iconName {
                     Image(systemName: iconName)
-                        .contentTransition(.symbolEffect(.replace, options: .speed(3)))
+                        .symbolReplaceTransition()
                         .font(.system(size: 12, weight: .medium))
                         .themedTint(.textPrimary)
                 }
@@ -676,3 +676,16 @@ enum PreviewDownloadItem {
     }
 }
 #endif
+
+private extension View {
+    /// `ContentTransition.symbolEffect` requires macOS 14; older systems swap
+    /// the symbol with no transition.
+    @ViewBuilder
+    func symbolReplaceTransition() -> some View {
+        if #available(macOS 14.0, *) {
+            self.contentTransition(.symbolEffect(.replace, options: .speed(3)))
+        } else {
+            self
+        }
+    }
+}

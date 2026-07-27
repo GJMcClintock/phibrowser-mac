@@ -11,6 +11,7 @@ import SwiftData
 ///   first, while the field remains available to other tab kinds later.
 /// - V10 stores the optional split layout for split bookmarks and pinned
 ///   split rows so stacked arrangements survive closing and reopening.
+@available(macOS 14, *)
 enum TabDataModelSchemaV10: VersionedSchema {
     static var versionIdentifier = Schema.Version(10, 0, 0)
 

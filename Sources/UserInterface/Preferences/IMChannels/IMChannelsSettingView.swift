@@ -8,7 +8,7 @@ import SwiftUI
 import CoreImage.CIFilterBuiltins
 
 struct PhiLinkSettingsSectionView: View {
-    @State private var vm = IMChannelsViewModel()
+    @StateObject private var vm = IMChannelsViewModel()
     @State private var isGuest = ApplicationState.shared.isGuest
     let enabled: Bool
 
@@ -95,7 +95,7 @@ private struct IMSectionHeader: View {
 // MARK: - Telegram Platform Section
 
 private struct TelegramChannelsSection: View {
-    @Bindable var vm: IMChannelsViewModel
+    @ObservedObject var vm: IMChannelsViewModel
     let enabled: Bool
 
     var body: some View {
@@ -110,7 +110,7 @@ private struct TelegramChannelsSection: View {
 // MARK: - Official Bot Section
 
 private struct OfficialBotSection: View {
-    @Bindable var vm: IMChannelsViewModel
+    @ObservedObject var vm: IMChannelsViewModel
     let enabled: Bool
 
     var body: some View {
@@ -120,7 +120,7 @@ private struct OfficialBotSection: View {
         } label: {
             officialBotHeader
         }
-        .disclosureGroupStyle(IMDisclosureStyle())
+        .imDisclosureStyle()
     }
 
     private var officialBotHeader: some View {
@@ -377,7 +377,7 @@ private struct OfficialBotSection: View {
 // MARK: - Custom Bot Section
 
 private struct CustomBotSection: View {
-    @Bindable var vm: IMChannelsViewModel
+    @ObservedObject var vm: IMChannelsViewModel
     let enabled: Bool
 
     var body: some View {
@@ -387,7 +387,7 @@ private struct CustomBotSection: View {
         } label: {
             customBotHeader
         }
-        .disclosureGroupStyle(IMDisclosureStyle())
+        .imDisclosureStyle()
     }
 
     private var customBotHeader: some View {
@@ -639,7 +639,7 @@ private struct CustomBotSection: View {
                 .font(.system(size: 12, design: .monospaced))
                 .frame(maxWidth: 280)
                 .disabled(!vm.isImServerConnected)
-                .onChange(of: vm.customBotToken) {
+                .onChange(of: vm.customBotToken) { _ in
                     vm.resetVerification()
                 }
 
@@ -819,6 +819,7 @@ private struct TelegramServiceIcon: View {
     }
 }
 
+@available(macOS 13.0, *)
 private struct IMDisclosureStyle: DisclosureGroupStyle {
     func makeBody(configuration: Configuration) -> some View {
         VStack(spacing: 0) {
@@ -951,4 +952,17 @@ private func openBotFather() {
     }
     .themedBackground(PhiPreferences.fixedWindowBackground)
     .frame(width: 680, height: 561)
+}
+
+private extension View {
+    /// `DisclosureGroupStyle` requires macOS 13; macOS 12 falls back to the
+    /// default disclosure chrome (visual-only degradation).
+    @ViewBuilder
+    func imDisclosureStyle() -> some View {
+        if #available(macOS 13.0, *) {
+            self.disclosureGroupStyle(IMDisclosureStyle())
+        } else {
+            self
+        }
+    }
 }

@@ -388,6 +388,7 @@
 		CC24EF082E89251D00CE9DD7 /* AuthManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC24EF072E89251D00CE9DD7 /* AuthManager.swift */; };
 		CC2708982E7959DF00B65AB8 /* PinnedTabLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC2708972E7959DF00B65AB8 /* PinnedTabLayout.swift */; };
 		CC2708A52E7A65E500B65AB8 /* LocalStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC2708A22E7A65E500B65AB8 /* LocalStore.swift */; };
+		37FA01322FDA000200000003 /* LocalStoreLegacyImport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 37FA01312FDA000200000002 /* LocalStoreLegacyImport.swift */; };
 		CC2708A62E7A65E500B65AB8 /* TabDataModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC2708A32E7A65E500B65AB8 /* TabDataModel.swift */; };
 		CC2708A92E7A675C00B65AB8 /* Account.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC2708A72E7A675C00B65AB8 /* Account.swift */; };
 		CC288A692E4F12CB004A6C1C /* SidebarViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC288A662E4F12CB004A6C1C /* SidebarViewController.swift */; };
@@ -1073,6 +1074,7 @@
 		CC24EF072E89251D00CE9DD7 /* AuthManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthManager.swift; sourceTree = "<group>"; };
 		CC2708972E7959DF00B65AB8 /* PinnedTabLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PinnedTabLayout.swift; sourceTree = "<group>"; };
 		CC2708A22E7A65E500B65AB8 /* LocalStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalStore.swift; sourceTree = "<group>"; };
+		37FA01312FDA000200000002 /* LocalStoreLegacyImport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalStoreLegacyImport.swift; sourceTree = "<group>"; };
 		CC2708A32E7A65E500B65AB8 /* TabDataModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabDataModel.swift; sourceTree = "<group>"; };
 		CC2708A72E7A675C00B65AB8 /* Account.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Account.swift; sourceTree = "<group>"; };
 		CC288A662E4F12CB004A6C1C /* SidebarViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarViewController.swift; sourceTree = "<group>"; };
@@ -2280,6 +2282,7 @@
 				6A4750023B12345600000001 /* GuestDataMigration.swift */,
 				6A4750023B12345600000101 /* BrowserMigrationPlanner.swift */,
 				6A4750023B12345600000401 /* BrowserMigrationSpaceIconResolver.swift */,
+				37FA01312FDA000200000002 /* LocalStoreLegacyImport.swift */,
 				CCAA000B2F00010000000002 /* LocalStore+PinnedTabScope.swift */,
 				CCAA000D2F00010000000002 /* LocalStore+PinnedTabTransfer.swift */,
 				CCD87CC32EC2E7E000148E3F /* LocalStore+Bookmark.swift */,
@@ -3276,6 +3279,7 @@
 				6A4750023B12345600000402 /* BrowserMigrationSpaceIconResolver.swift in Sources */,
 				6A4750023B12345600000302 /* BrowserMigrationRunner.swift in Sources */,
 				6A4750023B12345600000602 /* FaviconBackfill.swift in Sources */,
+				37FA01322FDA000200000003 /* LocalStoreLegacyImport.swift in Sources */,
 				CCAA000B2F00010000000001 /* LocalStore+PinnedTabScope.swift in Sources */,
 				CCAA000D2F00010000000001 /* LocalStore+PinnedTabTransfer.swift in Sources */,
 				37FA01022FDA000100000002 /* LocalStoreBackupPolicy.swift in Sources */,
@@ -3558,7 +3562,7 @@
 				DEVELOPMENT_TEAM = 87DQ3HMK5G;
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MACOSX_DEPLOYMENT_TARGET = 12.0;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.phibrowser.TimeMachineInstaller;
 				PRODUCT_MODULE_NAME = PhiTimeMachineInstaller;
@@ -3578,7 +3582,7 @@
 				DEVELOPMENT_TEAM = 87DQ3HMK5G;
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MACOSX_DEPLOYMENT_TARGET = 12.0;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.phibrowser.canary.TimeMachineInstaller;
 				PRODUCT_MODULE_NAME = PhiTimeMachineInstaller;
@@ -3599,7 +3603,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_HARDENED_RUNTIME = NO;
 				GENERATE_INFOPLIST_FILE = YES;
-				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MACOSX_DEPLOYMENT_TARGET = 12.0;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.phibrowser.TimeMachineInstaller;
 				PRODUCT_MODULE_NAME = PhiTimeMachineInstaller;
@@ -3619,7 +3623,7 @@
 				DEVELOPMENT_TEAM = 87DQ3HMK5G;
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MACOSX_DEPLOYMENT_TARGET = 12.0;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.phibrowser.TimeMachineInstaller;
 				PRODUCT_MODULE_NAME = PhiTimeMachineInstaller;
@@ -3639,7 +3643,7 @@
 				DEVELOPMENT_TEAM = 87DQ3HMK5G;
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MACOSX_DEPLOYMENT_TARGET = 12.0;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.phibrowser.canary.TimeMachineInstaller;
 				PRODUCT_MODULE_NAME = PhiTimeMachineInstaller;
@@ -3705,7 +3709,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
-				MACOSX_DEPLOYMENT_TARGET = 15.2;
+				MACOSX_DEPLOYMENT_TARGET = 12.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
@@ -3761,7 +3765,7 @@
 					"$(inherited)",
 					"$(PROJECT_DIR)/Frameworks",
 				);
-				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MACOSX_DEPLOYMENT_TARGET = 12.0;
 				MARKETING_VERSION = debug;
 				NIGHTLY_BUILD = 1;
 				OTHER_CFLAGS = "-DDEBUG";
@@ -3784,7 +3788,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 87DQ3HMK5G;
 				GENERATE_INFOPLIST_FILE = YES;
-				MACOSX_DEPLOYMENT_TARGET = 15.2;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.phibrowser.PhiBrowserTests;
 				PRODUCT_MODULE_NAME = PhiBrowserTests;
@@ -3862,7 +3866,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
-				MACOSX_DEPLOYMENT_TARGET = 15.2;
+				MACOSX_DEPLOYMENT_TARGET = 12.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				SDKROOT = macosx;
@@ -3913,7 +3917,7 @@
 					"$(inherited)",
 					"$(PROJECT_DIR)/Frameworks",
 				);
-				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MACOSX_DEPLOYMENT_TARGET = 12.0;
 				MARKETING_VERSION = debug;
 				NIGHTLY_BUILD = 1;
 				OTHER_CFLAGS = "";
@@ -3935,7 +3939,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 87DQ3HMK5G;
 				GENERATE_INFOPLIST_FILE = YES;
-				MACOSX_DEPLOYMENT_TARGET = 15.2;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.phibrowser.PhiBrowserTests;
 				PRODUCT_MODULE_NAME = PhiBrowserTests;
@@ -3973,7 +3977,7 @@
 				DEVELOPMENT_TEAM = 87DQ3HMK5G;
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MACOSX_DEPLOYMENT_TARGET = 12.0;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.phibrowser.PhiUninstaller;
 				PRODUCT_MODULE_NAME = PhiUninstaller;
@@ -3993,7 +3997,7 @@
 				DEVELOPMENT_TEAM = 87DQ3HMK5G;
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MACOSX_DEPLOYMENT_TARGET = 12.0;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.phibrowser.canary.PhiUninstaller;
 				PRODUCT_MODULE_NAME = PhiUninstaller;
@@ -4014,7 +4018,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_HARDENED_RUNTIME = NO;
 				GENERATE_INFOPLIST_FILE = YES;
-				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MACOSX_DEPLOYMENT_TARGET = 12.0;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.phibrowser.canary.PhiUninstaller;
 				PRODUCT_MODULE_NAME = PhiUninstaller;
@@ -4034,7 +4038,7 @@
 				DEVELOPMENT_TEAM = 87DQ3HMK5G;
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MACOSX_DEPLOYMENT_TARGET = 12.0;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.phibrowser.PhiUninstaller;
 				PRODUCT_MODULE_NAME = PhiUninstaller;
@@ -4054,7 +4058,7 @@
 				DEVELOPMENT_TEAM = 87DQ3HMK5G;
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MACOSX_DEPLOYMENT_TARGET = 12.0;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.phibrowser.canary.PhiUninstaller;
 				PRODUCT_MODULE_NAME = PhiUninstaller;
@@ -4120,7 +4124,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
-				MACOSX_DEPLOYMENT_TARGET = 15.2;
+				MACOSX_DEPLOYMENT_TARGET = 12.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
@@ -4179,7 +4183,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
-				MACOSX_DEPLOYMENT_TARGET = 15.2;
+				MACOSX_DEPLOYMENT_TARGET = 12.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				SDKROOT = macosx;
@@ -4232,7 +4236,7 @@
 					"$(inherited)",
 					"$(PROJECT_DIR)/Frameworks",
 				);
-				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MACOSX_DEPLOYMENT_TARGET = 12.0;
 				MARKETING_VERSION = debug;
 				NIGHTLY_BUILD = 0;
 				OTHER_CFLAGS = "-DDEBUG";
@@ -4289,7 +4293,7 @@
 					"$(inherited)",
 					"$(PROJECT_DIR)/Frameworks",
 				);
-				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MACOSX_DEPLOYMENT_TARGET = 12.0;
 				MARKETING_VERSION = debug;
 				NIGHTLY_BUILD = 0;
 				OTHER_CFLAGS = "";
@@ -4312,7 +4316,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 87DQ3HMK5G;
 				GENERATE_INFOPLIST_FILE = YES;
-				MACOSX_DEPLOYMENT_TARGET = 15.2;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.phibrowser.PhiBrowserTests;
 				PRODUCT_MODULE_NAME = PhiBrowserTests;
@@ -4332,7 +4336,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 87DQ3HMK5G;
 				GENERATE_INFOPLIST_FILE = YES;
-				MACOSX_DEPLOYMENT_TARGET = 15.2;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.phibrowser.PhiBrowserTests;
 				PRODUCT_MODULE_NAME = PhiBrowserTests;
@@ -4434,7 +4438,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
-				MACOSX_DEPLOYMENT_TARGET = 15.2;
+				MACOSX_DEPLOYMENT_TARGET = 12.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
@@ -4491,7 +4495,7 @@
 					"$(inherited)",
 					"$(PROJECT_DIR)/Frameworks",
 				);
-				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MACOSX_DEPLOYMENT_TARGET = 12.0;
 				MARKETING_VERSION = debug;
 				NIGHTLY_BUILD = 1;
 				OTHER_CFLAGS = "-DDEBUG";
@@ -4521,7 +4525,7 @@
 				CODE_SIGN_STYLE = Manual;
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = YES;
-				MACOSX_DEPLOYMENT_TARGET = 15.2;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.phibrowser.PhiBrowserTests;
 				PRODUCT_MODULE_NAME = PhiBrowserTests;

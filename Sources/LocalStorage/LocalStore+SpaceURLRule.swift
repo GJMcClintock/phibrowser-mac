@@ -5,7 +5,7 @@
 
 import Combine
 import Foundation
-import SwiftData
+import CoreData
 
 extension LocalStore {
 
@@ -17,13 +17,13 @@ extension LocalStore {
 
     /// Value-typed view of a `SpaceURLRule` used at the LocalStore boundary.
     /// `replaceURLRules(forSpaceId:with:)` accepts these so the caller never
-    /// has to hold a SwiftData `@Model` instance across context boundaries
-    /// (which SwiftData forbids); the write closure rehydrates each draft
-    /// into a fresh `SpaceURLRule` row.
+    /// has to hold a managed `SpaceURLRule` instance across context
+    /// boundaries; the write closure rehydrates each draft into a fresh
+    /// `SpaceURLRule` row.
     ///
     /// `pathPrefix` is canonicalized to GURL-style percent-encoded form at
     /// construction so every downstream consumer (optimistic routing push,
-    /// SwiftData write, in-memory cache) sees the same shape as what the
+    /// local-store write, in-memory cache) sees the same shape as what the
     /// C++ matcher will compare URL paths against at navigation time.
     struct URLRuleDraft {
         var id: String
@@ -49,10 +49,11 @@ extension LocalStore {
     func getAllURLRules() -> [SpaceURLRule] {
         guard let context = mainContext else { return [] }
         do {
-            let descriptor = FetchDescriptor<SpaceURLRule>(
-                sortBy: [SortDescriptor(\.spaceId), SortDescriptor(\.sortOrder)]
-            )
-            return try context.fetch(descriptor)
+            let request = SpaceURLRule.request(sortBy: [
+                NSSortDescriptor(key: "spaceId", ascending: true),
+                NSSortDescriptor(key: "sortOrder", ascending: true),
+            ])
+            return try context.fetch(request)
         } catch {
             AppLogError("[LocalStore] getAllURLRules failed: \(error)")
             return []
@@ -63,11 +64,11 @@ extension LocalStore {
     func getURLRules(forSpaceId spaceId: String) -> [SpaceURLRule] {
         guard let context = mainContext else { return [] }
         do {
-            let descriptor = FetchDescriptor<SpaceURLRule>(
-                predicate: #Predicate { $0.spaceId == spaceId },
-                sortBy: [SortDescriptor(\.sortOrder)]
+            let request = SpaceURLRule.request(
+                NSPredicate(format: "spaceId == %@", spaceId),
+                sortBy: [NSSortDescriptor(key: "sortOrder", ascending: true)]
             )
-            return try context.fetch(descriptor)
+            return try context.fetch(request)
         } catch {
             AppLogError("[LocalStore] getURLRules(forSpaceId:) failed: \(error)")
             return []
@@ -79,25 +80,24 @@ extension LocalStore {
     /// Other Spaces' rules are untouched.
     ///
     /// Every inserted row gets a fresh UUID even when the caller supplied a
-    /// `draft.id`. SwiftData's `@Attribute(.unique)` enforcement on
-    /// `SpaceURLRule.id` rejects an insert that reuses an id another row
-    /// still holds in the same write context — and the delete-then-insert
-    /// pattern here puts both operations in one save, where SwiftData's
-    /// internal commit order is not contractual. Generating fresh ids
+    /// `draft.id`. The unique constraint on `SpaceURLRule.id` rejects an
+    /// insert that reuses an id another row still holds in the same write
+    /// context — and the delete-then-insert pattern here puts both
+    /// operations in one save, where the store's internal commit order is
+    /// not contractual. Generating fresh ids
     /// sidesteps the conflict entirely; the only external consumer that
     /// cared about id stability is the editor, which keys its in-memory
     /// rows on a separate UUID for SwiftUI identity.
     func replaceURLRules(forSpaceId spaceId: String, with drafts: [URLRuleDraft]) {
         performBackgroundWrite { context in
             do {
-                let descriptor = FetchDescriptor<SpaceURLRule>(
-                    predicate: #Predicate { $0.spaceId == spaceId }
-                )
-                for row in try context.fetch(descriptor) {
+                let request = SpaceURLRule.request(NSPredicate(format: "spaceId == %@", spaceId))
+                for row in try context.fetch(request) {
                     context.delete(row)
                 }
                 for (index, draft) in drafts.enumerated() {
-                    let row = SpaceURLRule(
+                    _ = SpaceURLRule(
+                        insertInto: context,
                         id: UUID().uuidString,
                         spaceId: spaceId,
                         host: draft.host.lowercased(),
@@ -106,7 +106,6 @@ extension LocalStore {
                         sortOrder: index,
                         createdDate: draft.createdDate
                     )
-                    context.insert(row)
                 }
             } catch {
                 AppLogError("[LocalStore] replaceURLRules failed: \(error)")
@@ -123,12 +122,13 @@ extension LocalStore {
     func replaceAllURLRules(_ byTargetSpaceId: [String: [URLRuleDraft]]) {
         performBackgroundWrite { context in
             do {
-                for row in try context.fetch(FetchDescriptor<SpaceURLRule>()) {
+                for row in try context.fetch(SpaceURLRule.request()) {
                     context.delete(row)
                 }
                 for (spaceId, drafts) in byTargetSpaceId {
                     for (index, draft) in drafts.enumerated() {
-                        let row = SpaceURLRule(
+                        _ = SpaceURLRule(
+                            insertInto: context,
                             id: UUID().uuidString,
                             spaceId: spaceId,
                             host: draft.host.lowercased(),
@@ -137,7 +137,6 @@ extension LocalStore {
                             sortOrder: index,
                             createdDate: draft.createdDate
                         )
-                        context.insert(row)
                     }
                 }
             } catch {
