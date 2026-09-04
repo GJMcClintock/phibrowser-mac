@@ -3137,10 +3137,7 @@ class WebContentViewController: NSViewController {
     }
 
     private func updateAgentAnimationOverlay() {
-        // x64 builds skip the edge-fog operating mask; watch-mode input
-        // interception still comes from the agent Space overlay.
-        guard let tab = associatedTab,
-              PhiPreferences.AISettings.supportedOnThisArchitecture else {
+        guard let tab = associatedTab else {
             hideAgentAnimationOverlay()
             return
         }
