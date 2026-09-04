@@ -56,7 +56,7 @@ extension OmniBoxViewController: NSTextSuggestionsDelegate {
         
     }
     
-    private func watiForResponse(for searchText: String, on state: BrowserState, timeout: Duration = .seconds(3)) async -> [[String: Any]]? {
+    private func watiForResponse(for searchText: String, on state: BrowserState, timeout: TimeInterval = 3) async -> [[String: Any]]? {
         await withTaskGroup(of: [[String: Any]]?.self) { group in
             // Wait for the suggestion stream first.
             group.addTask {
@@ -73,7 +73,7 @@ extension OmniBoxViewController: NSTextSuggestionsDelegate {
                 }
             }
             group.addTask {
-                try? await Task.sleep(for: timeout)
+                try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
                 return nil
             }
 

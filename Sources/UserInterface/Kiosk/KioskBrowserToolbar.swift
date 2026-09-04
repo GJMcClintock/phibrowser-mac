@@ -240,10 +240,14 @@ final class KioskBrowserToolbar: NSVisualEffectView {
         }
 
         // The toolbar owns titlebar placement, so SwiftUI must not add safe-area offsets.
-        profileHostingView.safeAreaRegions = []
-        backButtonHostingView.safeAreaRegions = []
-        toolbarActionsHostingView.safeAreaRegions = []
-        spaceHostingView.safeAreaRegions = []
+        // `safeAreaRegions` is macOS 13.3+; older systems have no such knob on
+        // the hosting view and do not apply the container inset it turns off.
+        if #available(macOS 13.3, *) {
+            profileHostingView.safeAreaRegions = []
+            backButtonHostingView.safeAreaRegions = []
+            toolbarActionsHostingView.safeAreaRegions = []
+            spaceHostingView.safeAreaRegions = []
+        }
 
         backButtonHostingView.isHidden = true
         addSubview(backButtonHostingView)

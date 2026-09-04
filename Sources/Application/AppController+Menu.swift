@@ -2551,7 +2551,12 @@ extension AppController {
         // controller would push out as its preferred size, which adds the
         // titlebar's height on top of it.
         let declaredSize = hosting.view.fittingSize
-        hosting.sizingOptions = []
+        // `sizingOptions` is macOS 13+. Below it the hosting controller has no
+        // such knob, and the explicit `setFrame` below is what lands the size
+        // either way.
+        if #available(macOS 13.0, *) {
+            hosting.sizingOptions = []
+        }
         window.contentViewController = hosting
         window.setFrame(
             NSRect(origin: window.frame.origin, size: declaredSize),

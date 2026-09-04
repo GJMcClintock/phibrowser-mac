@@ -462,7 +462,7 @@ struct AgentAccessApprovalAlert: View {
         // it the initial focus, and a blue rectangle around "Details" reads as
         // an alarm about the thing the user has not even opened yet. The
         // alert's own buttons keep their rings.
-        .focusEffectDisabled()
+        .compatFocusEffectDisabled()
         .accessibilityLabel(showsDetails
             ? NSLocalizedString("agentControl.connectionApproval.details.hideAccessibilityLabel", value: "Hide the agent's command and process tree", comment: "CDP consent - accessibility label of the details disclosure button while the details are open")
             : NSLocalizedString("agentControl.connectionApproval.details.showAccessibilityLabel", value: "Show the agent's command and process tree", comment: "CDP consent - accessibility label of the details disclosure button while the details are closed"))
@@ -556,7 +556,7 @@ struct AgentAccessApprovalAlert: View {
                 row
             }
             .buttonStyle(.plain)
-            .focusEffectDisabled()
+            .compatFocusEffectDisabled()
             .accessibilityAddTraits(isSubject ? [.isButton, .isSelected] : .isButton)
         } else {
             row
@@ -818,6 +818,17 @@ private struct ReservedSpace: ViewModifier {
 private extension View {
     func reservingSpace(shown: Bool) -> some View {
         modifier(ReservedSpace(shown: shown))
+    }
+
+    /// `focusEffectDisabled` is macOS 14+. Below it the row keeps the initial
+    /// focus ring SwiftUI hands the first focusable control.
+    @ViewBuilder
+    func compatFocusEffectDisabled() -> some View {
+        if #available(macOS 14.0, *) {
+            self.focusEffectDisabled()
+        } else {
+            self
+        }
     }
 }
 

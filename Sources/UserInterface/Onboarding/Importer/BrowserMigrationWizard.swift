@@ -507,10 +507,42 @@ private extension View {
     /// This view at its own height while it fits the space it is offered, and
     /// past that the same view scrolling inside that space. It is what lets a
     /// step's content sit centred when it is short and fill when it is long.
+    @ViewBuilder
     func scrollsWhenTall() -> some View {
-        ViewThatFits(in: .vertical) {
-            self
+        if #available(macOS 13.0, *) {
+            ViewThatFits(in: .vertical) {
+                self
+                ScrollView { self }
+            }
+        } else {
+            // `ViewThatFits` is macOS 13+. The scrolling half alone still
+            // sizes to its content under the caller's cap; what is lost is
+            // the centring of content that is shorter than the space.
             ScrollView { self }
+        }
+    }
+
+    /// `gridColumnAlignment` is macOS 13+, and only means anything inside a
+    /// `Grid`. On older systems the stacked fallback carries no columns.
+    @ViewBuilder
+    func gridLeadingColumn() -> some View {
+        if #available(macOS 13.0, *) {
+            self.gridColumnAlignment(.leading)
+        } else {
+            self
+        }
+    }
+
+    /// `keyboardShortcut(_:)` takes an optional only from macOS 12.3; below
+    /// that the shortcut is applied when there is one and skipped when nil.
+    @ViewBuilder
+    func optionalKeyboardShortcut(_ shortcut: KeyboardShortcut?) -> some View {
+        if #available(macOS 12.3, *) {
+            self.keyboardShortcut(shortcut)
+        } else if let shortcut {
+            self.keyboardShortcut(shortcut)
+        } else {
+            self
         }
     }
 }
@@ -882,7 +914,7 @@ struct BrowserMigrationWizardView: View {
             // switched off looks switched off rather than merely inert.
             .disabled(!button.isEnabled)
             .opacity(button.isEnabled ? 1 : 0.5)
-            .keyboardShortcut(button.isCancel ? KeyboardShortcut.cancelAction : nil)
+            .optionalKeyboardShortcut(button.isCancel ? KeyboardShortcut.cancelAction : nil)
     }
 
     /// The import window's CTA is a hard 120 x 40; this one keeps the height
@@ -1583,21 +1615,27 @@ struct BrowserMigrationWizardView: View {
         _ problems: [BrowserMigrationReport.Problem], requested: Set<ImportDataType>
     ) -> some View {
         // A grid rather than a stack of rows so the outcomes line up in a
-        // column of their own however long the names beside them run.
-        Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 10, verticalSpacing: 6) {
-            ForEach(Array(problems.enumerated()), id: \.offset) { _, problem in
-                GridRow {
-                    HStack(alignment: .firstTextBaseline, spacing: 6) {
-                        reportGlyph(ok: false)
-                        Text(Self.problemSubject(problem, requested: requested))
-                            .font(.system(size: 15))
-                            .foregroundColor(Ink.primary)
+        // column of their own however long the names beside them run. `Grid`
+        // is macOS 13+; on 12 the rows stack and each outcome sits directly
+        // after its own subject instead of in a shared column.
+        Group {
+            if #available(macOS 13.0, *) {
+                Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 10, verticalSpacing: 6) {
+                    ForEach(Array(problems.enumerated()), id: \.offset) { _, problem in
+                        GridRow {
+                            problemSubjectCell(problem, requested: requested)
+                            problemOutcomeCell(problem)
+                        }
                     }
-                    .gridColumnAlignment(.leading)
-                    Text(Self.problemOutcome(problem))
-                        .font(.system(size: 15))
-                        .foregroundColor(Ink.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
+                }
+            } else {
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(Array(problems.enumerated()), id: \.offset) { _, problem in
+                        HStack(alignment: .firstTextBaseline, spacing: 10) {
+                            problemSubjectCell(problem, requested: requested)
+                            problemOutcomeCell(problem)
+                        }
+                    }
                 }
             }
         }
@@ -1612,6 +1650,30 @@ struct BrowserMigrationWizardView: View {
         .frame(maxHeight: Self.problemCardMaxHeight)
         .fixedSize(horizontal: false, vertical: true)
         .migrationCard()
+    }
+
+    /// One problem's subject: the glyph and the name it applies to. Its
+    /// column alignment only bites inside the `Grid` branch above.
+    private func problemSubjectCell(
+        _ problem: BrowserMigrationReport.Problem, requested: Set<ImportDataType>
+    ) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            reportGlyph(ok: false)
+            Text(Self.problemSubject(problem, requested: requested))
+                .font(.system(size: 15))
+                .foregroundColor(Ink.primary)
+        }
+        .gridLeadingColumn()
+    }
+
+    /// What became of that subject.
+    private func problemOutcomeCell(
+        _ problem: BrowserMigrationReport.Problem
+    ) -> some View {
+        Text(Self.problemOutcome(problem))
+            .font(.system(size: 15))
+            .foregroundColor(Ink.secondary)
+            .fixedSize(horizontal: false, vertical: true)
     }
 
     /// Where the failure happened, deepest named thing last: a Profile, a
@@ -1796,26 +1858,49 @@ struct BrowserMigrationWizardView: View {
     /// claimed nor disclaimed here, by direction. The values carry the whole
     /// hedge: what Chromium only answers with one success flag is *finished*
     /// and *started*, never *imported* with a count.
+    @ViewBuilder
     private func outcomeGrid(
         _ profile: BrowserMigrationReport.ProfileRow, requested: Set<ImportDataType>
     ) -> some View {
-        Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 10, verticalSpacing: 3) {
-            GridRow {
-                // History shares its line with the cookies when both were
-                // asked for; alone, it is the recent history and says so.
-                Self.outcomeLabel(requested.contains(.cookies)
-                    ? Self.browserDataLabel : Self.recentHistoryLabel)
-                Self.outcomeValue(Self.browserDataOutcome(profile))
-            }
-            if requested.contains(.extensions) {
+        // `Grid` is macOS 13+; the stacked fallback keeps the same rows and
+        // loses only the shared value column.
+        if #available(macOS 13.0, *) {
+            Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 10, verticalSpacing: 3) {
                 GridRow {
-                    Self.outcomeLabel(Self.extensionsLabel)
-                    Self.outcomeValue(Self.extensionsOutcome(profile))
+                    // History shares its line with the cookies when both were
+                    // asked for; alone, it is the recent history and says so.
+                    Self.outcomeLabel(requested.contains(.cookies)
+                        ? Self.browserDataLabel : Self.recentHistoryLabel)
+                    Self.outcomeValue(Self.browserDataOutcome(profile))
+                }
+                if requested.contains(.extensions) {
+                    GridRow {
+                        Self.outcomeLabel(Self.extensionsLabel)
+                        Self.outcomeValue(Self.extensionsOutcome(profile))
+                    }
+                }
+                GridRow {
+                    Self.outcomeLabel(Self.pinnedTabsLabel)
+                    Self.outcomeValue(pinnedTabsOutcome(profile))
                 }
             }
-            GridRow {
-                Self.outcomeLabel(Self.pinnedTabsLabel)
-                Self.outcomeValue(pinnedTabsOutcome(profile))
+        } else {
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                    Self.outcomeLabel(requested.contains(.cookies)
+                        ? Self.browserDataLabel : Self.recentHistoryLabel)
+                    Self.outcomeValue(Self.browserDataOutcome(profile))
+                }
+                if requested.contains(.extensions) {
+                    HStack(alignment: .firstTextBaseline, spacing: 10) {
+                        Self.outcomeLabel(Self.extensionsLabel)
+                        Self.outcomeValue(Self.extensionsOutcome(profile))
+                    }
+                }
+                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                    Self.outcomeLabel(Self.pinnedTabsLabel)
+                    Self.outcomeValue(pinnedTabsOutcome(profile))
+                }
             }
         }
     }
@@ -1824,7 +1909,7 @@ struct BrowserMigrationWizardView: View {
         Text(text)
             .font(.system(size: 13))
             .foregroundColor(Ink.secondary)
-            .gridColumnAlignment(.leading)
+            .gridLeadingColumn()
     }
 
     private static func outcomeValue(_ text: String) -> some View {

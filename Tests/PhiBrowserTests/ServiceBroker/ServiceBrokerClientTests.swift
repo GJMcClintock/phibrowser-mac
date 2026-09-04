@@ -115,7 +115,7 @@ final class ServiceBrokerClientTests: XCTestCase {
                 path: "/api/stall"
             ))
         }
-        try await Task.sleep(for: .milliseconds(25))
+        try await Task.sleep(nanoseconds: 25_000_000)
 
         request.cancel()
 
@@ -315,7 +315,7 @@ final class ServiceBrokerClientTests: XCTestCase {
         defer { stream.cancel() }
 
         let reader = Task { try await stream.read(maxBytes: 1_024) }
-        try await Task.sleep(for: .milliseconds(50))
+        try await Task.sleep(nanoseconds: 50_000_000)
         let cancelledAt = DispatchTime.now()
         reader.cancel()
 

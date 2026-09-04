@@ -196,7 +196,7 @@ final class ServiceBrokerChannelStoreTests: XCTestCase {
         let store = makeStore(httpStream: stream, idleTimeout: .milliseconds(30))
         let opened = try await store.openHTTPStream(owner: owner, request: request())
 
-        try await Task.sleep(for: .milliseconds(80))
+        try await Task.sleep(nanoseconds: 80_000_000)
 
         await assertChannelError(.channelNotFound) {
             _ = try await store.pullHTTP(owner: self.owner, channelID: opened.channelID)
@@ -403,15 +403,15 @@ final class ServiceBrokerChannelStoreTests: XCTestCase {
 
     private func makeStore(
         httpStream: FakeBrokerHTTPStream,
-        pullTimeout: Duration = .seconds(1),
-        idleTimeout: Duration = .seconds(1),
+        pullTimeout: TimeInterval = 1,
+        idleTimeout: TimeInterval = 1,
         unacknowledgedWindowBytes: Int = 1_024,
         pendingPull: AsyncSignal? = nil,
-        pullTimeoutSleeper: @escaping ServiceBrokerChannelStore.PullTimeoutSleeper = { duration in
-            try await Task.sleep(for: duration)
+        pullTimeoutSleeper: @escaping ServiceBrokerChannelStore.PullTimeoutSleeper = { seconds in
+            try await serviceBrokerSleep(seconds: seconds)
         },
-        idleTimeoutSleeper: @escaping ServiceBrokerChannelStore.PullTimeoutSleeper = { duration in
-            try await Task.sleep(for: duration)
+        idleTimeoutSleeper: @escaping ServiceBrokerChannelStore.PullTimeoutSleeper = { seconds in
+            try await serviceBrokerSleep(seconds: seconds)
         }
     ) -> ServiceBrokerChannelStore {
         ServiceBrokerChannelStore(
@@ -433,8 +433,8 @@ final class ServiceBrokerChannelStoreTests: XCTestCase {
     private func makeWebSocketStore(
         socket: FakeBrokerWebSocket,
         pendingPull: AsyncSignal? = nil,
-        idleTimeoutSleeper: @escaping ServiceBrokerChannelStore.PullTimeoutSleeper = { duration in
-            try await Task.sleep(for: duration)
+        idleTimeoutSleeper: @escaping ServiceBrokerChannelStore.PullTimeoutSleeper = { seconds in
+            try await serviceBrokerSleep(seconds: seconds)
         }
     ) -> ServiceBrokerChannelStore {
         ServiceBrokerChannelStore(

@@ -77,8 +77,11 @@ final class PeekOriginTracker {
     }
 
     private func record(_ event: NSEvent) {
-        guard let paneView = paneViewController?.viewIfLoaded,
-              let window = paneView.window,
+        // `viewIfLoaded` is macOS 14+; `isViewLoaded` reads the same state
+        // without forcing the view to load.
+        guard let paneController = paneViewController, paneController.isViewLoaded else { return }
+        let paneView = paneController.view
+        guard let window = paneView.window,
               event.window === window else { return }
         // Hit-test rather than a frame check: the sidebar, the toolbar and any
         // overlay above the pane must not be mistaken for a link press. Same

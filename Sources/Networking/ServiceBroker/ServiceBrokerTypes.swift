@@ -309,23 +309,24 @@ struct ServiceBrokerChannelConfiguration: Equatable, Sendable {
     let bridgeChunkBytes: Int
     let webSocketMessageBytes: Int
     let unacknowledgedWindowBytes: Int
-    let pullTimeout: Duration
-    let idleTimeout: Duration
+    /// Seconds. Swift's `Duration` is macOS 13+, and this app deploys to 12.
+    let pullTimeout: TimeInterval
+    let idleTimeout: TimeInterval
 
     static let `default` = ServiceBrokerChannelConfiguration(
         bridgeChunkBytes: 256 * 1024,
         webSocketMessageBytes: 16 * 1024 * 1024,
         unacknowledgedWindowBytes: 1024 * 1024,
-        pullTimeout: .seconds(25),
-        idleTimeout: .seconds(60)
+        pullTimeout: 25,
+        idleTimeout: 60
     )
 
     init(
         bridgeChunkBytes: Int,
         webSocketMessageBytes: Int,
         unacknowledgedWindowBytes: Int,
-        pullTimeout: Duration,
-        idleTimeout: Duration
+        pullTimeout: TimeInterval,
+        idleTimeout: TimeInterval
     ) {
         self.bridgeChunkBytes = bridgeChunkBytes
         self.webSocketMessageBytes = webSocketMessageBytes
@@ -334,7 +335,7 @@ struct ServiceBrokerChannelConfiguration: Equatable, Sendable {
         self.idleTimeout = idleTimeout
     }
 
-    init(limits: ServiceBrokerLimits, pullTimeout: Duration = .seconds(25), idleTimeout: Duration = .seconds(60)) {
+    init(limits: ServiceBrokerLimits, pullTimeout: TimeInterval = 25, idleTimeout: TimeInterval = 60) {
         self.init(
             bridgeChunkBytes: limits.bridgeChunkBytes,
             webSocketMessageBytes: limits.webSocketMessageBytes,
@@ -396,4 +397,11 @@ struct BrokerWebSocketSource: Sendable {
     func close(code: UInt16?, reason: String?) async {
         await closeSocket(code, reason)
     }
+}
+
+/// `Task.sleep(for:)` takes a `Duration`, which is macOS 13+. Timeouts here
+/// are plain seconds, slept through the nanosecond API available on 12.
+func serviceBrokerSleep(seconds: TimeInterval) async throws {
+    guard seconds > 0 else { return }
+    try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
 }

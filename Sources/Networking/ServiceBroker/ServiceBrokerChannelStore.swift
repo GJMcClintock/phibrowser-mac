@@ -11,7 +11,7 @@ actor ServiceBrokerChannelStore {
     typealias HTTPStreamOpener = @Sendable (BrokerHTTPRequest) async throws -> BrokerHTTPStreamSource
     typealias WebSocketOpener = @Sendable (String, [String: String]) async throws -> BrokerWebSocketSource
     typealias PendingPullObserver = @Sendable (String) -> Void
-    typealias PullTimeoutSleeper = @Sendable (Duration) async throws -> Void
+    typealias PullTimeoutSleeper = @Sendable (TimeInterval) async throws -> Void
 
     private struct PendingHTTPPull {
         let token: UUID
@@ -66,8 +66,8 @@ actor ServiceBrokerChannelStore {
     init(
         socketPath: String,
         limits: ServiceBrokerLimits,
-        pullTimeout: Duration = .seconds(25),
-        idleTimeout: Duration = .seconds(60)
+        pullTimeout: TimeInterval = 25,
+        idleTimeout: TimeInterval = 60
     ) {
         let configuration = ServiceBrokerChannelConfiguration(
             limits: limits,
@@ -77,8 +77,8 @@ actor ServiceBrokerChannelStore {
         let client = ServiceBrokerClient(socketPath: socketPath, limits: limits)
         self.configuration = configuration
         pendingPullObserver = { _ in }
-        pullTimeoutSleeper = { duration in try await Task.sleep(for: duration) }
-        idleTimeoutSleeper = { duration in try await Task.sleep(for: duration) }
+        pullTimeoutSleeper = { seconds in try await serviceBrokerSleep(seconds: seconds) }
+        idleTimeoutSleeper = { seconds in try await serviceBrokerSleep(seconds: seconds) }
         httpStreamOpener = { request in
             let stream = try await client.openStream(request)
             return BrokerHTTPStreamSource(
@@ -102,11 +102,11 @@ actor ServiceBrokerChannelStore {
         httpStreamOpener: @escaping HTTPStreamOpener,
         webSocketOpener: @escaping WebSocketOpener,
         pendingPullObserver: @escaping PendingPullObserver = { _ in },
-        pullTimeoutSleeper: @escaping PullTimeoutSleeper = { duration in
-            try await Task.sleep(for: duration)
+        pullTimeoutSleeper: @escaping PullTimeoutSleeper = { seconds in
+            try await serviceBrokerSleep(seconds: seconds)
         },
-        idleTimeoutSleeper: @escaping PullTimeoutSleeper = { duration in
-            try await Task.sleep(for: duration)
+        idleTimeoutSleeper: @escaping PullTimeoutSleeper = { seconds in
+            try await serviceBrokerSleep(seconds: seconds)
         }
     ) {
         self.configuration = configuration
@@ -580,8 +580,8 @@ actor ServiceBrokerChannelStore {
         guard configuration.bridgeChunkBytes > 0,
               configuration.webSocketMessageBytes > 0,
               configuration.unacknowledgedWindowBytes > 0,
-              configuration.pullTimeout > .zero,
-              configuration.idleTimeout > .zero else {
+              configuration.pullTimeout > 0,
+              configuration.idleTimeout > 0 else {
             throw BrokerChannelError.invalidConfiguration
         }
     }

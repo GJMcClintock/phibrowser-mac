@@ -74,7 +74,7 @@ final class ServiceBrokerWebSocketTests: XCTestCase {
         let connection = Task {
             try await socket.connect(path: "/ws/phi-agent/execute", headers: [:])
         }
-        try await Task.sleep(for: .milliseconds(25))
+        try await Task.sleep(nanoseconds: 25_000_000)
 
         connection.cancel()
 
@@ -166,7 +166,7 @@ final class ServiceBrokerWebSocketTests: XCTestCase {
         XCTAssertEqual(event, .frame(
             sequence: 0, BrokerWebSocketFrame(kind: .text, data: Data("hello".utf8))))
         for _ in 0..<20 where server.receivedPong != Data("ping".utf8) {
-            try await Task.sleep(for: .milliseconds(5))
+            try await Task.sleep(nanoseconds: 5_000_000)
         }
         XCTAssertEqual(server.receivedPong, Data("ping".utf8))
         await socket.close(code: 1000, reason: nil)
@@ -214,7 +214,7 @@ final class ServiceBrokerWebSocketTests: XCTestCase {
         }
 
         for _ in 0..<40 where server.receivedPings.isEmpty {
-            try await Task.sleep(for: .milliseconds(5))
+            try await Task.sleep(nanoseconds: 5_000_000)
         }
         XCTAssertGreaterThanOrEqual(server.receivedPings.count, 1)
     }
