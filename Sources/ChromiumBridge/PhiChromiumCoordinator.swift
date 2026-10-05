@@ -2974,16 +2974,14 @@ extension PhiChromiumCoordinator: PhiChromiumBridgeDelegate {
                 // nil window (already torn down) → nothing to detach.
                 let controller = SpaceSessionControllersManager.shared
                     .controller(for: windowId.intValue)
-                if !(controller is KioskBrowserWindowController) {
-                    // If the closing tab is hosted by the Peek panel, detach its
-                    // native view now, while the WebContents is still alive — the
-                    // async EventBus close below runs after Chromium destroyed it.
-                    controller?.peekPanelControllerIfLoaded?
-                        .detachContentIfHosting(tabId: tabId.intValue)
-                    // Same rule for a closing reader-overlay surface tab.
-                    controller?.readerPanelControllersIfLoaded
-                        .forEach { $0.detachContentIfHosting(tabId: tabId.intValue) }
-                }
+                // If the closing tab is hosted by the Peek panel, detach its
+                // native view now, while the WebContents is still alive — the
+                // async EventBus close below runs after Chromium destroyed it.
+                controller?.peekPanelControllerIfLoaded?
+                    .detachContentIfHosting(tabId: tabId.intValue)
+                // Same rule for a closing reader-overlay surface tab.
+                controller?.readerPanelControllersIfLoaded
+                    .forEach { $0.detachContentIfHosting(tabId: tabId.intValue) }
             }
         } else {
             assertionFailure("tabWillBeRemove off the main thread; skipping the synchronous detach")
