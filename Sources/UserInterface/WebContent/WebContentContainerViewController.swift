@@ -120,8 +120,8 @@ class WebContentContainerViewController: NSViewController {
     // incoming web views are attached and the outgoing ones hidden in this
     // turn, and viz keeps the previous frame up until the incoming tab's
     // surface is ready or four frames pass, then shows the page-area
-    // backdrop. Without a surface the tabs draw themselves, so a tab
-    // Chromium has not kept alive shows blank until its first frame. The one
+    // backdrop. Without a surface the tabs draw themselves, so a tab that
+    // has no compositor of its own shows blank until its first frame. The one
     // wait is on the model: a tab opened into a new split is mounted once its
     // split lands (`BrowserState.tabsAwaitingSplit`).
     // =========================================================================
@@ -339,15 +339,23 @@ class WebContentContainerViewController: NSViewController {
     /// ramp it as one surface. The pages this container mounts follow it:
     /// each spans the margins around its card, and one painting its own
     /// backdrop there keeps the leaving Space's color until the switch lands.
+    /// They also stop painting it once a content surface is installed
+    /// (`pagesPaintOwnBackdrop`).
     var paintsOwnBackdrop = true {
         didSet { applyBackdropPainting() }
     }
 
+    /// Whether the pages and the placeholder shell paint their own backdrop:
+    /// only while this container does and no content surface is installed. A
+    /// page's root view lies above the surface's view and would cover it;
+    /// this container's own root view lies below it and keeps painting.
+    private var pagesPaintOwnBackdrop: Bool { paintsOwnBackdrop && !hasContentSurface }
+
     private func applyBackdropPainting() {
         for controller in webContentControllers.values {
-            controller.paintsOwnBackdrop = paintsOwnBackdrop
+            controller.paintsOwnBackdrop = pagesPaintOwnBackdrop
         }
-        placeholderShell?.paintsOwnBackdrop = paintsOwnBackdrop
+        placeholderShell?.paintsOwnBackdrop = pagesPaintOwnBackdrop
         guard isViewLoaded else { return }
         (view as? ColoredVisualEffectView)?.suppressesBackdrop = !paintsOwnBackdrop
     }
@@ -1257,7 +1265,7 @@ class WebContentContainerViewController: NSViewController {
             return byGuid
         }
         let controller = WebContentViewController(state: state, tab: tab)
-        controller.paintsOwnBackdrop = paintsOwnBackdrop
+        controller.paintsOwnBackdrop = pagesPaintOwnBackdrop
         controller.hasContentSurface = hasContentSurface
         webContentControllers[identifier] = controller
         return controller
@@ -1299,7 +1307,7 @@ class WebContentContainerViewController: NSViewController {
         
         // Create new controller with the associated tab
         let controller = WebContentViewController(state: browserState, tab: tab)
-        controller.paintsOwnBackdrop = paintsOwnBackdrop
+        controller.paintsOwnBackdrop = pagesPaintOwnBackdrop
         controller.hasContentSurface = hasContentSurface
         webContentControllers[identifier] = controller
         AppLogInfo("🆕 [WebContent] Created new controller for identifier '\(identifier)', tab.guid: \(tab.guid)")
@@ -1352,8 +1360,8 @@ class WebContentContainerViewController: NSViewController {
     
     // MARK: - Content surface
 
-    /// The Space instance's content surface view (chromium ADR 0014), once
-    /// installed by `installContentSurface`.
+    /// The window's content surface view (chromium ADR 0014), once installed
+    /// by `installContentSurface`.
     private var contentSurfaceView: NSView?
     private var contentSurfaceFilterObservation: NSKeyValueObservation?
     private var contentSurfaceHosting: ContentSurfaceHosting?
@@ -1369,9 +1377,13 @@ class WebContentContainerViewController: NSViewController {
     /// so the fills behind them go clear. Done once; moving the view out
     /// would not take the web views still in `contentContainer` off it.
     ///
-    /// Chromium creates one only for a hosted Space instance, whose pages
-    /// paint no backdrop of their own (`paintsOwnBackdrop`); a page painting
-    /// its vibrancy backdrop would cover the surface.
+    /// Chromium creates one for every browser window whose page area the Mac
+    /// client hosts: a Space instance, whose pages paint no backdrop of their
+    /// own anyway, and a standalone Incognito window (chromium ADR 0016). A
+    /// page painting its vibrancy backdrop would cover the surface, so once
+    /// it is installed the pages and the placeholder shell paint none
+    /// (`pagesPaintOwnBackdrop`); this container's own root view, below the
+    /// surface, keeps painting where it does.
     private func installContentSurface(_ hostingView: NSView) {
         guard contentSurfaceView == nil else { return }
         contentSurfaceView = hostingView
@@ -1388,6 +1400,7 @@ class WebContentContainerViewController: NSViewController {
             controller.hasContentSurface = true
         }
         placeholderShell?.hasContentSurface = true
+        applyBackdropPainting()
         updatePageAreaBackdropCorners(panelDocked: browserState?.extensionSidePanel != nil)
         contentSurfaceHosting = ContentSurfaceHosting(container: contentContainer,
                                                       browserState: browserState)
@@ -1424,7 +1437,7 @@ class WebContentContainerViewController: NSViewController {
             shell = existing
         } else {
             shell = PlaceholderShellViewController(browserState: browserState)
-            shell.paintsOwnBackdrop = paintsOwnBackdrop
+            shell.paintsOwnBackdrop = pagesPaintOwnBackdrop
             shell.hasContentSurface = hasContentSurface
             addChild(shell)
             contentContainer.addSubview(shell.view)
