@@ -121,6 +121,45 @@ final class ContentFullscreenSurfaceTests: XCTestCase {
         XCTAssertNil(overlay?.superview)
     }
 
+    /// Closing the last tab in fullscreen mounts the placeholder page while
+    /// the surface is still lent: the bridge enters placeholder mode
+    /// synchronously, the tab leaves later. Chromium ignores what the page is
+    /// told then and attaches it afresh, square and on top, when the surface
+    /// comes home, so it has to be told again.
+    func testAWebViewMountedWhileTheSurfaceIsLentIsToldAgainWhenItComesHome() throws {
+        let fixture = try makeFixture()
+        let surface = adoptSurface(fixture)
+        let home = try XCTUnwrap(surface.superview)
+        let hosting = try XCTUnwrap(fixture.container.contentSurfaceHostingForTesting)
+        var sends: [NSObject] = []
+        hosting.sendForTesting = { address, _ in sends.append(address) }
+        enterFullscreen(fixture)
+        // Held here: a wrapper's `nativeView` is weak.
+        let placeholderView = NSView(frame: NSRect(x: 0, y: 0, width: 300, height: 200))
+        let placeholder = PageColorTestWebContentWrapper(urlString: "chrome://dino/")
+        placeholder.nativeView = placeholderView
+
+        // In a pool of its own, as the bridge calls in from a run-loop pass:
+        // mounting the shell leaves the container's old `children`, which
+        // holds the page's controller, autoreleased, and this test's pool
+        // would keep that controller alive past the tab's removal.
+        autoreleasepool {
+            fixture.state.enterPlaceholderMode(wrapper: placeholder)
+        }
+        RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+        XCTAssertTrue(sends.contains { $0 === placeholder },
+                      "precondition: the placeholder page was told while the surface was lent")
+        let sendsBeforeClose = sends.count
+
+        fixture.state.tabs = []
+        fixture.state.updateNormalTabs()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+
+        XCTAssertTrue(surface.superview === home, "the surface is back in the page container")
+        XCTAssertTrue(sends[sendsBeforeClose...].contains { $0 === placeholder },
+                      "the placeholder page is told again once the surface is home")
+    }
+
     // MARK: - Helpers
 
     private struct Fixture {

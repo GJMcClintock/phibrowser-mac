@@ -41,6 +41,13 @@ final class ContentSurfaceHosting {
     private var observer: CFRunLoopObserver?
     /// Last `Hosting` sent, keyed by address.
     private var sent: [ObjectIdentifier: Sent] = [:]
+    /// The surface's view's superview when `sent` was recorded. When the
+    /// view moves (lent to a page in content fullscreen, reclaimed),
+    /// Chromium settles every web view below its new superview, and one
+    /// that was off the surface gets a new host item, square and on top.
+    /// One mounted while the view was away is such a view, and Chromium
+    /// ignored what it was told meanwhile; so `sent` no longer holds.
+    private weak var sentUnder: NSView?
     /// Replaces the bridge sends in tests.
     var sendForTesting: ((_ address: NSObject, _ hosting: Hosting) -> Void)?
 
@@ -89,6 +96,10 @@ final class ContentSurfaceHosting {
             // A web view attached again meanwhile has lost what it was told.
             sent.removeAll()
             return
+        }
+        if surfaceView?.superview !== sentUnder {
+            sent.removeAll()
+            sentUnder = surfaceView?.superview
         }
         let tabs = browserState.tabs + browserState.aiChatTabs.values
         var wrappers = tabs.compactMap(\.webContentWrapper)
