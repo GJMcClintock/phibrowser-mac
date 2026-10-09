@@ -1379,7 +1379,10 @@ class WebContentContainerViewController: NSViewController {
     /// content fullscreen borrows the view (`lendContentSurface(to:)`) and it
     /// comes back here (`reclaimContentSurface`). Moving the view does not
     /// take the web views still in `contentContainer` off the surface:
-    /// Chromium judges a web view's surface only when that web view moves.
+    /// Chromium judges a web view's surface when that web view moves, and
+    /// the web views below the surface's view's new superview when that
+    /// view moves, so lending judges only the overlay's. One mounted here
+    /// while the view is lent draws itself until the view comes back.
     ///
     /// Chromium creates one for every browser window whose page area the Mac
     /// client hosts: a Space instance, whose pages paint no backdrop of their
