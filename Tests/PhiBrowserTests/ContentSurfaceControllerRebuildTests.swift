@@ -49,8 +49,7 @@ final class ContentSurfaceControllerRebuildTests: XCTestCase {
     override func tearDown() async throws {
         subscriptions.removeAll()
         manager.discardSpacePrewarm()
-        SpaceSessionControllersManager.shared.danglingWindows
-            .removeAll { danglingWindowIds.contains($0.windowId) }
+        SpaceSessionControllersManager.shared.removeDanglingWindowsForTesting(ids: danglingWindowIds)
         danglingWindowIds.removeAll()
         for slot in manager.slots { slot.closeShellIfPresent() }
         chromiumWindows.forEach { $0.close() }
@@ -103,7 +102,7 @@ final class ContentSurfaceControllerRebuildTests: XCTestCase {
                     .store(in: &observations)
             }
             .store(in: &subscriptions)
-        registry.processDanglingWindow(record, account: store.account, migrationReceipt: nil)
+        registry.processDanglingWindowForTesting(record, account: store.account, migrationReceipt: nil)
 
         let instance = try XCTUnwrap(registry.controller(for: windowId))
         XCTAssertTrue(instance.browserState.contentSurfaceView === hostingView)
@@ -128,7 +127,7 @@ final class ContentSurfaceControllerRebuildTests: XCTestCase {
         // A Guest sign-in, or its rollback, rebuilds every Space instance
         // against the destination account. Chromium does not send the
         // surface again.
-        registry.rebindWindowController(old, to: makeOtherAccount(), migrationReceipt: nil)
+        registry.rebindWindowControllerForTesting(old, to: makeOtherAccount(), migrationReceipt: nil)
 
         let replacement = try XCTUnwrap(registry.controller(for: windowId))
         XCTAssertFalse(replacement === old)
