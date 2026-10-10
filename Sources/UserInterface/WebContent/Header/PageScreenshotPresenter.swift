@@ -17,7 +17,7 @@ enum PageScreenshotPresenter {
     }
 
     static func showCopied(
-        jpegData: Data, title: String, windowId: Int,
+        jpegData: Data, title: String, windowId: Int, area: Bool = false,
         toastCenter: OverlayToastCenter = .shared,
         save: @escaping @MainActor (Data, String, Int) -> Void = saveJPEG
     ) {
@@ -28,9 +28,28 @@ enum PageScreenshotPresenter {
             isBordered: true,
             handler: { save(jpegData, fileName, windowId) })
         toastCenter.show(
-            title: NSLocalizedString("browser.screenshot.copied", value: "Full page screenshot copied",
+            title: area ? NSLocalizedString("browser.screenshot.areaCopied", value: "Area screenshot copied",
+                                           comment: "Screenshot - Success after copying a selected page area") : NSLocalizedString("browser.screenshot.copied", value: "Full page screenshot copied",
                                      comment: "Screenshot - Success toast after copying the JPEG to the clipboard"),
             duration: 6, in: .windowId(windowId), action: action)
+    }
+
+    static func edit(jpegData: Data, title: String, windowId: Int) {
+        Task { @MainActor in
+            let bitmap = await Task.detached(priority: .userInitiated) { ScreenshotImageExport.decode(data: jpegData) }.value
+            guard let bitmap else {
+                OverlayToastCenter.shared.show(
+                    title: NSLocalizedString("browser.screenshot.editFailed", value: "This screenshot is too large to edit. You can still save the original JPG.",
+                                             comment: "Screenshot - Editing failed because the image exceeds the editor's safe size limit"),
+                    duration: 8, in: .windowId(windowId), action: OverlayToastAction(
+                        title: NSLocalizedString("browser.screenshot.saveAction", value: "Save",
+                                                 comment: "Screenshot - Button on the copied screenshot toast to save the JPEG to a file"),
+                        isBordered: true,
+                        handler: { saveJPEG(jpegData, suggestedFileName(title: title), windowId) }))
+                return
+            }
+            ScreenshotEditorWindowController(canvas: bitmap, fileName: suggestedFileName(title: title)).showWindow(nil)
+        }
     }
 
     private static func saveJPEG(_ jpegData: Data, _ fileName: String, _ windowId: Int) {

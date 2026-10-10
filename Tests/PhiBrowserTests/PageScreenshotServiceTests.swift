@@ -200,6 +200,14 @@ final class PageScreenshotServiceTests: XCTestCase {
         var closeCount = 0
         var frameCount = 0
         var size: [String: Any] = ["x": 0, "y": 0, "width": 1200, "height": 4000]
+        var viewport: [String: Any] = ["pageX": 10, "pageY": 500, "clientWidth": 800, "clientHeight": 600]
+        var afterViewport: [String: Any]?
+        var viewportInfo: [String: Any] = ["scrollbarWidth": 0, "scrollbarHeight": 0, "scale": 1]
+        var afterViewportInfo: [String: Any]?
+        var infoCount = 0
+        var onScreenshot: (() -> Void)?
+        var onViewportInfo: ((Int) -> Void)?
+        var metricsCount = 0
         var dpr: Any = 1
         var data: Any?
         var frame: [String: Any] = ["id": "frame-1", "loaderId": "loader-1", "url": "https://example.invalid/"]
@@ -225,9 +233,16 @@ final class PageScreenshotServiceTests: XCTestCase {
                 case "Page.getFrameTree":
                     self.frameCount += 1
                     return ["frameTree": ["frame": self.frameCount == 1 ? self.frame : (self.afterFrame ?? self.frame)]]
-                case "Page.getLayoutMetrics": return ["cssContentSize": self.size]
-                case "Runtime.evaluate": return ["result": ["value": self.dpr]]
-                case "Page.captureScreenshot": return self.data.map { ["data": $0] } ?? [:]
+                case "Page.getLayoutMetrics":
+                    self.metricsCount += 1
+                    return ["cssContentSize": self.size,
+                            "cssVisualViewport": self.metricsCount == 1 ? self.viewport : (self.afterViewport ?? self.viewport)]
+                case "Runtime.evaluate":
+                    if params["expression"] as? String == "window.devicePixelRatio" { return ["result": ["value": self.dpr]] }
+                    self.infoCount += 1
+                    self.onViewportInfo?(self.infoCount)
+                    return ["result": ["value": self.infoCount == 1 ? self.viewportInfo : (self.afterViewportInfo ?? self.viewportInfo)]]
+                case "Page.captureScreenshot": self.onScreenshot?(); return self.data.map { ["data": $0] } ?? [:]
                 default: XCTFail("Unexpected CDP method: \(method)"); return [:]
                 }
             }, close: { self.closeCount += 1 })
@@ -438,6 +453,100 @@ final class PageScreenshotServiceTests: XCTestCase {
             XCTAssertEqual(fixture.calls.map(\.method), ["Page.getFrameTree", "Page.getLayoutMetrics", "Runtime.evaluate", "Page.captureScreenshot", "Page.getFrameTree"])
             XCTAssertEqual(fixture.closeCount, 1)
         }
+    }
+
+    func testAreaCaptureMapsVisibleSelectionToScrolledCSSClipWithoutScalingTheFullPage() async throws {
+        let fixture = CDPFixture(data: try jpeg().base64EncodedString())
+        fixture.size = ["x": 0, "y": 0, "width": 1904, "height": 90000]
+        fixture.dpr = 2.5 // Retina at 125% page zoom.
+        let region = try XCTUnwrap(PageScreenshotRegion(selection: CGRect(x: 100, y: 150, width: 200, height: 100),
+                                                       bounds: CGRect(x: 0, y: 0, width: 1000, height: 750), isFlipped: true))
+        _ = try await PageScreenshotService.capturePage(targetId: "area", timeout: 60, selectRegion: { region }, openSession: fixture.open)
+        let clip = try XCTUnwrap(fixture.calls.first { $0.method == "Page.captureScreenshot" }?.params["clip"] as? [String: Double])
+        XCTAssertEqual(clip["x"], 90)
+        XCTAssertEqual(clip["y"], 620)
+        XCTAssertEqual(try XCTUnwrap(clip["width"]), 160, accuracy: 0.0001)
+        XCTAssertEqual(try XCTUnwrap(clip["height"]), 80, accuracy: 0.0001)
+        XCTAssertEqual(clip["scale"], 1)
+        XCTAssertFalse(fixture.calls.contains { $0.method == "Emulation.setDeviceMetricsOverride" })
+        XCTAssertEqual(fixture.closeCount, 1)
+    }
+
+    func testAreaCancellationAndViewportChangesNeverCaptureAndCloseTheSession() async throws {
+        for scenario in 0..<4 {
+            let fixture = CDPFixture(data: try jpeg().base64EncodedString())
+            let region = try XCTUnwrap(PageScreenshotRegion(selection: CGRect(x: 1, y: 2, width: 30, height: 40),
+                                                           bounds: CGRect(x: 0, y: 0, width: 100, height: 100), isFlipped: true))
+            do {
+                _ = try await PageScreenshotService.capturePage(targetId: "area", timeout: 60, selectRegion: {
+                    if scenario == 0 { throw CancellationError() }
+                    if scenario == 1 { fixture.afterFrame = ["id": "frame-1", "loaderId": "reload", "url": "https://example.invalid/"] }
+                    if scenario == 2 { fixture.afterViewport = ["pageX": 10, "pageY": 501, "clientWidth": 800, "clientHeight": 600] }
+                    if scenario == 3 { fixture.dpr = 2 }
+                    return region
+                }, openSession: fixture.open)
+                XCTFail("Accepted cancelled or stale area")
+            } catch is CancellationError {}
+            XCTAssertFalse(fixture.calls.contains { $0.method == "Page.captureScreenshot" })
+            XCTAssertEqual(fixture.closeCount, 1)
+        }
+    }
+
+    func testCancelledOriginPreservesClipboardAndAllowsRetry() async throws {
+        let board = pasteboard(), image = try jpeg()
+        let completed = expectation(description: "Origin closed")
+        let service = PageScreenshotService(pasteboard: board, captureJPEG: { _, _ in image.base64EncodedString() })
+        let count = board.changeCount
+        service.start(targetId: "area", windowId: 7, isValid: { false }) { outcome in
+            XCTAssertEqual(outcome, .cancelled)
+            completed.fulfill()
+        }
+        await fulfillment(of: [completed], timeout: 2)
+        XCTAssertEqual(board.changeCount, count)
+        XCTAssertFalse(service.isCapturing)
+    }
+
+    func testAreaCaptureAccountsForClassicScrollbarsAndPinchScale() async throws {
+        let fixture = CDPFixture(data: try jpeg().base64EncodedString())
+        fixture.viewport = ["pageX": 10, "pageY": 500, "clientWidth": 400, "clientHeight": 300]
+        fixture.viewportInfo = ["scrollbarWidth": 16, "scrollbarHeight": 12, "scale": 2]
+        let region = try XCTUnwrap(PageScreenshotRegion(selection: CGRect(x: 100, y: 150, width: 200, height: 100),
+                                                       bounds: CGRect(x: 0, y: 0, width: 1000, height: 750), isFlipped: true))
+        _ = try await PageScreenshotService.capturePage(targetId: "area", timeout: 60, selectRegion: { region }, openSession: fixture.open)
+        let clip = try XCTUnwrap(fixture.calls.first { $0.method == "Page.captureScreenshot" }?.params["clip"] as? [String: Double])
+        XCTAssertEqual(try XCTUnwrap(clip["x"]), 50.8, accuracy: 0.001)
+        XCTAssertEqual(try XCTUnwrap(clip["y"]), 561.2, accuracy: 0.001)
+        XCTAssertEqual(try XCTUnwrap(clip["width"]), 81.6, accuracy: 0.001)
+        XCTAssertEqual(try XCTUnwrap(clip["height"]), 40.8, accuracy: 0.001)
+    }
+
+    func testAreaViewportChangesWhileScreenshotIsAwaitedRejectTheResultAndCloseSession() async throws {
+        let fixture = CDPFixture(data: try jpeg().base64EncodedString())
+        let region = try XCTUnwrap(PageScreenshotRegion(selection: CGRect(x: 10, y: 10, width: 100, height: 100),
+                                                       bounds: CGRect(x: 0, y: 0, width: 500, height: 500), isFlipped: true))
+        fixture.onScreenshot = { fixture.afterViewportInfo = ["scrollbarWidth": 0, "scrollbarHeight": 0, "scale": 1.25] }
+        do {
+            _ = try await PageScreenshotService.capturePage(targetId: "area", timeout: 60, selectRegion: { region }, openSession: fixture.open)
+            XCTFail("Accepted a changed viewport")
+        } catch is CancellationError {}
+        XCTAssertEqual(fixture.closeCount, 1)
+        XCTAssertTrue(fixture.calls.contains { $0.method == "Page.captureScreenshot" })
+    }
+
+    func testNavigationDuringFinalViewportReadIsRejected() async throws {
+        let fixture = CDPFixture(data: try jpeg().base64EncodedString())
+        let region = try XCTUnwrap(PageScreenshotRegion(selection: CGRect(x: 10, y: 10, width: 100, height: 100),
+                                                       bounds: CGRect(x: 0, y: 0, width: 500, height: 500), isFlipped: true))
+        fixture.onViewportInfo = { count in
+            if count == 3 { fixture.afterFrame = ["id": "frame-1", "loaderId": "new-loader", "url": "https://example.invalid/"] }
+        }
+        do {
+            _ = try await PageScreenshotService.capturePage(targetId: "area", timeout: 60, selectRegion: { region }, openSession: fixture.open)
+            XCTFail("Accepted a navigation during final viewport validation")
+        } catch AppDevToolsPageSession.SessionError.commandFailed(let message) {
+            XCTAssertEqual(message, "Page navigated while taking the screenshot")
+        }
+        XCTAssertEqual(fixture.closeCount, 1)
     }
 
 }

@@ -15,7 +15,7 @@ final class PageScreenshotService {
 
     enum Outcome: Equatable {
         case copied(Data)
-        case captureFailed, timedOut, invalidImage, clipboardChanged, clipboardWriteFailed
+        case captureFailed, timedOut, invalidImage, clipboardChanged, clipboardWriteFailed, cancelled
     }
 
     private let pasteboard: NSPasteboard
@@ -36,39 +36,77 @@ final class PageScreenshotService {
         self.captureJPEG = captureJPEG
     }
 
-    func canCapture(in state: BrowserState) -> Bool {
+    func canCapture(in state: BrowserState, area: Bool = false) -> Bool {
         guard !isCapturing, ChromiumLauncher.sharedInstance().bridge != nil,
               state.windowId >= 0, let tab = state.pageCommandTarget,
               tab.guid >= 0, !tab.isShowingNativeNTP,
               let targetId = tab.webContentWrapper?.devToolsTargetId,
               !targetId.isEmpty else { return false }
+        if area {
+            return !tab.isLoading && tab.webContentView?.window?.isVisible == true && tab.webContentView?.superview != nil
+        }
         return true
     }
 
     /// Snap the page target, title, and destination window before the first suspension.
-    func capture(in state: BrowserState) {
-        guard canCapture(in: state),
+    func capture(in state: BrowserState, area: Bool = false) {
+        guard canCapture(in: state, area: area),
               let tab = state.pageCommandTarget,
               let targetId = tab.webContentWrapper?.devToolsTargetId else { return }
         let windowId = state.windowId
         let title = tab.title
-        if start(targetId: targetId, windowId: windowId, completion: { outcome in
+        let pageView = tab.webContentView
+        let host = pageView?.superview
+        let window = pageView?.window
+        let frame = pageView?.frame
+        let bounds = pageView?.bounds
+        let url = tab.url
+        let selectionDeadline = uptime() + timeoutInterval
+        let isValid: () -> Bool = { [weak state, weak tab, weak pageView, weak host, weak window] in
+            guard area else { return true }
+            return state?.pageCommandTarget === tab && tab != nil && tab?.url == url && tab?.isLoading == false
+                && tab?.webContentWrapper?.devToolsTargetId == targetId
+                && pageView?.superview === host && host != nil
+                && pageView?.window === window && window?.isVisible == true
+                && pageView?.frame == frame && pageView?.bounds == bounds
+                && ProcessInfo.processInfo.systemUptime < selectionDeadline
+        }
+        let operation: (@MainActor (String, TimeInterval) async throws -> String?)?
+        if area {
+            operation = { target, timeout in
+                try await Self.capturePage(targetId: target, timeout: timeout, selectRegion: {
+                    guard let pageView, isValid() else { throw CancellationError() }
+                    guard let region = await PageScreenshotRegionSelector.select(over: pageView, isValid: isValid),
+                          isValid() else { throw CancellationError() }
+                    return region
+                })
+            }
+        } else {
+            operation = nil
+        }
+        if start(targetId: targetId, windowId: windowId, operation: operation, isValid: isValid, completion: { outcome in
             if case .copied(let jpeg) = outcome {
-                PageScreenshotPresenter.showCopied(jpegData: jpeg, title: title, windowId: windowId)
+                PageScreenshotPresenter.showCopied(jpegData: jpeg, title: title, windowId: windowId, area: area)
+                PageScreenshotPresenter.edit(jpegData: jpeg, title: title, windowId: windowId)
                 return
             }
-            OverlayToastCenter.shared.show(title: Self.title(for: outcome),
-                                          in: .windowId(windowId))
+            guard outcome != .cancelled else { return }
+            OverlayToastCenter.shared.show(title: Self.title(for: outcome), in: .windowId(windowId))
         }) {
-            OverlayToastCenter.shared.show(
-                title: NSLocalizedString("browser.screenshot.capturing", value: "Taking full page screenshot…",
-                                         comment: "Screenshot - Progress toast while capturing the current webpage"),
-                in: .windowId(windowId))
+            if !area {
+                OverlayToastCenter.shared.show(
+                    title: NSLocalizedString("browser.screenshot.capturing", value: "Taking full page screenshot…",
+                                             comment: "Screenshot - Progress toast while capturing the current webpage"),
+                    in: .windowId(windowId))
+            }
         }
     }
 
     @discardableResult
-    func start(targetId: String, windowId: Int, completion: @escaping (Outcome) -> Void) -> Bool {
+    func start(targetId: String, windowId: Int,
+               operation: (@MainActor (String, TimeInterval) async throws -> String?)? = nil,
+               isValid: @escaping () -> Bool = { true },
+               completion: @escaping (Outcome) -> Void) -> Bool {
         guard !isCapturing, !targetId.isEmpty, windowId >= 0 else { return false }
         isCapturing = true
         let started = uptime()
@@ -78,8 +116,10 @@ final class PageScreenshotService {
         Task { @MainActor in
             let outcome: Outcome
             do {
-                let base64 = try await captureJPEG(targetId, timeoutInterval)
-                if uptime() >= deadline {
+                let base64 = try await (operation ?? captureJPEG)(targetId, timeoutInterval)
+                if !isValid() {
+                    outcome = .cancelled
+                } else if uptime() >= deadline {
                     outcome = .timedOut
                 } else if let base64, let jpeg = Self.validatedJPEG(base64) {
                     // Decoding can consume time; check again before committing.
@@ -87,6 +127,8 @@ final class PageScreenshotService {
                 } else {
                     outcome = .invalidImage
                 }
+            } catch is CancellationError {
+                outcome = .cancelled
             } catch AppDevToolsPageSession.SessionError.timedOut {
                 AppLogWarn("[Screenshot] capture.error reason=timedOut elapsed=\(uptime() - started)s")
                 outcome = .timedOut
@@ -112,6 +154,7 @@ final class PageScreenshotService {
 
     static func capturePage(
         targetId: String, timeout: TimeInterval,
+        selectRegion: (() async throws -> PageScreenshotRegion)? = nil,
         openSession: (String, TimeInterval) async throws -> CaptureSession = { targetId, timeout in
             let session = try await AppDevToolsPageSession.open(
                 targetId: targetId, timeout: timeout,
@@ -156,7 +199,34 @@ final class PageScreenshotService {
             AppLogWarn("[Screenshot] dimensions.reject reason=invalidMetricsOrDPR")
             throw AppDevToolsPageSession.SessionError.commandFailed("Invalid screenshot page dimensions")
         }
-        let width = ceil(rawWidth), height = ceil(rawHeight)
+        var clipRect = CGRect(x: x, y: y, width: rawWidth, height: rawHeight)
+        func readViewport(_ metrics: [String: Any]) async throws -> ViewportSnapshot {
+            let info = try await send("Runtime.evaluate", params: [
+                "expression": "({scrollbarWidth: Math.max(0, window.innerWidth - document.documentElement.clientWidth), scrollbarHeight: Math.max(0, window.innerHeight - document.documentElement.clientHeight), scale: window.visualViewport ? window.visualViewport.scale : 1})",
+                "returnByValue": true,
+            ])
+            return try viewportSnapshot(metrics, info: info)
+        }
+        var selectionViewport: ViewportSnapshot?
+        if let selectRegion {
+            let viewport = try await readViewport(metrics)
+            let region = try await selectRegion()
+            // Selection can outlive a navigation, scroll, zoom, or viewport resize.
+            let selectedIdentity = try documentIdentity(await send("Page.getFrameTree"))
+            let selectedMetrics = try await send("Page.getLayoutMetrics")
+            let selectedRatio = try await send("Runtime.evaluate", params: [
+                "expression": "window.devicePixelRatio", "returnByValue": true,
+            ])
+            let selectedViewport = try await readViewport(selectedMetrics)
+            guard before == selectedIdentity, selectedViewport == viewport,
+                  let selectedResult = selectedRatio["result"] as? [String: Any],
+                  finiteNumber(selectedResult["value"]) == dpr,
+                  let regionClip = region.cssClip(viewport: viewport.rect, viewSize: viewport.viewSize) else { throw CancellationError() }
+            clipRect = regionClip
+            selectionViewport = viewport
+        }
+        let width = selectRegion == nil ? ceil(clipRect.width) : clipRect.width
+        let height = selectRegion == nil ? ceil(clipRect.height) : clipRect.height
         let pixelWidth = width * dpr, pixelHeight = height * dpr
         guard pixelWidth.isFinite, pixelHeight.isFinite,
               pixelWidth > 0, pixelHeight > 0 else {
@@ -183,7 +253,7 @@ final class PageScreenshotService {
         }
         let shot = try await send("Page.captureScreenshot", params: [
             "format": "jpeg", "quality": 85, "fromSurface": true, "captureBeyondViewport": true,
-            "clip": ["x": x, "y": y, "width": width, "height": height, "scale": scale],
+            "clip": ["x": clipRect.minX, "y": clipRect.minY, "width": width, "height": height, "scale": scale],
         ])
         guard let base64 = shot["data"] as? String,
               base64.hasPrefix("/9j/"), base64.utf8.count <= maxBase64Bytes else {
@@ -191,12 +261,43 @@ final class PageScreenshotService {
             throw AppDevToolsPageSession.SessionError.commandFailed("Invalid or oversized screenshot image")
         }
         AppLogDebug("[Screenshot] image.received base64Bytes=\(base64.utf8.count) elapsed=\(ProcessInfo.processInfo.systemUptime - started)s")
+        if let selectionViewport {
+            let finalMetrics = try await send("Page.getLayoutMetrics")
+            let finalRatio = try await send("Runtime.evaluate", params: [
+                "expression": "window.devicePixelRatio", "returnByValue": true,
+            ])
+            let finalViewport = try await readViewport(finalMetrics)
+            guard finalViewport == selectionViewport,
+                  let finalResult = finalRatio["result"] as? [String: Any],
+                  finiteNumber(finalResult["value"]) == dpr else { throw CancellationError() }
+        }
         let after = try documentIdentity(await send("Page.getFrameTree"))
         guard before == after else {
             AppLogWarn("[Screenshot] document.reject frameChanged=\(before.0 != after.0) loaderChanged=\(before.1 != after.1) urlChanged=\(before.2 != after.2)")
             throw AppDevToolsPageSession.SessionError.commandFailed("Page navigated while taking the screenshot")
         }
         return base64
+    }
+
+    private struct ViewportSnapshot: Equatable {
+        let rect: CGRect
+        let viewSize: CGSize
+        let scale: Double
+    }
+
+    private static func viewportSnapshot(_ reply: [String: Any], info: [String: Any]) throws -> ViewportSnapshot {
+        guard let viewport = reply["cssVisualViewport"] as? [String: Any],
+              let x = finiteNumber(viewport["pageX"]), let y = finiteNumber(viewport["pageY"]),
+              let width = finiteNumber(viewport["clientWidth"]), let height = finiteNumber(viewport["clientHeight"]),
+              let result = info["result"] as? [String: Any], let value = result["value"] as? [String: Any],
+              let scrollbarWidth = finiteNumber(value["scrollbarWidth"]), let scrollbarHeight = finiteNumber(value["scrollbarHeight"]),
+              let scale = finiteNumber(value["scale"]), scale > 0,
+              scrollbarWidth >= 0, scrollbarHeight >= 0, width > 0, height > 0 else {
+            throw AppDevToolsPageSession.SessionError.commandFailed("Invalid screenshot viewport")
+        }
+        let viewSize = CGSize(width: width + scrollbarWidth / scale, height: height + scrollbarHeight / scale)
+        guard viewSize.width.isFinite, viewSize.height.isFinite else { throw CancellationError() }
+        return ViewportSnapshot(rect: CGRect(x: x, y: y, width: width, height: height), viewSize: viewSize, scale: scale)
     }
 
     private static func documentIdentity(_ reply: [String: Any]) throws -> (String, String, String) {
@@ -259,6 +360,8 @@ final class PageScreenshotService {
         case .clipboardWriteFailed:
             return NSLocalizedString("browser.screenshot.copyFailed", value: "Could not copy the screenshot",
                                      comment: "Screenshot - Error toast when the system clipboard write fails")
+        case .cancelled:
+            return "" // Cancellation is silent.
         case .captureFailed, .invalidImage:
             return NSLocalizedString("browser.screenshot.captureFailed", value: "Could not take a screenshot of this page",
                                      comment: "Screenshot - Error toast when page capture fails or returns an invalid image")

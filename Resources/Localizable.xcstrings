@@ -4,6 +4,462 @@
     "" : {
 
     },
+    "app.fileMenu.capturePageArea" : {
+      "comment" : "File menu - Select a visible webpage area to capture and edit",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Capture Area…"
+          }
+        }
+      }
+    },
+    "browser.screenshot.actualSize" : {
+      "comment" : "Screenshot editor - Show one source image pixel per preview point",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "100%"
+          }
+        }
+      }
+    },
+    "browser.screenshot.annotationEdit" : {
+      "comment" : "Screenshot editor - Undo action for creating or transforming an annotation",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Edit Annotation"
+          }
+        }
+      }
+    },
+    "browser.screenshot.areaCopied" : {
+      "comment" : "Screenshot - Success after copying a selected page area",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Area screenshot copied"
+          }
+        }
+      }
+    },
+    "browser.screenshot.areaHint" : {
+      "comment" : "Screenshot - Instructions above the page during area selection",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Drag to capture an area · Escape to cancel"
+          }
+        }
+      }
+    },
+    "browser.screenshot.arrow" : {
+      "comment" : "Screenshot editor - Arrow drawing tool",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Arrow"
+          }
+        }
+      }
+    },
+    "browser.screenshot.bringToFront" : {
+      "comment" : "Screenshot editor - Move selected annotation above others",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bring to Front"
+          }
+        }
+      }
+    },
+    "browser.screenshot.closeWithoutSaving" : {
+      "comment" : "Screenshot editor - Discard edits and close the window",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Close Without Saving"
+          }
+        }
+      }
+    },
+    "browser.screenshot.color" : {
+      "comment" : "Screenshot editor - Annotation color control",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Color"
+          }
+        }
+      }
+    },
+    "browser.screenshot.crop" : {
+      "comment" : "Screenshot editor - Crop the image to the selected rectangular region",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Crop"
+          }
+        }
+      }
+    },
+    "browser.screenshot.delete" : {
+      "comment" : "Screenshot editor - Delete selected annotation",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Delete"
+          }
+        }
+      }
+    },
+    "browser.screenshot.discardMessage" : {
+      "comment" : "Screenshot editor - Explanation in the unsaved edits confirmation",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Export the screenshot as JPG or PDF to keep your edits."
+          }
+        }
+      }
+    },
+    "browser.screenshot.discardTitle" : {
+      "comment" : "Screenshot editor - Confirmation before discarding unsaved annotations",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Close without saving your edits?"
+          }
+        }
+      }
+    },
+    "browser.screenshot.duplicate" : {
+      "comment" : "Screenshot editor - Duplicate selected annotation",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Duplicate"
+          }
+        }
+      }
+    },
+    "browser.screenshot.editFailed" : {
+      "comment" : "Screenshot - Editing failed because the image exceeds the editor's safe size limit",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This screenshot is too large to edit. You can still save the original JPG."
+          }
+        }
+      }
+    },
+    "browser.screenshot.editorTitle" : {
+      "comment" : "Screenshot editor - Window title",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Edit Screenshot"
+          }
+        }
+      }
+    },
+    "browser.screenshot.ellipse" : {
+      "comment" : "Screenshot editor - Ellipse annotation tool",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ellipse"
+          }
+        }
+      }
+    },
+    "browser.screenshot.export" : {
+      "comment" : "Screenshot editor - Save the edited image to a file",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Export…"
+          }
+        }
+      }
+    },
+    "browser.screenshot.exportRetry" : {
+      "comment" : "Screenshot editor - Recovery advice after a failed file export",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your edits are still available. Choose another location and try again."
+          }
+        }
+      }
+    },
+    "browser.screenshot.fill" : {
+      "comment" : "Screenshot editor - Fill rectangle or ellipse with the annotation color",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Fill"
+          }
+        }
+      }
+    },
+    "browser.screenshot.fit" : {
+      "comment" : "Screenshot editor - Fit the complete screenshot in the window",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Fit"
+          }
+        }
+      }
+    },
+    "browser.screenshot.format" : {
+      "comment" : "Screenshot editor - Export file format",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Format"
+          }
+        }
+      }
+    },
+    "browser.screenshot.freehand" : {
+      "comment" : "Screenshot editor - Freehand drawing tool",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Freehand"
+          }
+        }
+      }
+    },
+    "browser.screenshot.keepEditing" : {
+      "comment" : "Screenshot editor - Cancel closing to continue editing or export",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Keep Editing"
+          }
+        }
+      }
+    },
+    "browser.screenshot.move" : {
+      "comment" : "Screenshot editor - Undo action for moving an annotation",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Move"
+          }
+        }
+      }
+    },
+    "browser.screenshot.paste" : {
+      "comment" : "Screenshot editor - Paste copied annotation",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Paste"
+          }
+        }
+      }
+    },
+    "browser.screenshot.rectangle" : {
+      "comment" : "Screenshot editor - Rectangle annotation tool",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rectangle"
+          }
+        }
+      }
+    },
+    "browser.screenshot.redo" : {
+      "comment" : "Screenshot editor - Redo the last undone edit",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Redo"
+          }
+        }
+      }
+    },
+    "browser.screenshot.select" : {
+      "comment" : "Screenshot editor - Select and move annotations",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Select"
+          }
+        }
+      }
+    },
+    "browser.screenshot.sendToBack" : {
+      "comment" : "Screenshot editor - Move selected annotation below others",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Send to Back"
+          }
+        }
+      }
+    },
+    "browser.screenshot.styleEdit" : {
+      "comment" : "Screenshot editor - Undo action for annotation style",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Change Style"
+          }
+        }
+      }
+    },
+    "browser.screenshot.text" : {
+      "comment" : "Screenshot editor - Text annotation tool",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Text"
+          }
+        }
+      }
+    },
+    "browser.screenshot.textEdit" : {
+      "comment" : "Screenshot editor - Undo action for a text annotation",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Edit Text"
+          }
+        }
+      }
+    },
+    "browser.screenshot.textSize" : {
+      "comment" : "Screenshot editor - Text size in source image pixels",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Text Size"
+          }
+        }
+      }
+    },
+    "browser.screenshot.undo" : {
+      "comment" : "Screenshot editor - Undo the last edit",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Undo"
+          }
+        }
+      }
+    },
+    "browser.screenshot.width" : {
+      "comment" : "Screenshot editor - Stroke width in source image pixels",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Width"
+          }
+        }
+      }
+    },
+    "browser.screenshot.zoomIn" : {
+      "comment" : "Screenshot editor - Increase preview magnification",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zoom In"
+          }
+        }
+      }
+    },
+    "browser.screenshot.zoomOut" : {
+      "comment" : "Screenshot editor - Reduce preview magnification",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zoom Out"
+          }
+        }
+      }
+    },
     "・" : {
       "shouldTranslate" : false
     },
@@ -27868,7 +28324,7 @@
       }
     },
     "browser.screenshot.saveFailed" : {
-      "comment" : "Screenshot - Error toast when writing the selected JPEG file fails",
+      "comment" : "Screenshot - Error toast when writing the selected JPEG file fails\nScreenshot - Error when writing the selected screenshot file fails",
       "extractionState" : "extracted_with_value",
       "localizations" : {
         "de" : {

@@ -59,10 +59,21 @@
     if (self.hasModalPresentationBlockingTermination) {
         return;
     }
+    // Native image documents must finish writes and review edits before browser teardown begins.
+    if ([self reviewScreenshotEditorsForTerminationWithCompletion:^(BOOL approved) {
+        if (approved) {
+            [self continueTerminationAfterScreenshotReview];
+        }
+    }]) {
+        return;
+    }
+    [self continueTerminationAfterScreenshotReview];
+}
+
+- (void)continueTerminationAfterScreenshotReview {
     if ([[ChromiumLauncher sharedInstance].bridge respondsToSelector:@selector(tryToTerminateApplication:)]) {
         [[ChromiumLauncher sharedInstance].bridge tryToTerminateApplication:self];
     }
-   
 }
 
 - (void)cancelTerminate:(id)sender {

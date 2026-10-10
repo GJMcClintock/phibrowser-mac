@@ -85,6 +85,7 @@ import PostHog
     private var pendingBrowserAccessOpenRequiresRegularWindow = false
     private var pendingHotKioskPresentationInFlight = false
     private var pendingHotKioskPresentationWorkItem: DispatchWorkItem?
+    private var screenshotExportTerminationTask: Task<Void, Never>?
     private var hasFinishedLaunching = false
     private var crashFeedbackCoordinator: CrashFeedbackCoordinator?
     /// Cached in `applicationWillFinishLaunching`; weak — owned by `ChromiumLauncher`, not AppController.
@@ -377,17 +378,37 @@ import PostHog
         // snapshot is frozen earlier, in phiWillTryToTerminateApplicationNotification.
         // Re-assert here as a backstop for any quit path that reaches this hook.
         SpaceManager.shared.markTerminating()
-        // A bookmark-export write may still be running on a background queue
-        // (slow network/cloud destination); dying now would silently drop a
-        // save the user already confirmed. The write's completion handler
-        // resumes termination via reply(toApplicationShouldTerminate:).
-        if Self.inFlightBookmarkExportWrites > 0 {
+        // Confirmed writes can start while Chromium's own quit confirmation is up.
+        // Recheck both export owners after browser teardown, without a late discard veto.
+        if Self.inFlightBookmarkExportWrites > 0 || sender.windows.contains(where: {
+            ($0.windowController as? ScreenshotEditorWindowController)?.hasConfirmedExport == true
+        }) {
             Self.bookmarkExportTerminationPending = true
+            MainActor.assumeIsolated { resumeTerminationAfterConfirmedExports() }
             return .terminateLater
         }
         return .terminateNow
     }
     
+    /// Uses the existing export termination gate; neither export owner may resume Quit early.
+    @MainActor
+    func resumeTerminationAfterConfirmedExports() {
+        guard Self.bookmarkExportTerminationPending, screenshotExportTerminationTask == nil else { return }
+        let editors = NSApp.windows.compactMap { $0.windowController as? ScreenshotEditorWindowController }
+            .filter { $0.hasConfirmedExport }
+        if !editors.isEmpty {
+            screenshotExportTerminationTask = Task { @MainActor [self] in
+                for editor in editors { await editor.waitForConfirmedExport() }
+                screenshotExportTerminationTask = nil
+                resumeTerminationAfterConfirmedExports() // Include writers started during the wait.
+            }
+            return
+        }
+        guard Self.inFlightBookmarkExportWrites == 0 else { return }
+        Self.bookmarkExportTerminationPending = false
+        NSApp.reply(toApplicationShouldTerminate: true)
+    }
+
     func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool {
         return true
     }
