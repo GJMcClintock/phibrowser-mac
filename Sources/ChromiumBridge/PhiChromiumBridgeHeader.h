@@ -301,7 +301,7 @@ typedef NS_ENUM(NSInteger, PhiGhostMaterializeOutcome) {
                                 sessionId:(int64_t)sessionId;
 
 // ==========================================================================
-// First paint (Chromium → Mac notification)
+// First paint (Chromium -> Mac notification)
 // ==========================================================================
 
 /// Called when a tab has completed its first visually non-empty paint.
@@ -985,10 +985,12 @@ typedef NS_ENUM(NSInteger, PhiGhostMaterializeOutcome) {
 /// added. Sent once, right after mainBrowserWindowCreated for the same
 /// `windowId`, and only while the PhiContentSurface feature is on: without it
 /// every web view draws itself as before. Add the view to the window's page
-/// area, above the backdrop and below every tab's view, and leave it there:
-/// moving it out of its container does not take the web views still in that
-/// container off the surface. It draws only while shown in a window, so
-/// hiding it, or an ancestor, stops a background window drawing. Chromium
+/// area, above the backdrop and below every tab's view, and leave it there,
+/// except that a page lifted into content fullscreen takes it along into the
+/// fullscreen overlay and gives it back on exit (mac ADR 0010); moving it out
+/// of its container does not take the web views still in that container off
+/// the surface. It draws only while shown in a window, so hiding it, or an
+/// ancestor, stops a background window drawing. Chromium
 /// owns the surface and tears it down with the window's browser; the view
 /// then draws nothing until the client drops it.
 - (void)contentSurfaceCreated:(int64_t)windowId
