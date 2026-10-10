@@ -1569,6 +1569,27 @@ The engine must preserve these persistence, retry and account-isolation rules.
   (`OwnerResolver.localProfileIdForSpace`) before any sibling or default
   fallback, and landing a parentless bookmark materializes a missing root for
   an existing Space instead of parking the batch on `rowNotFound`.
+- **A pin round blocked on its scope publishes nothing** (B-3 stage 1; KB
+  design `2026-09-29-b3-pin-scope-migration-stage1-design.md` 3.3-3.4). The
+  key `PhiPinnedTabScope` is the desired scope and the store row the actual
+  one; `LocalStore.changePinnedTabScope` moves the row and **never writes the
+  key** (the settings UI or settings sync does). The migration bumps an
+  in-memory `LocalStore.pinScopeGeneration` inside its transaction; it re-checks
+  the browser-migration flag inside the store job as well as before queueing.
+  - `PinSyncRoundState` samples the generation (before the rows) with both
+    scopes. Every probe (`rescanScopes`) compares all three, so a round trip
+    X to Y to X still blocks. Blocked = row != key, or anything moved since the
+    sample, or `PhiPinnedTabLocalAccess.scopeFollowerBusy()`.
+  - Blocked: no snapshot, no diff, and no tombstone queued by an earlier round
+    (`pendingDelete`, including dead-owner deletions); these are recomputed
+    from cursor state, so they are delayed, not lost. Arrivals park as before.
+  - Commit fence: right before each pin commit, after the last suspension,
+    the block is re-probed; a blocked commit is dropped unsent and retried by
+    a later round. Other kinds have no fence.
+  - `applyPinSyncBatchThrowing(_:expectedGeneration:)` throws
+    `scopeChangedSinceSample` and writes nothing when the generation moved, or
+    when a create's owner shape does not match the transaction's scope
+    (creates are no longer re-shaped). The engine parks the whole batch on it.
 - **An account switch drops the account's `marker.json`.** The entity cursor
   in `UserDefaults.standard` is wiped on a switch; resuming a previously used
   account from its advanced marker with no entity id would make the next push

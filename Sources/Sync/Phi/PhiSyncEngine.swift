@@ -508,6 +508,11 @@ struct OwnedKindRegistration {
     /// tombstone may already have lost its cursor after three rejected retries or never had an
     /// entityId.
     var purgeSoftDeletedRows: (@MainActor (Date) async -> Int)? = nil
+    /// Pins only (B-3 stage 1, design 3.4): re-probes the round's block predicate and answers
+    /// whether this kind must publish nothing. Nil means the kind never blocks. Publication asks it
+    /// after the deletion diff, before any queued tombstone is selected, and again as the commit
+    /// fence right before each commit.
+    var publicationBlocked: (@MainActor () -> Bool)? = nil
 }
 
 /// One round of Phi settings sync: pull (GetUpdates -> decrypt -> field-level LWW merge ->
@@ -4742,6 +4747,18 @@ actor PhiSyncEngine {
         }
         for (identity, cursor) in diff.cursorUpdates { table.cursors[identity] = cursor }
 
+        // A blocked pin round publishes nothing (B-3 stage 1, design 3.4; tightens R-M3-3-12 /
+        // section 7.3): besides the empty snapshot and diff, no tombstone queued by an earlier round
+        // (pendingDelete, including #176 dead-owner deletions) and no repair or republish. Those are
+        // all read from durable cursor state below, so a later unblocked round selects them again;
+        // skipping delays them and loses nothing. The table is left unwritten: a blocked snapshot
+        // and diff produced no cursor change worth keeping.
+        if let publicationBlocked = registration.publicationBlocked, await publicationBlocked() {
+            counters.scopeMismatch = true
+            ownedCounters[registration.label] = counters
+            return
+        }
+
         // Finalize an unsendable pendingDelete lacking entityId/version locally and stamp
         // deletedAtMs, rather than repeatedly submitting an entry the server must reject (section
         // 9.1 second gate).
@@ -5020,6 +5037,16 @@ actor PhiSyncEngine {
                 roundOutboundFailed = true
                 AppLogError("[phi-sync] owned-item commit aborted kind=\(registration.label): "
                             + "the domain key or the seal failed")
+                break
+            }
+            guard !isStopped, canPublishThisRound else { break }
+            // Commit fence (B-3 stage 1, design 3.4): the domain-key read above suspends, and a
+            // scope migration or a follower start can land meanwhile. Re-probe against the
+            // round's sample; if the pin round is now blocked, drop this and every later slice
+            // unsent. Nothing is marked published, earlier slices keep their outcomes, and a
+            // later round recomputes the rest from cursor state. Pins only; nil for other kinds.
+            if let publicationBlocked = registration.publicationBlocked, await publicationBlocked() {
+                counters.scopeMismatch = true
                 break
             }
             guard !isStopped, canPublishThisRound else { break }
@@ -6694,6 +6721,9 @@ final class PinSyncRoundState {
     /// published and does not count as a mismatch.
     private(set) var localScope: PinnedTabScope = .profile
     private(set) var accountScope: PinnedTabScope?
+    /// `pinScopeGeneration()` sampled with the scopes (B-3 stage 1, design 3.3). Landing hands it back to
+    /// the store, which refuses the batch if a migration ran since.
+    private(set) var generation: UInt64 = 0
 
     /// If both scopes are known and differ, skip all pin publication and park all incoming pins
     /// this round (section 7.3).
@@ -6702,23 +6732,32 @@ final class PinSyncRoundState {
         return localScope != accountScope
     }
 
-    /// Whether either scope changed after the initial sample (R-exec-12); see rescanScopes.
+    /// Whether either scope or the generation changed after the initial sample (R-exec-12 / B-3
+    /// stage 1, design 3.3); see rescanScopes.
     private(set) var scopeMovedMidRound = false
 
-    /// Block when scopes initially mismatched or changed mid-round. All publication guards and
-    /// landing share this predicate (section 7.3).
-    var scopeBlocked: Bool { scopeMismatch || scopeMovedMidRound }
+    /// Whether the pin scope follower was busy at any probe this round (B-3 stage 1, design 3.4).
+    /// Sticky for the round like scopeMovedMidRound: a migration it starts replaces the rows this
+    /// round planned against.
+    private(set) var followerBusy = false
+
+    /// Block when scopes initially mismatched (row != key), changed mid-round (value or generation),
+    /// or the follower is busy (B-3 stage 1, design 3.4). All publication guards, the commit fence
+    /// and landing share this predicate (section 7.3).
+    var scopeBlocked: Bool { scopeMismatch || scopeMovedMidRound || followerBusy }
 
     func reload(_ rows: [PhiLocalPin], localScope: PinnedTabScope,
-                accountScope: PinnedTabScope?) {
+                accountScope: PinnedTabScope?, generation: UInt64, followerBusy: Bool) {
         locals = rows
         rowByGuid = [:]
         for row in rows { rowByGuid[row.guid] = row }
         self.localScope = localScope
         self.accountScope = accountScope
-        // Reset the flag at each round start; this registration-owned state is reused, so a sticky
+        self.generation = generation
+        // Reset the flags at each round start; this registration-owned state is reused, so a sticky
         // cross-round flag would disable pin sync forever after one migration.
         scopeMovedMidRound = false
+        self.followerBusy = followerBusy
     }
 
     /// Resample both scopes after round start (R-exec-12 / D-A). Incoming settings can trigger
@@ -6728,9 +6767,22 @@ final class PinSyncRoundState {
     /// Set a sticky round flag without replacing the original scope values: those values still
     /// interpret the cached rows. Even a change back leaves the cache suspect. Skip this round; the
     /// next beginRound reads consistent new rows and scopes.
-    func rescanScopes(localScope: PinnedTabScope, accountScope: PinnedTabScope?) {
-        guard localScope != self.localScope || accountScope != self.accountScope else { return }
+    ///
+    /// The generation is compared too (B-3 stage 1, design 3.3): a round trip X to Y to X between
+    /// two probes replaces every row while both scope values still match the sample.
+    func rescanScopes(localScope: PinnedTabScope, accountScope: PinnedTabScope?,
+                      generation: UInt64, followerBusy: Bool) {
+        if followerBusy { self.followerBusy = true }
+        guard localScope != self.localScope || accountScope != self.accountScope
+                || generation != self.generation else { return }
         scopeMovedMidRound = true
+    }
+
+    /// One probe through the access boundary; every pin publication and landing step calls it.
+    func rescan(_ access: any PhiPinnedTabLocalAccess) {
+        rescanScopes(localScope: access.currentScope(), accountScope: access.accountScope(),
+                     generation: access.pinScopeGeneration(),
+                     followerBusy: access.scopeFollowerBusy())
     }
 
     /// Refresh from access's post-landing cache without a second fetch, matching
@@ -6874,9 +6926,15 @@ extension OwnedKindRegistration {
                 clearedPinSplitPartners(baselines, now: now, maps: maps, state: state)
             },
             beginRound: {
+                // Read the generation before the rows (B-3 stage 1, design 3.3): a migration that
+                // commits between the two reads then shows as a moved generation at the next probe
+                // instead of being folded into the sample.
+                let generation = access.pinScopeGeneration()
                 state.reload(try access.allPins(),
                              localScope: access.currentScope(),
-                             accountScope: access.accountScope())
+                             accountScope: access.accountScope(),
+                             generation: generation,
+                             followerBusy: access.scopeFollowerBusy())
             },
             // Pin tag indices seed from cursor keys only (section 5.1). This callback lacks round
             // owner mappings and the throwing allPinRows read; raw lineage cannot construct valid
@@ -6962,6 +7020,10 @@ extension OwnedKindRegistration {
                     out.claimed.insert(identity)
                 }
                 return out
+            },
+            publicationBlocked: {
+                state.rescan(access)
+                return state.scopeBlocked
             })
     }
 }
@@ -6976,7 +7038,7 @@ private func pinSnapshot(table: PhiOwnedItemTable, maps: OwnedOwnerMaps, now: In
     var out = OwnedSnapshotBytes()
     // Resample scopes before publication (R-exec-12). A pure push has no plan or landing path, so
     // this is its only recheck.
-    state.rescanScopes(localScope: access.currentScope(), accountScope: access.accountScope())
+    state.rescan(access)
     // On blocked scopes, skip all pin snapshot/publication work and return an empty snapshot; plan
     // parks the incoming half (section 7.3). Carry scope_mismatch diagnostics from here too,
     // because a pure push never runs plan (section 11.2).
@@ -7014,8 +7076,10 @@ private func pinTombstones(table: PhiOwnedItemTable, maps: OwnedOwnerMaps, now: 
     // Resample before allPinRows (R-exec-12). Mid-round migration invalidates access's cache
     // without rereading it, and this round should be skipped rather than throw while reading that
     // stale cache.
-    state.rescanScopes(localScope: access.currentScope(), accountScope: access.accountScope())
+    state.rescan(access)
     // Deletion diff is part of the publication half suppressed by scope mismatch (section 7.3).
+    // This also withholds this round's #176 dead-owner deletions (R-M3-4a-78); they are derived
+    // from cursor state by deadOwnerDeletions, so a later unblocked round recomputes them.
     guard !state.scopeBlocked else {
         return OwnedItemTombstoneResult(identities: [], cursorUpdates: [:])
     }
@@ -7053,7 +7117,7 @@ private func pinPlan(_ input: OwnedPlanInput, access: any PhiPinnedTabLocalAcces
     var out = OwnedPlanOutput()
     // Resample before building plan context (R-exec-12). If scopes changed, park every incoming
     // entity until next round captures consistent rows and scopes.
-    state.rescanScopes(localScope: access.currentScope(), accountScope: access.accountScope())
+    state.rescan(access)
     var arrivals: [OwnedItemArrival<Phi_PhiPinTabEntity>] = []
     for item in input.arrivals {
         guard let envelope = try? Phi_PhiEntity(serializedBytes: item.payload),
@@ -7092,7 +7156,9 @@ private func pinPlan(_ input: OwnedPlanInput, access: any PhiPinnedTabLocalAcces
     // conditions are vacuous.
     context.localScope = state.localScope
     context.accountScope = state.accountScope
-    context.scopeMovedMidRound = state.scopeMovedMidRound
+    // The planner's one non-value block flag also carries a busy follower (B-3 stage 1, design
+    // 3.4): either way the rows behind this plan are about to be, or were, replaced.
+    context.scopeMovedMidRound = state.scopeMovedMidRound || state.followerBusy
     // R-M3-4a-78, inbound half: discard pins owned by a deleted Space instead of parking them.
     context.deadOwners = input.maps.deadSpaceUuids
     context.liveLocalIdentities = liveIdentities
@@ -7155,7 +7221,7 @@ private func landPins(_ input: OwnedLandingInput,
     // physical rows behind the cached identities/GUIDs, so both creates and A11 reminting would be
     // unsafe. Park all input instead. pendingApply retains consumed payloads; next round's
     // consistent projection can update existing migrated rows without duplication.
-    state.rescanScopes(localScope: access.currentScope(), accountScope: access.accountScope())
+    state.rescan(access)
     guard !state.scopeBlocked else {
         for step in input.steps { outcome.parked.insert(step.identity) }
         return outcome
@@ -7468,7 +7534,16 @@ private func landPins(_ input: OwnedLandingInput,
         .subtracting(outcome.parked)
         .subtracting(outcome.landed)
     do {
-        try await access.apply(PinApplyBatch(unordered: ops))
+        try await access.apply(PinApplyBatch(unordered: ops), expectedGeneration: state.generation)
+    } catch LocalStoreWriteError.scopeChangedSinceSample {
+        // A migration committed after this round's sample (B-3 stage 1, design 3.3): the store
+        // wrote nothing. Park every step, exactly as the blocked-landing path above does, so
+        // payloads, tombstones and server identities are retained for the next round's consistent
+        // projection. Named here rather than left to the generic branch below, because refusing it
+        // would drop remote changes this device never saw.
+        outcome.parked.formUnion(identities)
+        outcome.pendingPartnerLineages = [:]
+        return outcome
     } catch LocalStoreWriteError.rowAlreadyMapped, LocalStoreWriteError.rowNotFound,
             LocalStoreWriteError.rowNotInActiveScope, LocalStoreWriteError.noCandidateSurvived {
         // Refuse an invalid batch rather than parking it for endless identical retries.

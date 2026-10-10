@@ -30,10 +30,13 @@ enum LocalStoreWriteError: LocalizedError, Equatable {
     case rowNotFound, rowIsRoot, invalidURL, targetNotWritable, noCandidateSurvived, rowNotInActiveScope
     /// A Space create named a `spaceId` a row already has; inserting it would overwrite that row.
     case spaceAlreadyExists
+    /// A pin sync batch was planned against a pin scope generation that a migration has since
+    /// replaced (B-3 stage 1, design 3.3). Nothing was written; the engine parks the batch.
+    case scopeChangedSinceSample
 
     var errorDescription: String? {
         switch self {
-        case .rowNotFound, .rowIsRoot, .invalidURL, .targetNotWritable, .noCandidateSurvived, .rowNotInActiveScope, .folderNotEmpty, .rowAlreadyMapped, .spaceImporting, .spaceAlreadyExists:
+        case .rowNotFound, .rowIsRoot, .invalidURL, .targetNotWritable, .noCandidateSurvived, .rowNotInActiveScope, .folderNotEmpty, .rowAlreadyMapped, .spaceImporting, .spaceAlreadyExists, .scopeChangedSinceSample:
             return nil
         case .storeUnavailable:
             return NSLocalizedString("localData.pinnedTabScope.unavailableError", value: "Local browser data is unavailable.",
@@ -45,6 +48,16 @@ enum LocalStoreWriteError: LocalizedError, Equatable {
             )
         }
     }
+}
+
+/// Lock-protected counter behind `LocalStore.pinScopeGeneration`. Bumped on the store's write
+/// actor inside a migration transaction and read from the main actor by sync rounds.
+final class PinScopeGenerationCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var current: UInt64 = 0
+
+    var value: UInt64 { lock.lock(); defer { lock.unlock() }; return current }
+    func increment() { lock.lock(); current &+= 1; lock.unlock() }
 }
 
 private struct PinnedTabOwner: Hashable {
@@ -125,7 +138,13 @@ extension LocalStore {
         if await BrowserDataActivity.migrationRunIsInFlight {
             throw LocalStoreWriteError.migrationInFlight
         }
-        try await performBackgroundWriteAndWaitThrowing { context in
+        // Checked again inside the store job (B-3 stage 1, design 3.6): a run can start while this
+        // job waits behind earlier writes, and the check above only covers the moment of queueing.
+        try await performBackgroundWriteAndWaitThrowing(precondition: {
+            if BrowserDataActivity.migrationRunIsInFlight {
+                throw LocalStoreWriteError.migrationInFlight
+            }
+        }) { context in
             let currentScope = try self.pinnedTabScope(in: context)
             guard currentScope != newScope else { return }
 
@@ -138,20 +157,21 @@ extension LocalStore {
             )
             let settings = try self.browserDataSettings(in: context, createIfNeeded: true)
             settings?.pinnedTabScopeRawValue = newScope.rawValue
+            // In the same transaction as the row scope (B-3 stage 1, design 3.3), so a pin sync batch
+            // queued behind this job sees the new generation and refuses its stale plan. A failed save
+            // leaves the generation advanced, which only parks one more batch.
+            self.pinScopeGenerationCounter.increment()
         }
-        // Local → mirror (§7.1 step 2), only after the throwing write: if migration fails, neither row nor key
-        // may change.
-        //
-        // Every nonthrowing path writes, including the `currentScope == newScope` no-op, which returns from
-        // the closure only. The postcondition is key == row. However, a no-op targeting the current row could
-        // erase an already-landed account value awaiting migration (§7.1 step 3, case 2). Both production
-        // callers (`applyAccountPinnedTabScope`, `requestPinnedTabScopeChange`) compare the row first; new
-        // callers must too.
-        //
-        // This is the sole intentional write leaving the sidecar behind the key: a real user change or replay
-        // should be stamped and published by `SyncableSettings.snapshot`. For remote landing, `apply` already
-        // saved the same signature, so rewriting the identical value produces no echo.
-        UserDefaults.standard.set(newScope.rawValue, forKey: PinnedTabScopeMirror.key)
+        // The `PhiPinnedTabScope` key is never written here (B-3 stage 1, design principle 3; E13
+        // removed). The key is the desired scope and is written by the settings UI before it asks for a
+        // migration, or by settings sync when an account value lands; the row follows the key.
+    }
+
+    /// Generation of the pin scope row, incremented by every migration that changed it (B-3 stage 1,
+    /// design 3.3). In memory only: a relaunch starts a new store object, and no round outlives it.
+    /// A pin round samples it with the scopes; a value round trip X to Y to X still moves it.
+    var pinScopeGeneration: UInt64 {
+        pinScopeGenerationCounter.value
     }
 
     func pinnedTabScope(in context: ModelContext) throws -> PinnedTabScope {
@@ -1296,15 +1316,26 @@ extension LocalStore {
     /// round-start read. Throw `spaceImporting` to roll back and retry the entire batch. Finally normalize
     /// each touched owner once: pins group by owner, not parent, and per-operation dense ordering alone cannot
     /// ensure the final result.
-    func applyPinSyncBatchThrowing(_ ops: [PinApplyOp]) async throws {
+    ///
+    /// `expectedGeneration` is the `pinScopeGeneration` the round sampled with its rows and scopes. A
+    /// migration that ran since then replaced the rows the batch was planned against, so a different
+    /// generation inside the transaction throws `scopeChangedSinceSample` and writes nothing (B-3 stage 1,
+    /// design 3.3).
+    func applyPinSyncBatchThrowing(_ ops: [PinApplyOp], expectedGeneration: UInt64) async throws {
         guard !ops.isEmpty else { return }
         try await performBackgroundWriteAndWaitThrowing { context in
-            try self.applyPinSyncBatchBody(ops, in: context)
+            try self.applyPinSyncBatchBody(ops, expectedGeneration: expectedGeneration, in: context)
         }
     }
 
     /// Transaction body, extracted solely for readability; it has one caller.
-    private func applyPinSyncBatchBody(_ ops: [PinApplyOp], in context: ModelContext) throws {
+    private func applyPinSyncBatchBody(_ ops: [PinApplyOp], expectedGeneration: UInt64,
+                                       in context: ModelContext) throws {
+        // Migrations and this batch share the FIFO write stream, so a migration either committed before
+        // this read or runs after this transaction.
+        guard pinScopeGeneration == expectedGeneration else {
+            throw LocalStoreWriteError.scopeChangedSinceSample
+        }
         try refuseIfImportingPins(ops, in: context)
 
         let scope = try pinnedTabScope(in: context)
@@ -1321,6 +1352,17 @@ extension LocalStore {
                 // comparison time to landing time.
                 let profileId = row.profileId ?? Self.defaultProfileId
                 let spaceId = row.spaceId ?? Self.defaultSpaceId
+                // Refuse, never re-shape (B-3 stage 1, design 3.3 / principle 4): the create must already
+                // carry the owner shape of the transaction's scope. `createPinnedTabBody` re-shapes to the
+                // current scope for its UI, import and migration callers; for a sync create that would
+                // turn a pin planned under another scope into a second row of one identity (R-exec-15).
+                // The engine shapes creates from the scope it sampled, so a mismatch means that sample is
+                // stale even though the generation matched (the main context had not yet merged the
+                // migration). Same error as a moved generation, so the batch parks ("a refusal parks").
+                let expectedOwner = Self.pinnedTabOwner(for: scope, profileId: profileId, spaceId: spaceId)
+                guard expectedOwner.profileId == row.profileId, expectedOwner.spaceId == row.spaceId else {
+                    throw LocalStoreWriteError.scopeChangedSinceSample
+                }
                 try createPinnedTabBody(guid: row.guid,
                                         url: row.url,
                                         title: row.title,

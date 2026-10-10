@@ -871,7 +871,7 @@ final class PinnedTabScopeTests: XCTestCase {
                              url: try XCTUnwrap(URL(string: "https://other.example")))),
         ])
         do {
-            try await access.apply(batch)
+            try await access.apply(batch, expectedGeneration: access.pinScopeGeneration())
             XCTFail("Creating an existing guid must make the entire batch throw")
         } catch {
             XCTAssertEqual(error as? LocalStoreWriteError, .rowAlreadyMapped)

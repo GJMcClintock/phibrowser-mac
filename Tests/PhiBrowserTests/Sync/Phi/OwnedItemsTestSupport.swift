@@ -331,8 +331,16 @@ final class FakePinAccess: PhiPinnedTabLocalAccess {
         }
     }
 
-    func apply(_ batch: PinApplyBatch) async throws {
+    /// Stands in for LocalStore.pinScopeGeneration; changeScope advances it.
+    var generation: UInt64 = 0
+
+    func pinScopeGeneration() -> UInt64 { generation }
+
+    func apply(_ batch: PinApplyBatch, expectedGeneration: UInt64) async throws {
         calls.append(.apply(opCount: batch.ops.count))
+        if expectedGeneration != generation {
+            throw LocalStoreWriteError.scopeChangedSinceSample
+        }
         lastAppliedOps = batch.ops
         if failApplyOnce {
             failApplyOnce = false
@@ -362,6 +370,7 @@ final class FakePinAccess: PhiPinnedTabLocalAccess {
                      preferredProfileId: String?,
                      preferredSpaceId: String?) async throws {
         calls.append(.changeScope(scope))
+        if self.scope != scope { generation += 1 }
         self.scope = scope
         // Migration rebuilt all physical rows, invalidating the round snapshot. Production
         // also clears it here without rereading.

@@ -1187,7 +1187,7 @@ final class SpaceManager: ObservableObject {
     }
 
     /// Local → mirror (C1 step 2): record the new role holder's ACCOUNT
-    /// identity, the way `LocalStore.changePinnedTabScope` records the scope.
+    /// identity, the way the pinned-tab scope setting records the scope.
     /// The key is an ordinary synced setting, so the debounced defaults
     /// trigger stamps and pushes it; nothing here talks to the engine.
     /// A Space with no account identity yet publishes nothing — a local id

@@ -170,7 +170,7 @@ final class PhiPinnedTabLocalAccessTests: XCTestCase {
             .create(created),
             .update(guid: "p-a", fields: PinFieldPatch(title: "Renamed")),
             .delete(guid: "p-gone"),
-        ]))
+        ]), expectedGeneration: access.pinScopeGeneration())
 
         let landed = try XCTUnwrap(try row("p-new", in: store))
         XCTAssertEqual(landed.pinLineageId, "l-new", "Preserve the wire identity without minting a replacement")
@@ -192,7 +192,7 @@ final class PhiPinnedTabLocalAccessTests: XCTestCase {
         try await access.apply(PinApplyBatch(unordered: [
             .create(PhiLocalPin.fixture(lineageId: "l-new", guid: "p-new", profileId: "Default",
                                         index: 1, title: "New")),
-        ]))
+        ]), expectedGeneration: access.pinScopeGeneration())
 
         XCTAssertTrue(access.isKnownLocalPin("l-new", ownerKey: "Default"),
                       "Verification reads the rows after application")
@@ -218,7 +218,7 @@ final class PhiPinnedTabLocalAccessTests: XCTestCase {
                 .update(guid: "p-a", fields: PinFieldPatch(title: "Renamed")),
                 .create(PhiLocalPin.fixture(lineageId: "l-new", guid: "p-new",
                                             profileId: "Default", index: 1)),
-            ]))
+            ]), expectedGeneration: access.pinScopeGeneration())
         } catch {
             thrown = error
         }
