@@ -76,7 +76,7 @@ class SpaceSessionControllersManager: MainBrowserWindowLookup {
     private var windowControllers: Set<SpaceSessionController> = []
     
     /// Windows waiting to be converted to SpaceSessionController.
-    var danglingWindows: [DanglingWindow] = []
+    private(set) var danglingWindows: [DanglingWindow] = []
 
     /// Original per-window interaction state captured while Guest-to-account
     /// migration temporarily freezes browser input.
@@ -154,6 +154,14 @@ class SpaceSessionControllersManager: MainBrowserWindowLookup {
     /// - Returns: true if a dangling window exists for the given ID
     func hasDanglingWindow(for windowId: Int) -> Bool {
         return danglingWindows.contains { $0.windowId == windowId }
+    }
+
+    /// Drops the records of `ids`. A record processed on its own stays
+    /// registered (only `materializeDanglingWindows` clears the registry), so
+    /// a test removes the records it added.
+    func removeDanglingWindowsForTesting(ids: [Int]) {
+        assert(Thread.isMainThread)
+        danglingWindows.removeAll { ids.contains($0.windowId) }
     }
 
     /// Buffer a tab-group action for a dangling window so it can be
@@ -269,10 +277,22 @@ class SpaceSessionControllersManager: MainBrowserWindowLookup {
         removeEmptyDanglingSlots(danglingSlots)
         AppLogInfo("🪟 [WindowManager] All dangling windows processed")
     }
+
+    /// Runs `processDanglingWindow` outside `materializeDanglingWindows`. The
+    /// test host starts without browser access and holds a real dangling
+    /// window of its own, which that would process too.
+    @MainActor
+    func processDanglingWindowForTesting(
+        _ danglingWindow: DanglingWindow,
+        account: Account,
+        migrationReceipt: GuestDataMigrationReceipt?
+    ) {
+        processDanglingWindow(danglingWindow, account: account, migrationReceipt: migrationReceipt)
+    }
     
     /// Restore a dangling window, or close it if no tabs arrived before access.
     @MainActor
-    func processDanglingWindow(
+    private func processDanglingWindow(
         _ danglingWindow: DanglingWindow,
         account: Account,
         migrationReceipt: GuestDataMigrationReceipt?
@@ -637,8 +657,20 @@ class SpaceSessionControllersManager: MainBrowserWindowLookup {
         }
     }
 
+    /// Runs `rebindWindowController` outside `rebindWindowControllers(to:)`,
+    /// which would rebind every other live controller in the test host too
+    /// and block input on every window while it runs.
     @MainActor
-    func rebindWindowController(
+    func rebindWindowControllerForTesting(
+        _ oldController: SpaceSessionController,
+        to account: Account,
+        migrationReceipt: GuestDataMigrationReceipt?
+    ) {
+        rebindWindowController(oldController, to: account, migrationReceipt: migrationReceipt)
+    }
+
+    @MainActor
+    private func rebindWindowController(
         _ oldController: SpaceSessionController,
         to account: Account,
         migrationReceipt: GuestDataMigrationReceipt?
