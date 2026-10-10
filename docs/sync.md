@@ -1591,6 +1591,11 @@ The engine must preserve these persistence, retry and account-isolation rules.
     `scopeChangedSinceSample` and writes nothing when the generation moved, or
     when a create's owner shape does not match the transaction's scope
     (creates are no longer re-shaped). The engine parks the whole batch on it.
+  - Hostless checks: `build-scripts/test-sync-pin-scope-publication.sh` runs
+    the sliced `publishOwnedKind` with the production pin block predicate
+    (blocked rounds, commit fence); `build-scripts/test-sync-pin-scope-store.sh`
+    runs the sliced migration transaction and batch fence on an in-memory
+    SwiftData store (stale generation, X to Y to X).
 - **The pin scope row follows the key; the key is written first** (B-3 stage
   1, design 3.1, 3.2, 3.5, 3.6).
   - Settings, after its confirmation alert and a fresh browser-migration
@@ -1619,6 +1624,8 @@ The engine must preserve these persistence, retry and account-isolation rules.
     queued store job finishes on its own account's store. Without a mounted
     follower (Guest Mode, sync not built) Settings runs one attempt with no
     retry, and the next mount's follower finishes the change.
+    `build-scripts/test-sync-pin-scope-follower.sh` drives the real follower
+    over injected effects and a manual timer.
   - Status (amendment b): the consecutive failure count and the last kind
     (`SyncPinScopeMigrationFailure`) reach the pane through
     `SyncHelper.setPinScopeMigrationFailure(_:)`, beside the Profile mapping
