@@ -24,11 +24,17 @@ tree, and each is handled at the moment the Space withdraws
   every Space. The withdrawing session puts it back under its tree first
   (`WebContentContainerViewController.collapseContentFullscreenForConcealment`),
   and Chromium's `UnpresentHostedBrowser` leaves tab fullscreen with the
-  Space, as a tab switch does in a real window. The shell keeps its own
-  fullscreen state for the Space replacing it; the leaving Space is a
+  Space, as a tab switch does in a real window. The leaving Space is a
   background session for `sessionRequestedShellFullscreen` from the moment
   `concealFromShell` runs, whether or not the slot has moved
-  `visibleController` on yet.
+  `visibleController` on yet, and the shell keeps its fullscreen state for
+  the Space replacing it, with one exception: when the leaving Space's
+  request put the shell into fullscreen (`shellFullscreenOwner`), Chromium
+  asks for the window to leave fullscreen with the tab, and the shell does,
+  as a real window does. Fullscreen the user entered has no owner and stays.
+  The slot's restore record leaves out a fullscreen whose owner's page is
+  still in it (`snapshotIsFullScreen`), so quitting from a video in
+  fullscreen reopens windowed.
 - A crash page reloads and opens help through its own session
   (`BrowserState.windowController`), never through the shell's window
   controller, which is whichever Space is presented.
