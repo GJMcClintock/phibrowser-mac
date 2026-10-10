@@ -30,6 +30,9 @@ class WebContentContainerViewController: NSViewController {
     /// Whether a tab has been mounted here yet; the first mount is the cold
     /// one (see `switchToWebContentController`).
     private var hasMountedTab = false
+    /// Called with the controller being mounted, right before the mount
+    /// decides whether its content joins the window in this turn.
+    var willMountControllerForTesting: ((WebContentViewController) -> Void)?
 
     /// Currently displayed WebContentViewController
     /// Hands keyboard focus to the presented tab. Hosted-window mode calls
@@ -1890,6 +1893,7 @@ class WebContentContainerViewController: NSViewController {
 
         attachSharedBookmarkBar(to: controller)
 
+        willMountControllerForTesting?(controller)
         // Re-mount content before we mark this controller as current.
         // For split tabs, the partner's webContentView may have been
         // reparented into another controller's split host. For tabs whose

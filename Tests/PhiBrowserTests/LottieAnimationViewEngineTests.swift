@@ -5,6 +5,7 @@
 
 import AppKit
 import Lottie
+import SwiftUI
 import XCTest
 @testable import Phi
 
@@ -19,6 +20,39 @@ final class LottieAnimationViewEngineTests: XCTestCase {
             animationName: "new-tab",
             reverseAnimationName: "new-tab-reverse"
         ))
+
+        let engines = renderingEngines(of: button)
+
+        XCTAssertEqual(engines.count, 2, "Expected the forward and the reverse animation views.")
+        XCTAssertEqual(Set(engines), [.mainThread])
+    }
+
+    /// The sidebar's download button builds its animation view itself, not
+    /// through `LottieAnimationNSView`.
+    func testDownloadButtonRendersOnTheMainThread() {
+        let button = DownloadButtonNSView(onTap: {})
+
+        XCTAssertEqual(renderingEngines(of: button), [.mainThread])
+    }
+
+    /// A bookmark folder's icon builds its animation view itself, both as the
+    /// static snapshot and as the live icon.
+    func testBookmarkFolderIconRendersOnTheMainThread() {
+        for usesStaticSnapshotIcon in [true, false] {
+            let icon = NSHostingView(rootView: BookmarkFolderIconView(
+                icon: .standard,
+                isExpanded: false,
+                usesStaticSnapshotIcon: usesStaticSnapshotIcon
+            ))
+
+            XCTAssertEqual(renderingEngines(of: icon), [.mainThread],
+                           "usesStaticSnapshotIcon: \(usesStaticSnapshotIcon)")
+        }
+    }
+
+    /// The engines of the animation views `view` builds once it is laid out
+    /// in a window.
+    private func renderingEngines(of view: NSView) -> [RenderingEngineOption] {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 24, height: 24),
             styleMask: .borderless,
@@ -27,13 +61,9 @@ final class LottieAnimationViewEngineTests: XCTestCase {
         )
         window.isReleasedWhenClosed = false
         defer { window.close() }
-        window.contentView = button
-        button.layoutSubtreeIfNeeded()
-
-        let engines = lottieViews(in: button).map(\.configuration.renderingEngine)
-
-        XCTAssertEqual(engines.count, 2, "Expected the forward and the reverse animation views.")
-        XCTAssertEqual(Set(engines), [.mainThread])
+        window.contentView = view
+        view.layoutSubtreeIfNeeded()
+        return lottieViews(in: view).map(\.configuration.renderingEngine)
     }
 
     private func lottieViews(in view: NSView) -> [Lottie.LottieAnimationView] {
