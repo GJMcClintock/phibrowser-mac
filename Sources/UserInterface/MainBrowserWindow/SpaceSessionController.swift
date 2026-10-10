@@ -1183,13 +1183,17 @@ class SpaceSessionController: NSWindowController {
     }
 
     /// Content fullscreen (video, `requestFullscreen`) on one of this
-    /// session's tabs. Nothing to do for the window here in either mode:
+    /// session's tabs. The window is not driven from here in either mode:
     /// Chromium fullscreens a legacy window itself, and in hosted mode its
     /// change to the hidden window's fullscreen state reaches the shell
     /// through `windowRequestedFullscreen:` (`requestShellFullscreen`) —
     /// which also carries the cases a content notification cannot, such as
     /// a page leaving fullscreen inside a window the user had fullscreened.
-    func handleTabContentFullscreen(isFullscreen: Bool) {}
+    /// The slot's restore record leaves a page's fullscreen out, so it is
+    /// rewritten here (`SpaceWindowSlot.snapshotIsFullScreen`).
+    func handleTabContentFullscreen(isFullscreen: Bool) {
+        slot?.sessionContentFullscreenDidChange(self)
+    }
 
     /// Hosted mode: Chromium changed this session's Browser fullscreen
     /// state; the shell follows while this session is presented.
