@@ -24,7 +24,7 @@ types = [block(s) for s in ['enum PinnedTabScope:', 'enum LocalStoreWriteError:'
                             'final class PinScopeGenerationCounter', 'private struct PinnedTabOwner']]
 types += [block(s, access) for s in ['struct PhiLocalPin:', 'struct PinFieldPatch:', 'enum PinApplyOp:']]
 fixture = fixture.replace('/* PRODUCTION_TYPES */', '\n'.join(types))
-methods = [block(s) for s in ['    func changePinnedTabScope(\n', '    var pinScopeGeneration: UInt64 {',
+methods = [block(s) for s in ['    func changePinnedTabScope(\n', '    private func changePinnedTabScopeJob(\n', '    var pinScopeGeneration: UInt64 {',
                               '    func pinnedTabScope(in context: ModelContext)', '    func pinnedTabs(\n',
                               '    private func browserDataSettings(\n',
                               '    fileprivate static func pinnedTabOwner(for scope:',

@@ -2,16 +2,29 @@ import Foundation
 import SwiftData
 
 // Runs the production pin scope generation fence (B-3 stage 1, design 3.3) against a real in-memory
-// SwiftData store of the shipping schema: `changePinnedTabScope`'s transaction, `pinScopeGeneration`,
-// and `applyPinSyncBatchThrowing` with its body are sliced from LocalStore+PinnedTabScope.swift. The
+// SwiftData store of the shipping schema: `changePinnedTabScope` with its in-flight count and its
+// transaction, `pinScopeGeneration`, and `applyPinSyncBatchThrowing` with its body are sliced from
+// LocalStore+PinnedTabScope.swift. The
 // row-moving helpers the slices call are stubs: the migration's pin reshaping and the per-op bodies
 // other than create are not under test here.
 typealias TabDataModel = TabDataModelSchemaV13.TabDataModel
 typealias BrowserDataSettingsModel = TabDataModelSchemaV13.BrowserDataSettingsModel
 enum TabDataType: Int { case tab = 0, pinnedTab = 1, bookmark = 2, bookmarkFolder = 3 }
 
+/// The production in-flight count's two calls, with the Migration flag recording the count every time
+/// `changePinnedTabScope` reads it (the queueing check, then the in-job check).
 @MainActor
-enum BrowserDataActivity { static var migrationRunIsInFlight = false }
+enum BrowserDataActivity {
+    static var runIsInFlight: [Bool] = []
+    static var pinScopeJobsInFlight = 0
+    static var countAtFlagReads: [Int] = []
+    static var migrationRunIsInFlight: Bool {
+        countAtFlagReads.append(pinScopeJobsInFlight)
+        return runIsInFlight.isEmpty ? false : runIsInFlight.removeFirst()
+    }
+    static func pinScopeJobDidBegin() { pinScopeJobsInFlight += 1 }
+    static func pinScopeJobDidEnd() { pinScopeJobsInFlight -= 1 }
+}
 
 /* PRODUCTION_TYPES */
 
@@ -136,6 +149,8 @@ struct PinScopeStoreTests {
     static func main() async throws {
         try await staleGenerationWritesNothing()
         try await roundTripIsDetected()
+        try await sameGenerationOtherScopeWritesNothing()
+        try await scopeJobIsCountedInFlight()
     }
 
     @MainActor
@@ -154,21 +169,22 @@ struct PinScopeStoreTests {
         // A batch planned at the old generation writes nothing: no helper ran, no row, scope unchanged.
         store.helperCalls = []
         await expectRefusal({
-            try await store.applyPinSyncBatchThrowing([create("p1", profileId: nil)], expectedGeneration: sampled)
+            try await store.applyPinSyncBatchThrowing([create("p1", profileId: nil)], expectedGeneration: sampled,
+                                                      expectedScope: .app)
         }, "stale generation")
         precondition(store.helperCalls.isEmpty, "refused before any write: \(store.helperCalls)")
         precondition(store.committedPins().isEmpty && store.committedScope() == .app)
 
         // Control: the same batch at the current generation lands.
         try await store.applyPinSyncBatchThrowing([create("p1", profileId: nil)],
-                                                  expectedGeneration: store.pinScopeGeneration)
+                                                  expectedGeneration: store.pinScopeGeneration, expectedScope: .app)
         precondition(store.helperCalls == ["create p1"] && store.committedPins().map(\.guid) == ["p1"])
 
         // A create shaped for another scope is refused at the current generation too (not re-shaped).
         store.helperCalls = []
         await expectRefusal({
             try await store.applyPinSyncBatchThrowing([create("p2", profileId: "Default")],
-                                                      expectedGeneration: store.pinScopeGeneration)
+                                                      expectedGeneration: store.pinScopeGeneration, expectedScope: .app)
         }, "create shaped for profile scope under app scope")
         precondition(store.helperCalls.isEmpty && store.committedPins().map(\.guid) == ["p1"])
         print("PASS store fence: a stale expectedGeneration throws scopeChangedSinceSample and writes nothing; the current one lands; a no-op migration keeps the generation")
@@ -190,9 +206,66 @@ struct PinScopeStoreTests {
 
         store.helperCalls = []
         await expectRefusal({
-            try await store.applyPinSyncBatchThrowing([create("p1")], expectedGeneration: sampled)
+            try await store.applyPinSyncBatchThrowing([create("p1")], expectedGeneration: sampled,
+                                                      expectedScope: sampledScope)
         }, "round trip")
         precondition(store.helperCalls.isEmpty && store.committedPins().isEmpty)
         print("PASS store fence: a scope round trip X to Y to X between two samples is detected by the generation and the batch writes nothing")
+    }
+
+    @MainActor
+    static func sameGenerationOtherScopeWritesNothing() async throws {
+        // Review round 1 F5 (d'): the round sampled the current generation but rows of another scope
+        // (the main context had not merged the migration). The row scope check refuses the batch.
+        let store = try LocalStore()
+        try await store.changePinnedTabScope(to: .app)
+        store.helperCalls = []
+        await expectRefusal({
+            try await store.applyPinSyncBatchThrowing([.delete(guid: "p-old")],
+                                                      expectedGeneration: store.pinScopeGeneration,
+                                                      expectedScope: .profile)
+        }, "current generation, stale row scope")
+        precondition(store.helperCalls.isEmpty && store.committedPins().isEmpty && store.committedScope() == .app)
+        // Control: the same generation with the row's own scope lands.
+        try await store.applyPinSyncBatchThrowing([create("p1", profileId: nil)],
+                                                  expectedGeneration: store.pinScopeGeneration, expectedScope: .app)
+        precondition(store.committedPins().map(\.guid) == ["p1"])
+        print("PASS store fence: the current generation with a different row scope throws scopeChangedSinceSample and writes nothing")
+    }
+
+    @MainActor
+    static func scopeJobIsCountedInFlight() async throws {
+        // Review round 1 F2/F4: the count is up from the queueing check through the in-job check (the
+        // main-to-write-actor hop) and back to zero once the job returns, thrown or not.
+        let store = try LocalStore()
+        BrowserDataActivity.countAtFlagReads = []
+        try await store.changePinnedTabScope(to: .space)
+        precondition(BrowserDataActivity.countAtFlagReads == [0, 1],
+                     "queueing check before the count, in-job check inside it: \(BrowserDataActivity.countAtFlagReads)")
+        precondition(BrowserDataActivity.pinScopeJobsInFlight == 0, "released after the job")
+
+        // A run that starts during the hop: the in-job check refuses, and the count is still released.
+        BrowserDataActivity.countAtFlagReads = []
+        BrowserDataActivity.runIsInFlight = [false, true]
+        do {
+            try await store.changePinnedTabScope(to: .app)
+            preconditionFailure("the in-job check must refuse")
+        } catch let error as LocalStoreWriteError {
+            precondition(error == .migrationInFlight)
+        }
+        precondition(BrowserDataActivity.countAtFlagReads == [0, 1] && BrowserDataActivity.pinScopeJobsInFlight == 0)
+        precondition(store.committedScope() == .space)
+
+        // Refused at queueing: never counted.
+        BrowserDataActivity.countAtFlagReads = []
+        BrowserDataActivity.runIsInFlight = [true]
+        do {
+            try await store.changePinnedTabScope(to: .app)
+            preconditionFailure("the queueing check must refuse")
+        } catch let error as LocalStoreWriteError {
+            precondition(error == .migrationInFlight)
+        }
+        precondition(BrowserDataActivity.countAtFlagReads == [0] && BrowserDataActivity.pinScopeJobsInFlight == 0)
+        print("PASS store in-flight count: held from the queueing check until the job returns, released on every exit")
     }
 }

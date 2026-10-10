@@ -3,7 +3,7 @@ import Foundation
 // Runs the production owned-item publication path (`publishOwnedKind` with its slice, commit-outcome
 // and table-doctoring helpers, sliced from PhiSyncEngine.swift) for the pin kind, with the production
 // pin block predicate: `PinSyncRoundState` (sample, rescan, scopeBlocked) and the registration's
-// `publicationBlocked` closure, both sliced. B-3 stage 1, design 3.4: a blocked round publishes no
+// `beginRound` and `publicationBlocked` closures, all sliced. B-3 stage 1, design 3.4: a blocked round publishes no
 // queued tombstone and no dead-owner deletion, and the commit fence drops a commit when the
 // generation moves between the snapshot and the submit.
 //
@@ -47,6 +47,8 @@ protocol PhiPinnedTabLocalAccess: AnyObject {
     func accountScope() -> PinnedTabScope?
     func pinScopeGeneration() -> UInt64
     func scopeFollowerBusy() -> Bool
+    func requestScopeFollow()
+    func allPins() throws -> [PhiLocalPin]
 }
 
 /// The row scope, the key's scope, the store generation and the follower, as the round probes them.
@@ -55,10 +57,32 @@ final class FakePinAccess: PhiPinnedTabLocalAccess {
     var key: PinnedTabScope? = .profile
     var generation: UInt64 = 0
     var followerBusy = false
-    func currentScope() -> PinnedTabScope { row }
-    func accountScope() -> PinnedTabScope? { key }
-    func pinScopeGeneration() -> UInt64 { generation }
-    func scopeFollowerBusy() -> Bool { followerBusy }
+    /// A follow request starts a job (the follower found work the sample cannot see, such as a row
+    /// the main context has not merged yet).
+    var followStartsJob = false
+    /// Runs inside the rows read, then is cleared: a migration committing between two sample reads.
+    var duringAllPins: (() -> Void)?
+    /// Every probe, in order.
+    var reads: [String] = []
+    func currentScope() -> PinnedTabScope { reads.append("row"); return row }
+    func accountScope() -> PinnedTabScope? { reads.append("key"); return key }
+    func pinScopeGeneration() -> UInt64 { reads.append("generation"); return generation }
+    func scopeFollowerBusy() -> Bool { reads.append("busy"); return followerBusy }
+    func requestScopeFollow() {
+        reads.append("follow")
+        if followStartsJob { followerBusy = true }
+    }
+    func allPins() throws -> [PhiLocalPin] {
+        reads.append("rows")
+        if let during = duringAllPins { duringAllPins = nil; during() }
+        return []
+    }
+}
+
+/// The production pin registration's `beginRound`, over this round state and access.
+@MainActor
+func pinBeginRound(state: PinSyncRoundState, access: any PhiPinnedTabLocalAccess) -> @MainActor () throws -> Void {
+    /* PRODUCTION_PIN_BEGIN_ROUND */
 }
 
 struct OwnedKindRegistration {

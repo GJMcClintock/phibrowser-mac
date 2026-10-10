@@ -77,10 +77,10 @@ final class BrowserMigrationRunner: ObservableObject {
 
     /// Starts `plan` and reports whether it started. A run already in flight
     /// is left alone: the wizard returns to its progress rather than putting a
-    /// second run against the same source in the air. A pinned-tab scope change
-    /// still being applied refuses the same way (B-3 stage 1, design 3.6): the
-    /// plan's pinned owners are fanned out from the row's scope, which is about
-    /// to move.
+    /// second run against the same source in the air. A pinned-tab scope
+    /// migration job in flight refuses the same way (B-3 stage 1, design 3.6):
+    /// the plan's pinned owners are fanned out from the row's scope, which is
+    /// about to move.
     ///
     /// `source` is what the plan was built from: the plan names source profiles
     /// and Spaces, and this says which browser they came out of — the importer
@@ -443,13 +443,20 @@ enum BrowserDataActivity {
     /// Stands a pending pin scope change up in tests. Always nil in production.
     static var pinScopeMigrationPendingOverrideForTesting: Bool?
 
-    /// The pin scope follower of the account whose data the browser uses has
-    /// work left: a migration running, or the row behind the setting (B-3
-    /// stage 1, design 3.6). A Migration run does not start meanwhile.
+    /// `LocalStore.changePinnedTabScope` calls in flight, from its queueing
+    /// check until its store job has returned, whoever the caller is.
+    private(set) static var pinScopeJobsInFlight = 0
+
+    static func pinScopeJobDidBegin() { pinScopeJobsInFlight += 1 }
+    static func pinScopeJobDidEnd() { pinScopeJobsInFlight -= 1 }
+
+    /// A pinned-tab scope migration job is in flight (B-3 stage 1, design 3.6
+    /// as amended 2026-10-10). A Migration run does not start meanwhile. Not
+    /// "the row is behind the setting": a follower in retry backoff holds
+    /// nothing, since a scope job queued after a run has started is refused
+    /// by the store, and the run plans from the row scope at its start.
     static var pinScopeMigrationIsPending: Bool {
-        if let pinScopeMigrationPendingOverrideForTesting { return pinScopeMigrationPendingOverrideForTesting }
-        guard let store = AccountController.shared.localDataAccount?.localStorage else { return false }
-        return PhiChromiumCoordinator.shared.pinScopeMigrationIsPending(store: store)
+        pinScopeMigrationPendingOverrideForTesting ?? (pinScopeJobsInFlight > 0)
     }
 
     /// A Migration run is under way, or its wizard is on screen: the import

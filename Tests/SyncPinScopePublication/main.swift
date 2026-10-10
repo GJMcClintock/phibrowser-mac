@@ -43,10 +43,10 @@ final class Device {
             })
     }
 
-    /// `beginRound`: sample the scopes, the generation and the follower.
+    /// The production `beginRound`: trigger the follower, then sample the generation, the rows, the
+    /// scopes and the follower.
     func beginRound() async {
-        state.reload([], localScope: access.currentScope(), accountScope: access.accountScope(),
-                     generation: access.pinScopeGeneration(), followerBusy: access.scopeFollowerBusy())
+        try! pinBeginRound(state: state, access: access)()
         await engine.startRound()
     }
 
@@ -71,6 +71,37 @@ struct PinScopePublicationTests {
         await blockedRoundPublishesNothingThenNextRoundDoes()
         await commitFenceDropsTheCommit()
         await commitFenceKeepsEarlierSlices()
+        await beginRoundSamplesInProductionOrder()
+    }
+
+    /// Review round 1 fixture gap: the round-start order. The follow request comes before the busy
+    /// sample, so a job it starts blocks this round; the generation is read before the rows, so a
+    /// migration committing between the two reads shows as a moved generation at the next probe.
+    @MainActor
+    static func beginRoundSamplesInProductionOrder() async {
+        do {
+            let device = await Device(table: PhiOwnedItemTable())
+            device.access.followStartsJob = true
+            await device.beginRound()
+            precondition(device.access.reads == ["follow", "generation", "rows", "row", "key", "busy"],
+                         "\(device.access.reads)")
+            precondition(device.state.followerBusy && device.state.scopeBlocked,
+                         "a job the round's own follow request started blocks the round")
+            device.liveEntities["p-1"] = Data([7])
+            await device.publish()
+            precondition(device.recorder.commits.isEmpty, "the blocked round publishes nothing")
+        }
+        do {
+            let device = await Device(table: PhiOwnedItemTable())
+            device.access.duringAllPins = { [unowned device] in device.access.generation += 1 }
+            await device.beginRound()
+            precondition(device.state.generation == 0, "the generation is sampled before the rows")
+            precondition(!device.state.scopeBlocked)
+            device.state.rescan(device.access)
+            precondition(device.state.scopeMovedMidRound && device.state.scopeBlocked,
+                         "the migration between the two reads shows at the next probe")
+        }
+        print("PASS beginRound order: the follow request precedes the busy sample, and the generation precedes the rows")
     }
 
     @MainActor

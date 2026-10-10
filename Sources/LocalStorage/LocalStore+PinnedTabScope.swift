@@ -135,9 +135,36 @@ extension LocalStore {
         // level. Refused here as well as disabled in Settings: the settings
         // view asks for confirmation before it calls this, and no future
         // caller has to remember the rule.
-        if await BrowserDataActivity.migrationRunIsInFlight {
-            throw LocalStoreWriteError.migrationInFlight
+        //
+        // The check and the in-flight count are one main-actor step, so a run cannot start between
+        // them; the count holds `BrowserMigrationRunner.start` off from here until the store job has
+        // returned, which covers the main-to-write-actor hop after the in-job check below (B-3 stage
+        // 1, design 3.6 as amended 2026-10-10). Every caller is counted, not only the follower.
+        try await MainActor.run {
+            if BrowserDataActivity.migrationRunIsInFlight {
+                throw LocalStoreWriteError.migrationInFlight
+            }
+            BrowserDataActivity.pinScopeJobDidBegin()
         }
+        do {
+            try await changePinnedTabScopeJob(to: newScope, preferredProfileId: preferredProfileId,
+                                              preferredSpaceId: preferredSpaceId)
+        } catch {
+            await MainActor.run { BrowserDataActivity.pinScopeJobDidEnd() }
+            throw error
+        }
+        await MainActor.run { BrowserDataActivity.pinScopeJobDidEnd() }
+        // The `PhiPinnedTabScope` key is never written here (B-3 stage 1, design principle 3; E13
+        // removed). The key is the desired scope and is written by the settings UI before it asks for a
+        // migration, or by settings sync when an account value lands; the row follows the key.
+    }
+
+    /// The store job of `changePinnedTabScope`, counted in flight by its caller.
+    private func changePinnedTabScopeJob(
+        to newScope: PinnedTabScope,
+        preferredProfileId: String?,
+        preferredSpaceId: String?
+    ) async throws {
         // Checked again inside the store job (B-3 stage 1, design 3.6): a run can start while this
         // job waits behind earlier writes, and the check above only covers the moment of queueing.
         try await performBackgroundWriteAndWaitThrowing(precondition: {
@@ -162,9 +189,6 @@ extension LocalStore {
             // leaves the generation advanced, which only parks one more batch.
             self.pinScopeGenerationCounter.increment()
         }
-        // The `PhiPinnedTabScope` key is never written here (B-3 stage 1, design principle 3; E13
-        // removed). The key is the desired scope and is written by the settings UI before it asks for a
-        // migration, or by settings sync when an account value lands; the row follows the key.
     }
 
     /// Generation of the pin scope row, incremented by every migration that changed it (B-3 stage 1,
@@ -1317,28 +1341,34 @@ extension LocalStore {
     /// each touched owner once: pins group by owner, not parent, and per-operation dense ordering alone cannot
     /// ensure the final result.
     ///
-    /// `expectedGeneration` is the `pinScopeGeneration` the round sampled with its rows and scopes. A
-    /// migration that ran since then replaced the rows the batch was planned against, so a different
-    /// generation inside the transaction throws `scopeChangedSinceSample` and writes nothing (B-3 stage 1,
-    /// design 3.3).
-    func applyPinSyncBatchThrowing(_ ops: [PinApplyOp], expectedGeneration: UInt64) async throws {
+    /// `expectedGeneration` and `expectedScope` are the `pinScopeGeneration` and the row scope the round
+    /// sampled with its rows. A migration that ran since then replaced the rows the batch was planned
+    /// against, so a different generation or row scope inside the transaction throws
+    /// `scopeChangedSinceSample` and writes nothing (B-3 stage 1, design 3.3). The scope catches a sample
+    /// that read the new generation with rows the main context had not merged yet.
+    func applyPinSyncBatchThrowing(_ ops: [PinApplyOp], expectedGeneration: UInt64,
+                                   expectedScope: PinnedTabScope) async throws {
         guard !ops.isEmpty else { return }
         try await performBackgroundWriteAndWaitThrowing { context in
-            try self.applyPinSyncBatchBody(ops, expectedGeneration: expectedGeneration, in: context)
+            try self.applyPinSyncBatchBody(ops, expectedGeneration: expectedGeneration,
+                                           expectedScope: expectedScope, in: context)
         }
     }
 
     /// Transaction body, extracted solely for readability; it has one caller.
     private func applyPinSyncBatchBody(_ ops: [PinApplyOp], expectedGeneration: UInt64,
-                                       in context: ModelContext) throws {
+                                       expectedScope: PinnedTabScope, in context: ModelContext) throws {
         // Migrations and this batch share the FIFO write stream, so a migration either committed before
-        // this read or runs after this transaction.
+        // these reads or runs after this transaction.
         guard pinScopeGeneration == expectedGeneration else {
+            throw LocalStoreWriteError.scopeChangedSinceSample
+        }
+        let scope = try pinnedTabScope(in: context)
+        guard scope == expectedScope else {
             throw LocalStoreWriteError.scopeChangedSinceSample
         }
         try refuseIfImportingPins(ops, in: context)
 
-        let scope = try pinnedTabScope(in: context)
         // Record owner values for final normalization, not models: reading a deleted row's properties later in
         // the batch is undefined.
         var touchedOwners = Set<PinnedTabOwner>()
@@ -1356,9 +1386,9 @@ extension LocalStore {
                 // carry the owner shape of the transaction's scope. `createPinnedTabBody` re-shapes to the
                 // current scope for its UI, import and migration callers; for a sync create that would
                 // turn a pin planned under another scope into a second row of one identity (R-exec-15).
-                // The engine shapes creates from the scope it sampled, so a mismatch means that sample is
-                // stale even though the generation matched (the main context had not yet merged the
-                // migration). Same error as a moved generation, so the batch parks ("a refusal parks").
+                // The engine shapes creates from the scope it sampled, which the check above has matched
+                // to the transaction's, so a mismatch is a malformed create. Same error as a moved
+                // generation, so the batch parks ("a refusal parks").
                 let expectedOwner = Self.pinnedTabOwner(for: scope, profileId: profileId, spaceId: spaceId)
                 guard expectedOwner.profileId == row.profileId, expectedOwner.spaceId == row.spaceId else {
                     throw LocalStoreWriteError.scopeChangedSinceSample

@@ -1001,11 +1001,12 @@ import SwiftUI
     /// `retries` is the mounted one: its failures reach the Sync status and retry on a timer. Settings
     /// builds one without retries for a store no mounted follower covers (`followPinnedTabScopeNow`).
     ///
-    /// The migration passes both preferred arguments, read when it starts, matching Settings.
+    /// The migration passes both preferred arguments, read when it starts: the active Space, else the
+    /// Space Settings named through `followNow(preferredSpaceId:)` for that attempt (its selected Space).
     /// `sourceCollections` puts the preferred collection first; `mergeCandidates` takes its title, URL and
-    /// order as `candidate.source`. With nil `activeSpaceId`, merge order is device-dependent: no owner is
-    /// preferred, so `PinnedTabOwner.sortKey` breaks ties using local profile/Space IDs, and a mount-time
-    /// follow before any Space is active is particularly exposed (§11.4 allows a skipped mount).
+    /// order as `candidate.source`. With neither, merge order is device-dependent: no owner is preferred,
+    /// so `PinnedTabOwner.sortKey` breaks ties using local profile/Space IDs, and a mount-time follow
+    /// before any Space is active is particularly exposed (§11.4 allows a skipped mount).
     @MainActor
     private func makePinScopeFollower(store: LocalStore, retries: Bool) -> PinScopeFollower {
         PinScopeFollower(effects: .init(
@@ -1013,8 +1014,8 @@ import SwiftUI
                 UserDefaults.standard.string(forKey: PinnedTabScopeMirror.key).flatMap(PinnedTabScope.init(rawValue:))
             },
             rowScope: { store.pinnedTabScopeIfReadable() },
-            migrate: { scope in
-                let preferredSpaceId = SpaceManager.shared.activeSpaceId
+            migrate: { scope, hintedSpaceId in
+                let preferredSpaceId = SpaceManager.shared.activeSpaceId ?? hintedSpaceId
                 let preferredProfileId = preferredSpaceId.flatMap { spaceId in
                     SpaceManager.shared.spaces.first(where: { $0.spaceId == spaceId })?.profileId
                 }
@@ -1035,25 +1036,32 @@ import SwiftUI
     }
 
     /// Settings, after it has written the key (B-3 stage 1, design 3.1): the outcome of the first
-    /// follow attempt for `store`. The mounted follower when it covers `store`; otherwise (guest
-    /// mode, or sync not mounted) a one-attempt follower, and the next mount's follower picks up a
-    /// row that is still behind.
+    /// follow attempt for `store`. The mounted follower when it covers `store`, which retries a
+    /// failure on its own. Otherwise (guest mode, no sync mount, or an engine not built this session)
+    /// a one-attempt follower: nothing retries it, so anything but `.applied` is `.failedNoRetry` and
+    /// Settings takes its key write back (design 3.1 as amended 2026-10-10).
     @MainActor
-    func followPinnedTabScopeNow(store: LocalStore) async -> PinScopeFollower.AttemptResult {
+    func followPinnedTabScopeNow(store: LocalStore, preferredSpaceId: String?) async -> PinScopeFollower.AttemptResult {
         if let follower = pinScopeFollower, follower.storeIdentity == ObjectIdentifier(store) {
-            return await follower.followNow()
+            return await follower.followNow(preferredSpaceId: preferredSpaceId)
         }
         let follower = makePinScopeFollower(store: store, retries: false)
-        let result = await follower.followNow()
+        let result = await follower.followNow(preferredSpaceId: preferredSpaceId)
         follower.retire()
-        return result
+        switch result {
+        case .applied: return .applied
+        case .failed(let kind), .failedNoRetry(let kind): return .failedNoRetry(kind)
+        // No attempt ran: the key Settings has just written did not read back as a scope.
+        case .deferred: return .failedNoRetry(.writeFailed)
+        }
     }
 
     /// Whether the mounted follower for `store` still has work: a job running or row != key (B-3
-    /// stage 1, design 3.6). False without a mounted follower for it: a device-wide key that no
-    /// follower serves (guest mode) must not hold the browser migration forever.
+    /// stage 1, design 3.2), so Settings shows the key's scope as finishing in the background. False
+    /// without a mounted follower for it: nothing would finish the change. The browser migration
+    /// runner does not read this (`BrowserDataActivity.pinScopeMigrationIsPending`).
     @MainActor
-    func pinScopeMigrationIsPending(store: LocalStore) -> Bool {
+    func pinScopeFollowerHasWork(store: LocalStore) -> Bool {
         guard let follower = pinScopeFollower, follower.storeIdentity == ObjectIdentifier(store) else { return false }
         return follower.isPending
     }

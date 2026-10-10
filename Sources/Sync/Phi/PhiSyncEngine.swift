@@ -7538,13 +7538,16 @@ private func landPins(_ input: OwnedLandingInput,
         .subtracting(outcome.parked)
         .subtracting(outcome.landed)
     do {
-        try await access.apply(PinApplyBatch(unordered: ops), expectedGeneration: state.generation)
+        try await access.apply(PinApplyBatch(unordered: ops), expectedGeneration: state.generation,
+                               expectedScope: state.localScope)
     } catch LocalStoreWriteError.scopeChangedSinceSample {
-        // A migration committed after this round's sample (B-3 stage 1, design 3.3): the store
-        // wrote nothing. Park every step, exactly as the blocked-landing path above does, so
-        // payloads, tombstones and server identities are retained for the next round's consistent
-        // projection. Named here rather than left to the generic branch below, because refusing it
-        // would drop remote changes this device never saw.
+        // A migration committed after this round's sample, or the sample read rows the main context
+        // had not merged yet (B-3 stage 1, design 3.3): the store wrote nothing. Park every step that
+        // went into the batch, so payloads, tombstones and server identities are retained for the
+        // next round's consistent projection. Unlike the blocked-landing path above, phase-3 deletes
+        // of identities with no local row were already finalized in `outcome.landed` and stay so: a
+        // remote tombstone holds whatever the rows look like. Named here rather than left to the
+        // generic branch below, because refusing it would drop remote changes this device never saw.
         outcome.parked.formUnion(identities)
         outcome.pendingPartnerLineages = [:]
         return outcome

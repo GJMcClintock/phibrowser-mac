@@ -34,6 +34,9 @@ types.append(state)
 fixture = fixture.replace('/* PRODUCTION_TYPES */', '\n'.join(types))
 # The pin registration's block predicate, as the production registration builds it.
 fixture = fixture.replace('/* PRODUCTION_PIN_PUBLICATION_BLOCKED */', block('publicationBlocked: {')[len('publicationBlocked: '):])
+# The pin registration's round-start sample: follower trigger, generation, rows, scopes, busy.
+begin = block('beginRound: {\n                // Trigger the follower first')
+fixture = fixture.replace('/* PRODUCTION_PIN_BEGIN_ROUND */', begin[len('beginRound: '):])
 methods = [block('    private func ' + name + '(') for name in
            ['publishOwnedKind', 'applyOwnedCommitOutcome', 'doctoredOwnedTable', 'ownedLiveSlice', 'ownedTombstoneSlice']]
 methods.append(block('    private static func ownedDepths('))

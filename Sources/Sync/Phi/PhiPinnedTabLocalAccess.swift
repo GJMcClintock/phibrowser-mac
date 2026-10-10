@@ -144,10 +144,11 @@ protocol PhiPinnedTabLocalAccess: PhiFaviconWriting {
     /// nonthrowing absence defaults must not silently trigger mass tombstones.
     func isKnownLocalPin(_ lineageId: String, ownerKey: String?) -> Bool
 
-    /// One remote landing round in one transaction. Throw means none landed. `expectedGeneration` is the
-    /// round's sampled `pinScopeGeneration()`; a migration since then throws
-    /// `LocalStoreWriteError.scopeChangedSinceSample` and writes nothing.
-    func apply(_ batch: PinApplyBatch, expectedGeneration: UInt64) async throws
+    /// One remote landing round in one transaction. Throw means none landed. `expectedGeneration` and
+    /// `expectedScope` are the round's sampled `pinScopeGeneration()` and `currentScope()`; a store whose
+    /// generation or row scope differs throws `LocalStoreWriteError.scopeChangedSinceSample` and writes
+    /// nothing.
+    func apply(_ batch: PinApplyBatch, expectedGeneration: UInt64, expectedScope: PinnedTabScope) async throws
 
     /// Scope migration takes both preferred arguments by plan ruling, extending spec §4.8's signature. §7.1
     /// requires matching UI arguments (SpacesSettingsView.swift:501-512): sourceCollections sorts preferred
@@ -265,8 +266,9 @@ final class AccountPhiPinnedTabAccess: PhiPinnedTabLocalAccess {
     /// LocalStore.applyPinSyncBatchThrowing owns phase execution, in-write import recheck and per-owner
     /// normalization. Private storage helpers are inaccessible here; separate throwing calls would create
     /// partial success across N transactions (R-exec-2).
-    func apply(_ batch: PinApplyBatch, expectedGeneration: UInt64) async throws {
-        try await store.applyPinSyncBatchThrowing(batch.ops, expectedGeneration: expectedGeneration)
+    func apply(_ batch: PinApplyBatch, expectedGeneration: UInt64, expectedScope: PinnedTabScope) async throws {
+        try await store.applyPinSyncBatchThrowing(batch.ops, expectedGeneration: expectedGeneration,
+                                                  expectedScope: expectedScope)
         // Rebuild after landing, not merely invalidate: §4.5 validates before baseline writes through cached
         // readers. False isKnownLocalPin results would make identities look dead and emit tombstones. A reread
         // error propagates after the batch committed; callers must distinguish landed-but-unreadable from

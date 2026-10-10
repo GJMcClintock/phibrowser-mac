@@ -23,9 +23,12 @@ final class World {
 
     /// The `PhiPinnedTabScope` key. Only the test writes it; the follower can only read it.
     var key: PinnedTabScope? = .profile
-    var keyWrites = 0
     var row: PinnedTabScope? = .profile
     var migrateCalls: [PinnedTabScope] = []
+    /// The preferred Space each migration was handed, in call order.
+    var migrateHints: [String?] = []
+    /// Runs inside the next unheld migration, before it throws or succeeds; then cleared.
+    var duringMigrate: (@MainActor () -> Void)?
     var inFlight = 0, maxInFlight = 0
     /// While true, every migration suspends until `finish` resumes it.
     var hold = false
@@ -36,14 +39,14 @@ final class World {
     var timers: [Timer] = []
     var logs: [String] = []
 
-    func setKey(_ value: PinnedTabScope?) { key = value; keyWrites += 1 }
-
     var effects: PinScopeFollower.Effects {
         PinScopeFollower.Effects(
             desiredScope: { [unowned self] in self.key },
             rowScope: { [unowned self] in self.row },
-            migrate: { [unowned self] target in
+            migrate: { [unowned self] target, hint in
                 self.migrateCalls.append(target)
+                self.migrateHints.append(hint)
+                if let during = self.duringMigrate { self.duringMigrate = nil; during() }
                 self.inFlight += 1
                 self.maxInFlight = max(self.maxInFlight, self.inFlight)
                 defer { self.inFlight -= 1 }
@@ -101,6 +104,8 @@ struct PinScopeFollowerTests {
         await follows()
         await rerunsOnKeyChangeDuringRun()
         await failureAndRetry()
+        await keyMovesDuringAFailingAttempt()
+        await preferredSpaceHint()
         await retirement()
         await singleFlight()
         noKeyWrite()
@@ -335,14 +340,77 @@ struct PinScopeFollowerTests {
 
     @MainActor
     static func noKeyWrite() {
-        // The follower's only capabilities are its effects. None writes the key: two reads, the
-        // migration, the status sink, the timer and the log.
+        // The follower's only capabilities are its effects, and none can write the key: two reads
+        // returning a value, the migration, the status sink, the timer and the log. That holds by
+        // construction, so there is no key write to count; this pins the effect list so a new effect
+        // gets reviewed against design principle 3, and the script's source scan keeps
+        // UserDefaults out of the follower itself.
         let world = World()
         let labels = Mirror(reflecting: world.effects).children.compactMap(\.label)
         precondition(labels == ["desiredScope", "rowScope", "migrate", "publishFailure", "schedule", "log"],
                      "a new effect needs review against design principle 3: \(labels)")
-        precondition(world.keyWrites == 0)
         print("PASS follower writes no key: its effects are key read, row read, migrate, status, timer and log only (source scan in the script finds no UserDefaults)")
+    }
+
+    @MainActor
+    static func keyMovesDuringAFailingAttempt() async {
+        // Review round 1 F3: the key moves while an attempt is failing. The new key runs at once; no
+        // retry is armed with the old one.
+        let world = World()
+        world.key = .app
+        world.failWith = OtherError()
+        let follower = makeFollower(world)
+        world.duringMigrate = { [unowned world, unowned follower] in
+            world.key = .space
+            follower.trigger()   // The settings landing's trigger: the follower is busy, so it only re-runs.
+        }
+        follower.trigger()
+        await drain()
+        precondition(world.migrateCalls == [.app, .space],
+                     "the moved key runs right after the failed attempt: \(world.migrateCalls)")
+        // The second attempt failed too, with the key unchanged: that one arms the retry, with the new key.
+        precondition(world.timers.count == 1 && world.liveTimers.count == 1, "only the new key's retry is armed: \(world.timers.count)")
+        precondition(follower.failure?.attempts == 2)
+        // The same move without a trigger: the failing attempt still reads the key before arming.
+        let quiet = World()
+        quiet.key = .app
+        quiet.failWith = OtherError()
+        let quietFollower = makeFollower(quiet)
+        quiet.duringMigrate = { [unowned quiet] in quiet.key = .space }
+        quietFollower.trigger()
+        await drain()
+        precondition(quiet.migrateCalls == [.app, .space] && quiet.timers.count == 1, "\(quiet.migrateCalls)")
+        print("PASS follower key moves during a failing attempt: the new key runs at once instead of waiting for a retry armed with the old key")
+    }
+
+    @MainActor
+    static func preferredSpaceHint() async {
+        // Review round 1 F6: the Space Settings names reaches the attempt `followNow` starts, and only it.
+        let world = World()
+        world.key = .app
+        let follower = makeFollower(world)
+        let result = await follower.followNow(preferredSpaceId: "space-selected")
+        precondition(result == .applied && world.migrateHints == ["space-selected"], "\(world.migrateHints)")
+        world.key = .space
+        follower.trigger()
+        await drain()
+        precondition(world.migrateHints == ["space-selected", nil], "a trigger-driven attempt has no hint: \(world.migrateHints)")
+        // While busy: the hint goes to the owed attempt, not the running one.
+        world.hold = true
+        world.key = .profile
+        follower.trigger()
+        await drain()
+        let owed = Box<PinScopeFollower.AttemptResult>()
+        Task { @MainActor in owed.value = await follower.followNow(preferredSpaceId: "space-later") }
+        await drain()
+        world.key = .app
+        world.finish()
+        await drain()
+        world.finish()
+        await drain()
+        precondition(owed.value == .applied)
+        precondition(world.migrateHints == ["space-selected", nil, nil, "space-later"], "\(world.migrateHints)")
+        print("PASS follower preferred Space: followNow's Space goes to the attempt it is owed and to no other")
     }
 
     @MainActor

@@ -11,7 +11,7 @@ import Foundation
 /// `LocalStore.changePinnedTabScope`. This object runs that migration until the two agree.
 ///
 /// - Triggers: `trigger()` on a key change (local write or settings landing), on mount, at the start
-///   of every pin round, and from its own retry timer; `followNow()` for Settings.
+///   of every pin round, and from its own retry timer; `followNow(preferredSpaceId:)` for Settings.
 /// - One job at a time. A trigger during a job sets a "run again" flag; the job reads the key again
 ///   after every suspension, so no target is carried across one.
 /// - It never writes the key or its sidecars (design principle 3).
@@ -32,6 +32,10 @@ final class PinScopeFollower {
         case applied
         /// The migration threw; a retry is scheduled.
         case failed(SyncPinScopeMigrationFailure.Kind)
+        /// The migration threw and nothing will retry it: only
+        /// `PhiChromiumCoordinator.followPinnedTabScopeNow` reports it, for a store no mounted follower
+        /// covers. The caller undoes its key write.
+        case failedNoRetry(SyncPinScopeMigrationFailure.Kind)
         /// No attempt ran: the follower is retired, or no key is set.
         case deferred
     }
@@ -46,8 +50,9 @@ final class PinScopeFollower {
         var desiredScope: @MainActor () -> PinnedTabScope?
         /// The row now, through the main context; nil when the store is unreadable.
         var rowScope: @MainActor () -> PinnedTabScope?
-        /// `LocalStore.changePinnedTabScope(to:)` with the preferred owner read at call time.
-        var migrate: @MainActor (PinnedTabScope) async throws -> Void
+        /// `LocalStore.changePinnedTabScope(to:)` with the preferred owner read at call time. The second
+        /// argument is the Space `followNow(preferredSpaceId:)` named for this attempt, if any.
+        var migrate: @MainActor (PinnedTabScope, String?) async throws -> Void
         /// The failure state after every change of it; nil once an attempt succeeds or the
         /// follower retires.
         var publishFailure: @MainActor (SyncPinScopeMigrationFailure?) -> Void
@@ -68,6 +73,8 @@ final class PinScopeFollower {
     private(set) var failure: SyncPinScopeMigrationFailure?
 
     private var runAgain = false
+    /// The Space the last `followNow(preferredSpaceId:)` named; the next attempt to start takes it.
+    private var preferredSpaceHint: String?
     /// Attempts started so far; `followNow()` waits for the first one after its call.
     private var attemptSerial: UInt64 = 0
     private var waiters: [(after: UInt64, resume: (AttemptResult) -> Void)] = []
@@ -85,7 +92,8 @@ final class PinScopeFollower {
     }
 
     /// Whether this follower still has work: a job running, or a key the row does not match yet.
-    /// The browser migration runner refuses to start while it does (design 3.6).
+    /// Settings shows the key's scope as finishing in the background while it does. The browser
+    /// migration runner does not read it: it waits only for a job in flight (design 3.6 as amended).
     var isPending: Bool {
         guard !isRetired else { return false }
         if isRunning { return true }
@@ -106,10 +114,12 @@ final class PinScopeFollower {
     }
 
     /// Settings: run now, past any retry wait, and return the outcome of the first attempt that
-    /// starts after this call.
-    func followNow() async -> AttemptResult {
+    /// starts after this call. `preferredSpaceId` goes to that attempt's migration, which still
+    /// prefers the active Space when there is one.
+    func followNow(preferredSpaceId: String? = nil) async -> AttemptResult {
         guard !isRetired else { return .deferred }
         let after = attemptSerial
+        preferredSpaceHint = preferredSpaceId
         return await withCheckedContinuation { continuation in
             waiters.append((after: after, resume: { continuation.resume(returning: $0) }))
             if isRunning {
@@ -129,6 +139,7 @@ final class PinScopeFollower {
         cancelRetry = nil
         failedKey = nil
         runAgain = false
+        preferredSpaceHint = nil
         if failure != nil {
             failure = nil
             effects.publishFailure(nil)
@@ -152,6 +163,9 @@ final class PinScopeFollower {
             runAgain = false
             attemptSerial &+= 1
             let attempt = attemptSerial
+            // Taken by the attempt that starts now, so it never outlives the call that named it.
+            let hint = preferredSpaceHint
+            preferredSpaceHint = nil
             guard !isRetired else { return }
             // Read now, never carried in from the trigger.
             guard let key = effects.desiredScope() else {
@@ -167,7 +181,7 @@ final class PinScopeFollower {
                 continue
             }
             do {
-                try await effects.migrate(key)
+                try await effects.migrate(key, hint)
             } catch {
                 guard !isRetired else { return }
                 effects.log("pinned-tab scope migration to \(key.rawValue) failed (\(PhiSyncLog.describe(error)))")
@@ -206,6 +220,12 @@ final class PinScopeFollower {
         // A `followNow()` made during this attempt is owed an attempt of its own: run it now. Any
         // other trigger that arrived meanwhile is answered by the retry, so the backoff holds.
         guard waiters.isEmpty else {
+            runAgain = true
+            return
+        }
+        // The key moved during this attempt: a new target, which runs now like any trigger naming a
+        // different key, instead of waiting out a retry armed with the old one.
+        if effects.desiredScope() != key {
             runAgain = true
             return
         }
