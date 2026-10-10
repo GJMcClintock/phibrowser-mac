@@ -6926,6 +6926,10 @@ extension OwnedKindRegistration {
                 clearedPinSplitPartners(baselines, now: now, maps: maps, state: state)
             },
             beginRound: {
+                // Trigger the follower first (B-3 stage 1, design 3.2): a job it starts shows as busy
+                // in the sample below, so this round blocks instead of planning against rows the
+                // job is about to replace.
+                access.requestScopeFollow()
                 // Read the generation before the rows (B-3 stage 1, design 3.3): a migration that
                 // commits between the two reads then shows as a moved generation at the next probe
                 // instead of being folded into the sample.

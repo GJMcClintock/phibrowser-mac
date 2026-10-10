@@ -77,7 +77,10 @@ final class BrowserMigrationRunner: ObservableObject {
 
     /// Starts `plan` and reports whether it started. A run already in flight
     /// is left alone: the wizard returns to its progress rather than putting a
-    /// second run against the same source in the air.
+    /// second run against the same source in the air. A pinned-tab scope change
+    /// still being applied refuses the same way (B-3 stage 1, design 3.6): the
+    /// plan's pinned owners are fanned out from the row's scope, which is about
+    /// to move.
     ///
     /// `source` is what the plan was built from: the plan names source profiles
     /// and Spaces, and this says which browser they came out of — the importer
@@ -85,7 +88,7 @@ final class BrowserMigrationRunner: ObservableObject {
     /// extensions are counted in.
     @discardableResult
     func start(plan: BrowserMigrationPlan, source: BrowserMigrationSourceKind) -> Bool {
-        guard !isRunning else { return false }
+        guard !isRunning, !BrowserDataActivity.pinScopeMigrationIsPending else { return false }
         let units = Self.units(of: plan)
         guard !units.isEmpty else { return false }
         AppLogInfo("[BrowserMigration] run started: \(plan.profiles.count) Profiles, "
@@ -435,6 +438,18 @@ enum BrowserDataActivity {
     /// the scope must not move under it.
     static var migrationRunIsInFlight: Bool {
         migrationRunOverrideForTesting ?? BrowserMigrationRunner.shared.isRunning
+    }
+
+    /// Stands a pending pin scope change up in tests. Always nil in production.
+    static var pinScopeMigrationPendingOverrideForTesting: Bool?
+
+    /// The pin scope follower of the account whose data the browser uses has
+    /// work left: a migration running, or the row behind the setting (B-3
+    /// stage 1, design 3.6). A Migration run does not start meanwhile.
+    static var pinScopeMigrationIsPending: Bool {
+        if let pinScopeMigrationPendingOverrideForTesting { return pinScopeMigrationPendingOverrideForTesting }
+        guard let store = AccountController.shared.localDataAccount?.localStorage else { return false }
+        return PhiChromiumCoordinator.shared.pinScopeMigrationIsPending(store: store)
     }
 
     /// A Migration run is under way, or its wizard is on screen: the import

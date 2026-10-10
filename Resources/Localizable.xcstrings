@@ -4,6 +4,61 @@
     "" : {
 
     },
+    "settings.spaces.pinnedTabScope.completesInBackground" : {
+      "comment" : "Spaces settings - note under the pinned tab scope picker when the new scope was saved but rearranging the pinned tabs on this Mac has not finished yet; it keeps retrying on its own",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The change will finish in the background."
+          }
+        }
+      }
+    },
+    "sync.status.pinnedTabScopeFailing" : {
+      "comment" : "Sync settings - problem line under the sync status while this Mac keeps failing to apply a pinned tab scope change and keeps retrying on its own; %1$lld is the number of failed attempts in a row, %2$@ is the most recent reason, such as A browser migration is running",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pinned tab scope change not applied yet (%1$lld attempts; %2$@)"
+          }
+        }
+      }
+    },
+    "sync.status.pinnedTabScopeFailing.browserMigration" : {
+      "comment" : "Sync settings - reason a pinned tab scope change is not applied yet: a migration from another browser is in progress",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A browser migration is running"
+          }
+        }
+      }
+    },
+    "sync.status.pinnedTabScopeFailing.dataUnavailable" : {
+      "comment" : "Sync settings - reason a pinned tab scope change is not applied yet: this Mac could not open its local browser data",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Local browser data is unavailable"
+          }
+        }
+      }
+    },
+    "sync.status.pinnedTabScopeFailing.saveFailed" : {
+      "comment" : "Sync settings - reason a pinned tab scope change is not applied yet: saving the rearranged pinned tabs on this Mac failed",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Couldn’t save pinned tabs on this Mac"
+          }
+        }
+      }
+    },
     "・" : {
       "shouldTranslate" : false
     },

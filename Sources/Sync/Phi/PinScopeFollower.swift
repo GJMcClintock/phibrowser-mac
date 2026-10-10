@@ -1,0 +1,247 @@
+// Copyright 2026 Phinomenon Inc.
+//
+// Use of this source code is governed by an Apache license that can be
+// found in the LICENSE file.
+
+import Foundation
+
+/// Makes the pin scope row follow the `PhiPinnedTabScope` key (B-3 stage 1, design 3.2). The key is
+/// the desired scope, written by Settings or by settings sync; the row
+/// (`BrowserDataSettingsModel.pinnedTabScopeRawValue`) is the actual scope, changed only by
+/// `LocalStore.changePinnedTabScope`. This object runs that migration until the two agree.
+///
+/// - Triggers: `trigger()` on a key change (local write or settings landing), on mount, at the start
+///   of every pin round, and from its own retry timer; `followNow()` for Settings.
+/// - One job at a time. A trigger during a job sets a "run again" flag; the job reads the key again
+///   after every suspension, so no target is carried across one.
+/// - It never writes the key or its sidecars (design principle 3).
+/// - Failure retries after a delay that doubles from `firstRetryDelay` to `maximumRetryDelay`; the
+///   consecutive count and the last kind go to `publishFailure`. Nothing is persisted: after a
+///   relaunch the mount trigger sees row != key and starts over.
+/// - `retire()` is synchronous and one-way. A retired follower starts no job and checks retirement
+///   after every suspension. A store job already queued targets its own account's store and writes
+///   no shared state, so it is left to finish.
+///
+/// Decisions only: the coordinator supplies the key and row reads, the migration, the status sink
+/// and the timer (the shape of `SyncProfileMappingPauseReconciler`), so a fixture can drive it.
+@MainActor
+final class PinScopeFollower {
+    /// The end of one attempt, as `followNow()` reports it.
+    enum AttemptResult: Equatable {
+        /// The row equals the key the attempt read.
+        case applied
+        /// The migration threw; a retry is scheduled.
+        case failed(SyncPinScopeMigrationFailure.Kind)
+        /// No attempt ran: the follower is retired, or no key is set.
+        case deferred
+    }
+
+    struct Timing {
+        var firstRetryDelay: TimeInterval = 5
+        var maximumRetryDelay: TimeInterval = 300
+    }
+
+    struct Effects {
+        /// The key now; nil when it is missing or unrecognized.
+        var desiredScope: @MainActor () -> PinnedTabScope?
+        /// The row now, through the main context; nil when the store is unreadable.
+        var rowScope: @MainActor () -> PinnedTabScope?
+        /// `LocalStore.changePinnedTabScope(to:)` with the preferred owner read at call time.
+        var migrate: @MainActor (PinnedTabScope) async throws -> Void
+        /// The failure state after every change of it; nil once an attempt succeeds or the
+        /// follower retires.
+        var publishFailure: @MainActor (SyncPinScopeMigrationFailure?) -> Void
+        /// Calls the closure after the delay unless the returned cancel runs first.
+        var schedule: @MainActor (TimeInterval, @escaping @MainActor () -> Void) -> (@MainActor () -> Void)
+        var log: @MainActor (String) -> Void = { _ in }
+    }
+
+    private let effects: Effects
+    private let timing: Timing
+    /// The store whose row this follower moves, so its owner can tell which store it covers.
+    let storeIdentity: ObjectIdentifier?
+
+    /// A job is running. The pin round's block predicate reads it through
+    /// `PhiPinnedTabLocalAccess.scopeFollowerBusy()`.
+    private(set) var isRunning = false
+    private(set) var isRetired = false
+    private(set) var failure: SyncPinScopeMigrationFailure?
+
+    private var runAgain = false
+    /// Attempts started so far; `followNow()` waits for the first one after its call.
+    private var attemptSerial: UInt64 = 0
+    private var waiters: [(after: UInt64, resume: (AttemptResult) -> Void)] = []
+    private var nextRetryDelay: TimeInterval
+    private var cancelRetry: (@MainActor () -> Void)?
+    /// The key of the failed attempt that armed the retry. A trigger naming the same key waits for the
+    /// timer, so round-start triggers do not defeat the backoff; a different key runs at once.
+    private var failedKey: PinnedTabScope?
+
+    init(effects: Effects, timing: Timing = Timing(), storeIdentity: ObjectIdentifier? = nil) {
+        self.effects = effects
+        self.timing = timing
+        self.storeIdentity = storeIdentity
+        self.nextRetryDelay = timing.firstRetryDelay
+    }
+
+    /// Whether this follower still has work: a job running, or a key the row does not match yet.
+    /// The browser migration runner refuses to start while it does (design 3.6).
+    var isPending: Bool {
+        guard !isRetired else { return false }
+        if isRunning { return true }
+        guard let key = effects.desiredScope() else { return false }
+        return effects.rowScope() != key
+    }
+
+    /// Starts a job unless one is running (then it runs again), the follower is retired, or the row
+    /// already equals the key. Synchronous up to the job's start, so a pin round that triggers and
+    /// then samples `isRunning` sees the job it started.
+    func trigger() {
+        guard !isRetired else { return }
+        if isRunning { runAgain = true; return }
+        guard let key = effects.desiredScope() else { return }
+        if cancelRetry != nil, key == failedKey { return }
+        guard effects.rowScope() != key else { return }
+        start()
+    }
+
+    /// Settings: run now, past any retry wait, and return the outcome of the first attempt that
+    /// starts after this call.
+    func followNow() async -> AttemptResult {
+        guard !isRetired else { return .deferred }
+        let after = attemptSerial
+        return await withCheckedContinuation { continuation in
+            waiters.append((after: after, resume: { continuation.resume(returning: $0) }))
+            if isRunning {
+                runAgain = true
+            } else {
+                start()
+            }
+        }
+    }
+
+    /// Sign-out and account switch. Synchronous and one-way: the retry timer is cancelled, waiters
+    /// get `.deferred`, and a job in flight stops at its next check.
+    func retire() {
+        guard !isRetired else { return }
+        isRetired = true
+        cancelRetry?()
+        cancelRetry = nil
+        failedKey = nil
+        runAgain = false
+        if failure != nil {
+            failure = nil
+            effects.publishFailure(nil)
+        }
+        resolveAll(.deferred)
+    }
+
+    private func start() {
+        cancelRetry?()
+        cancelRetry = nil
+        failedKey = nil
+        isRunning = true
+        Task { @MainActor [weak self] in
+            await self?.run()
+        }
+    }
+
+    private func run() async {
+        defer { isRunning = false }
+        repeat {
+            runAgain = false
+            attemptSerial &+= 1
+            let attempt = attemptSerial
+            guard !isRetired else { return }
+            // Read now, never carried in from the trigger.
+            guard let key = effects.desiredScope() else {
+                resolve(upTo: attempt, .deferred)
+                continue
+            }
+            guard let row = effects.rowScope() else {
+                fail(.storeUnavailable, key: key, attempt: attempt)
+                continue
+            }
+            if row == key {
+                succeed(attempt: attempt)
+                continue
+            }
+            do {
+                try await effects.migrate(key)
+            } catch {
+                guard !isRetired else { return }
+                effects.log("pinned-tab scope migration to \(key.rawValue) failed (\(PhiSyncLog.describe(error)))")
+                fail(Self.kind(of: error), key: key, attempt: attempt)
+                continue
+            }
+            guard !isRetired else { return }
+            effects.log("pinned-tab scope migrated to \(key.rawValue)")
+            succeed(attempt: attempt)
+            // The store's transaction established row == key in its own context; the main context
+            // may not have merged it yet, so the row is not read back here. The key is: one that
+            // moved during the migration is a new target.
+            if effects.desiredScope() != key { runAgain = true }
+        } while runAgain && !isRetired
+    }
+
+    private func succeed(attempt: UInt64) {
+        cancelRetry?()
+        cancelRetry = nil
+        failedKey = nil
+        nextRetryDelay = timing.firstRetryDelay
+        if failure != nil {
+            failure = nil
+            effects.publishFailure(nil)
+        }
+        resolve(upTo: attempt, .applied)
+    }
+
+    private func fail(_ kind: SyncPinScopeMigrationFailure.Kind, key: PinnedTabScope, attempt: UInt64) {
+        let next = SyncPinScopeMigrationFailure(attempts: (failure?.attempts ?? 0) + 1, lastKind: kind)
+        failure = next
+        effects.publishFailure(next)
+        resolve(upTo: attempt, .failed(kind))
+        cancelRetry?()
+        cancelRetry = nil
+        // A `followNow()` made during this attempt is owed an attempt of its own: run it now. Any
+        // other trigger that arrived meanwhile is answered by the retry, so the backoff holds.
+        guard waiters.isEmpty else {
+            runAgain = true
+            return
+        }
+        runAgain = false
+        let delay = nextRetryDelay
+        nextRetryDelay = min(delay * 2, timing.maximumRetryDelay)
+        failedKey = key
+        cancelRetry = effects.schedule(delay) { [weak self] in
+            guard let self, !self.isRetired else { return }
+            self.cancelRetry = nil
+            self.failedKey = nil
+            self.trigger()
+        }
+    }
+
+    private func resolve(upTo attempt: UInt64, _ result: AttemptResult) {
+        var remaining: [(after: UInt64, resume: (AttemptResult) -> Void)] = []
+        var due: [(AttemptResult) -> Void] = []
+        for waiter in waiters {
+            if waiter.after < attempt { due.append(waiter.resume) } else { remaining.append(waiter) }
+        }
+        waiters = remaining
+        for resume in due { resume(result) }
+    }
+
+    private func resolveAll(_ result: AttemptResult) {
+        let due = waiters
+        waiters = []
+        for waiter in due { waiter.resume(result) }
+    }
+
+    private static func kind(of error: Error) -> SyncPinScopeMigrationFailure.Kind {
+        switch error as? LocalStoreWriteError {
+        case .migrationInFlight?: return .browserMigrationRunning
+        case .storeUnavailable?: return .storeUnavailable
+        default: return .writeFailed
+        }
+    }
+}

@@ -37,6 +37,9 @@ final class SyncHelper {
         /// (AM-1), to the time the engine was built: no round starts until the list is read.
         /// Nil otherwise. Presentation is the status pane's (review R3).
         var profileListNotEnumeratedSince: Date?
+        /// The pin scope follower's failures since its last success (B-3 stage 1, design 3.2);
+        /// nil while it has none. Presentation is the status pane's.
+        var pinScopeMigrationFailure: SyncPinScopeMigrationFailure?
     }
 
     /// What an explicit request does while a participant is unobservable (missing or Checking),
@@ -96,6 +99,8 @@ final class SyncHelper {
     private var mappingPause: SyncProfileMappingPauseStatus = .none
     /// What the reconciliation last handed over; see `setProfileListNotEnumerated(since:)`.
     private var listNotEnumeratedSince: Date?
+    /// What the pin scope follower last handed over; see `setPinScopeMigrationFailure(_:)`.
+    private var pinScopeFailure: SyncPinScopeMigrationFailure?
     private var pollTask: Task<Void, Never>?
     private var refreshTask: Task<Void, Never>?
     private(set) var report = Report()
@@ -150,6 +155,17 @@ final class SyncHelper {
             phase: coordinationFailure == .persistence ? .needsAttention : .checking, lastSuccess: lastSuccess))
         report.profileMappingPause = shownMappingPause
         report.profileListNotEnumeratedSince = listNotEnumeratedSince
+        report.pinScopeMigrationFailure = pinScopeFailure
+    }
+
+    /// The pin scope follower's failure state (B-3 stage 1, design 3.2 / amendment b), or nil
+    /// once it succeeds or retires. Only the coordinator's follower calls it. Like
+    /// `setProfileListNotEnumerated(since:)` it changes the report and nothing else: the
+    /// follower retries on its own timer, and pin rounds block themselves while row != key.
+    func setPinScopeMigrationFailure(_ failure: SyncPinScopeMigrationFailure?) {
+        guard !retired else { return }
+        pinScopeFailure = failure
+        report.pinScopeMigrationFailure = failure
     }
 
     /// The engine gate is on because the Profile list has not been enumerated, since the
@@ -283,6 +299,7 @@ final class SyncHelper {
         report = Report()
         report.profileMappingPause = shownMappingPause
         report.profileListNotEnumeratedSince = listNotEnumeratedSince
+        report.pinScopeMigrationFailure = pinScopeFailure
     }
 
     private func updateTransientFailure(_ failure: CoordinationFailure?) {

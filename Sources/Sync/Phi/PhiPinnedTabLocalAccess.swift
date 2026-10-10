@@ -100,6 +100,11 @@ protocol PhiPinnedTabLocalAccess: PhiFaviconWriting {
     /// answer.
     func scopeFollowerBusy() -> Bool
 
+    /// Start of every pin round (B-3 stage 1, design 3.2): asks the pin scope follower to run if the row
+    /// does not match the key. Called before the round samples `scopeFollowerBusy()`, so a job it starts
+    /// blocks this round. The default does nothing.
+    func requestScopeFollow()
+
     /// All non-dormant rows in current scope, ordered by ownerKey/index/GUID. Never choose just one
     /// representative per lineage: other unpublished variants would silently escape both snapshot and diff.
     /// Throw on read failure (R-exec-3), never return [] or stale data: §4.7 interprets empty as tombstones
@@ -155,6 +160,7 @@ protocol PhiPinnedTabLocalAccess: PhiFaviconWriting {
 
 extension PhiPinnedTabLocalAccess {
     func scopeFollowerBusy() -> Bool { false }
+    func requestScopeFollow() {}
 }
 
 /// Main-actor production counterpart of AccountPhiBookmarkAccess, with pure reads and async throwing writes.
@@ -168,6 +174,9 @@ extension PhiPinnedTabLocalAccess {
 final class AccountPhiPinnedTabAccess: PhiPinnedTabLocalAccess {
     private let store: LocalStore
     private let defaults: UserDefaults
+    /// The coordinator's follower for this account (B-3 stage 1, design 3.2), set at mount. Weak: the
+    /// coordinator owns it and retires it at sign-out or account switch; a retired one starts nothing.
+    weak var scopeFollower: PinScopeFollower?
 
     /// Read-only Task 8 scope mirror: missing/unrecognized values return nil, meaning no published account
     /// scope and no mismatch. PinnedTabScopeMirror owns writes and the shared key constant. Duplicating its
@@ -207,6 +216,14 @@ final class AccountPhiPinnedTabAccess: PhiPinnedTabLocalAccess {
 
     func pinScopeGeneration() -> UInt64 {
         store.pinScopeGeneration
+    }
+
+    func scopeFollowerBusy() -> Bool {
+        scopeFollower?.isRunning ?? false
+    }
+
+    func requestScopeFollow() {
+        scopeFollower?.trigger()
     }
 
     /// One profile-prefetched fetch plus one scope read; remaining work is in memory. Throw on failure after

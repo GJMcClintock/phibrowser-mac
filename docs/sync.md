@@ -498,6 +498,7 @@ admitted before the pause still writes the phase. Precedence, highest first:
 | Summary Not started | As it is (no control) |
 | `profileMappingPause == .paused` | Headline "Sync paused" over any summary (Syncing, including a Syncing left from a round queued before the gate, Up to date, Offline, Needs attention, Checking), a reason line (setting up / trying again / needs attention), a line for the failure category when there is one (offline wording only for Offline; sign-in expired, server error, other), the Profiles by display name (one to three names; above three a count; ids that no longer resolve are left out; none resolved: "A profile"), the last success time, and Retry in the Sync now slot with the same fixed space. Retry calls `PhiChromiumCoordinator.retryProfileMappingRepair()` |
 | `profileListNotEnumeratedSince` 30 s or more ago | The summary with the line "Waiting for profiles to load"; from 5 minutes the headline is Needs attention. Sync now stays; no Retry, because the list read is retried automatically |
+| `pinScopeMigrationFailure` set (B-3 stage 1) | An extra line under the normal status: "Pinned tab scope change not applied yet (n attempts; reason)". The headline is unchanged; the follower retries on its own timer |
 | Grace (`.none` during the first 15 s of an episode) and no episode | The summary and Sync now as they are; a Sync now during the grace is queued Busy and shows "Waiting for current sync". A Syncing left from a round queued before the gate stays visible for up to those 15 s |
 
 A Sync now request that the pause cancelled (`syncNowCancelledByPause`) returns the control to
@@ -1590,6 +1591,47 @@ The engine must preserve these persistence, retry and account-isolation rules.
     `scopeChangedSinceSample` and writes nothing when the generation moved, or
     when a create's owner shape does not match the transaction's scope
     (creates are no longer re-shaped). The engine parks the whole batch on it.
+- **The pin scope row follows the key; the key is written first** (B-3 stage
+  1, design 3.1, 3.2, 3.5, 3.6).
+  - Settings, after its confirmation alert and a fresh browser-migration
+    check, writes `PhiPinnedTabScope` and then awaits the follower's first
+    attempt (`PhiChromiumCoordinator.followPinnedTabScopeNow(store:)`).
+    Applied shows the new scope; failed or deferred keeps it selected with a
+    "finishes in the background" note and re-enables the picker. The key write
+    is an ordinary settings edit: the debounced defaults trigger and
+    `SyncableSettings.snapshot` stamp and publish it; nothing scope-specific
+    is stamped or compared. While the Profile mapping pause is closed the
+    stamp is taken at the first admitted round after resume (amendment a).
+  - `PinScopeFollower` (`Sources/Sync/Phi/PinScopeFollower.swift`), one per
+    mounted account, built in `buildPhiSyncEngine` and retired synchronously
+    in `stopPhiSync()` (sign-out and account switch). Triggers: the
+    `.phiSyncedSettingsDidApply` observer, mount (after the reseed, which
+    still seeds a missing key from the row at stamp 0), the start of every pin
+    round (`PhiPinnedTabLocalAccess.requestScopeFollow()`, before the round
+    samples `scopeFollowerBusy()`), and its retry timer. The job reads the key
+    now; row == key ends it, otherwise it runs
+    `LocalStore.changePinnedTabScope(key)` and reads the key again, running
+    again if it moved. Single-flight with a run-again flag; no target crosses
+    a suspension; it never writes the key or its sidecars. A failure retries
+    after 5 s doubling to 300 s (the Profile mapping reconciler's schedule);
+    a trigger for the same key waits for the timer, a different key runs at
+    once. A retired follower starts nothing and stops at its next check; a
+    queued store job finishes on its own account's store. Without a mounted
+    follower (Guest Mode, sync not built) Settings runs one attempt with no
+    retry, and the next mount's follower finishes the change.
+  - Status (amendment b): the consecutive failure count and the last kind
+    (`SyncPinScopeMigrationFailure`) reach the pane through
+    `SyncHelper.setPinScopeMigrationFailure(_:)`, beside the Profile mapping
+    pause, as the problem line "Pinned tab scope change not applied yet". It
+    is not an engine `SyncProblemCategory`, and nothing is persisted.
+  - Account switch: `resetPhiSyncCursorIfAccountChanged` also clears the key
+    and its `.phiSyncTs` / `.phiSyncVal` sidecars, and records the new owner
+    only after every cleanup step, so an interrupted cleanup runs again at
+    the next launch.
+  - `BrowserMigrationRunner.start` refuses (returns false, as for a run
+    already in flight) while the mounted follower for the browser's store has
+    work: a job running or row != key. A key no mounted follower serves
+    (Guest Mode) does not hold it.
 - **An account switch drops the account's `marker.json`.** The entity cursor
   in `UserDefaults.standard` is wiped on a switch; resuming a previously used
   account from its advanced marker with no entity id would make the next push
