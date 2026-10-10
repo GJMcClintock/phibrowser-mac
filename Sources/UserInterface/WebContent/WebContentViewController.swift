@@ -2948,6 +2948,10 @@ class WebContentViewController: NSViewController {
             if expanding {
                 self.pendingAIChatWidthRestore = nil
                 AppLogDebug("[AIChatSidebarCache] expand animation completed, cleared pendingAIChatWidthRestore")
+                // The chat controller misses its appearance callbacks when this
+                // controller expands the pane while it is still appearing
+                // itself (a tab that comes with its panel expanded).
+                self.embeddedChatViewController?.setupIfNeeded()
             }
         })
     }

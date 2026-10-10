@@ -279,6 +279,25 @@ class BrowserState {
     /// multiple chat view controllers (e.g. sidebar + traditional layout)
     /// before `aiChatTabs` is populated.
     private var aiChatTabsBeingCreated: Set<String> = []
+
+    /// Where AI Chat panel tabs are requested and panel records go to Chromium.
+    let aiChatPanelBridge: AIChatPanelBridging
+
+    /// Test seam: stands in for the sign-in and live-window gates of
+    /// `createAIChatTab(for:chromeTabId:)`, which the test process cannot
+    /// meet. nil in production.
+    var aiChatTabCreationGateOverrideForTesting: Bool?
+
+    /// Panel records as last handed to Chromium, by page tab id. See
+    /// `BrowserState+AIChatPanelRecord.swift`.
+    var aiChatPanelRecordsPushed: [Int: AIChatPanelRecord] = [:]
+    /// Conversations that came back with a page tab whose panel tab does not
+    /// exist yet, by the tab's identifier; the panel is created on them.
+    var pendingAIChatConversations: [String: String] = [:]
+    var aiChatCollapseWatches: [ObjectIdentifier: (tabId: Int, watch: AnyCancellable)] = [:]
+    var aiChatPanelURLWatches: [ObjectIdentifier: AnyCancellable] = [:]
+    var aiChatPanelRecordSubscriptions = Set<AnyCancellable>()
+
     // Request lifetime only; not a second sidebar ownership registry.
     var travelBackRunning = false
     @Published var travelBackHandoffs: [Int: TravelBackHandoff] = [:]
@@ -596,8 +615,10 @@ class BrowserState {
          isIncognito: Bool = false,
          isIncognitoSpace: Bool = false,
          isKioskWindow: Bool = false,
-         isAgentSpace: Bool = false) {
+         isAgentSpace: Bool = false,
+         aiChatPanelBridge: AIChatPanelBridging = LiveAIChatPanelBridge()) {
         self.windowId = windowId
+        self.aiChatPanelBridge = aiChatPanelBridge
         self.localStore = localStore
         self.profileId = profileId
         self.spaceId = spaceId
@@ -650,6 +671,9 @@ class BrowserState {
                 .store(in: &cancellables)
 
             syncPhiExtensionsIfAIDisabled()
+            if !isIncognito {
+                watchAIChatPanelRecords()
+            }
         }
     }
     
@@ -3123,13 +3147,14 @@ class BrowserState {
     ///   - identifier: The tab identifier to associate with
     ///   - chromeTabId: The Chromium tab ID (used by Chrome extension APIs) of the associated content tab
     func createAIChatTab(for identifier: String, chromeTabId: Int) {
-        guard ApplicationState.shared.isAuthenticated else {
+        guard aiChatTabCreationGateOverrideForTesting ?? ApplicationState.shared.isAuthenticated else {
             return
         }
         // The chat panes of a closed window can outlive it and ask again when
         // sign-in returns. Only a state that still backs a registered window
         // may create; Chromium no longer has the closed one.
-        guard SpaceSessionControllersManager.shared.getBrowserState(for: windowId) === self else {
+        guard aiChatTabCreationGateOverrideForTesting
+                ?? (SpaceSessionControllersManager.shared.getBrowserState(for: windowId) === self) else {
             AppLogInfo("🤖 [AIChat] skipped AI tab for a window this state no longer backs windowId=\(windowId) identifier=\(identifier)")
             return
         }
@@ -3140,7 +3165,16 @@ class BrowserState {
             return
         }
         let customGuid = Self.aiChatId(for: identifier)
-        createTab("chrome-extension://fenmfiepnpdlhplemgijlimpbebebljo/index.html?is_sidebar=1&tabId=\(chromeTabId)", customGuid: customGuid, focusAfterCreate: false)
+        var url = "chrome-extension://fenmfiepnpdlhplemgijlimpbebebljo/index.html?is_sidebar=1&tabId=\(chromeTabId)"
+        // A tab undo close brought back reopens its panel on the same conversation.
+        if let conversationId = pendingAIChatConversations[identifier] {
+            url += "&conv_id=\(conversationId)"
+        }
+        AppLogDebug("🤖 [AIChat] createAIChatTab windowId=\(windowId) url=\(url) customGuid=\(customGuid)")
+        let windowId = self.windowId
+        performWithBrowser { [aiChatPanelBridge] in
+            aiChatPanelBridge.createAIChatPanelTab(url: url, customGuid: customGuid, windowId: windowId)
+        }
     }
     
     /// Close the AI Chat tab associated with the specified identifier
@@ -3348,6 +3382,7 @@ class BrowserState {
                 tabSwitchManager.recordBackgroundTab(tab)
             }
         }
+        restoreAIChatPanel(of: tab, isActiveAtCreation: context?.isActiveAtCreation == true)
         let elapsed = (CFAbsoluteTimeGetCurrent() - t0) * 1000
         AppLogDebug("[NativeTab] ⏱ handleNewTabFromChromium tabId=\(tab.guid) took \(String(format: "%.2f", elapsed))ms")
         if let pendingBookmarkGroupCreation {

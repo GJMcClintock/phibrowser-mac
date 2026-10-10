@@ -98,6 +98,9 @@ class Tab: WebContentRepresentable {
     /// Per-tab AI Chat sidebar collapsed state.
     @Published var aiChatCollapsed: Bool = true
     @Published var aiChatEnabled: Bool = false
+    /// The AI Chat panel this tab had when it was closed, handed back with the
+    /// tab undo close restored; consumed when the tab arrives.
+    var restoredAIChatPanel: AIChatPanelRecord?
 
     /// Whether Sidecar has completed at least one response for this tab.
     @Published var hasPairedChat: Bool = false

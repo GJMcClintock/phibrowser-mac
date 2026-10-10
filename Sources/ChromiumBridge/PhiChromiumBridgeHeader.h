@@ -1067,6 +1067,15 @@ typedef NS_ENUM(NSInteger, PhiGhostMaterializeOutcome) {
 - (void)moveTabsToNewWindowWithWindowId:(int64_t)windowId
                                  tabIds:(NSArray<NSNumber *> *)tabIds;
 
+/// Keeps the AI Chat panel record of the page tab `tabId` for undo close
+/// (chromium ADR 0017). Chromium never reads it: it writes it into the tab's
+/// recently-closed entry and hands it back as `aiChatPanelRecord` in the
+/// newTabCreatedWithInfo payload of the tab undo close restores. nil or empty
+/// clears it. Unknown tabs are ignored. Callers must guard with
+/// respondsToSelector: (framework/client version skew).
+- (void)setAIChatPanelRecord:(nullable NSString *)record
+                    forTabId:(int64_t)tabId;
+
 // ==========================================================================
 // Space URL routing (Mac → Chromium)
 // ==========================================================================

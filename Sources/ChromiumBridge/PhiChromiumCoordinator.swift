@@ -2718,6 +2718,8 @@ extension PhiChromiumCoordinator: PhiChromiumBridgeDelegate {
         if let groupIdHex {
             tab.groupToken = groupIdHex
         }
+        tab.restoredAIChatPanel = (tabInfo["aiChatPanelRecord"] as? String)
+            .flatMap(AIChatPanelRecord.init(encoded:))
         let creationPayload = (tabInfo["creationContext"] as? [AnyHashable: Any]) ?? tabInfo
         let creationContext = NativeTabCreationContext(dictionary: creationPayload)
         return (tab, creationContext)

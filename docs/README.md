@@ -20,6 +20,7 @@ contracts, failure modes and verification entry points. Start with the repositor
 - [Sidebar selection and refresh](architecture/sidebar-selection-and-refresh.md)
 - [Group overview](architecture/group-overview.md)
 - [Split chat ownership](architecture/split-chat-ownership.md)
+- [AI Chat panel across undo close](architecture/ai-chat-panel-undo-close.md)
 - [Guest mode and migration](architecture/guest-mode.md)
 - [Download profile scope](architecture/download-profile-scope.md)
 - [Tab search](tab-search.md)

@@ -31,6 +31,7 @@
 		31CA905CB7B349718546747A /* ShellWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A94C011853FB4653964F3285 /* ShellWindowController.swift */; };
 		31CA905CB7B349718546747B /* ShellSplitViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A94C011853FB4653964F3286 /* ShellSplitViewController.swift */; };
 		3703C88C2F68F78500E7CF6D /* AISettingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3703C88B2F68F78500E7CF6D /* AISettingView.swift */; };
+		D9576F3DD269A40D56202F9B /* BrowserState+AIChatPanelRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = 302B57687539046049CE6E3D /* BrowserState+AIChatPanelRecord.swift */; };
 		3703C9822F69558C00E7CF6D /* BrowserState+ToggleAI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3703C9812F69558C00E7CF6D /* BrowserState+ToggleAI.swift */; };
 		3703C9842F6956E600E7CF6D /* SentinelHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3703C9832F6956E600E7CF6D /* SentinelHelper.swift */; };
 		3703C9862F6956E600E7CF6D /* SentinelVersionGuard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3703C9852F6956E600E7CF6D /* SentinelVersionGuard.swift */; };
@@ -242,6 +243,7 @@
 		5C1B0C110000000000000E17 /* ContentBlockingRuleSetSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C1B0C100000000000000E16 /* ContentBlockingRuleSetSheet.swift */; };
 		5C4EE0000000000000000002 /* PageScreenshotService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C4EE0000000000000000001 /* PageScreenshotService.swift */; };
 		5C4EE0000000000000000004 /* PageScreenshotPresenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C4EE0000000000000000003 /* PageScreenshotPresenter.swift */; };
+		EF7BF5709C02A5EF0C4EAD3E /* AIChatPanelBridging.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4BC0BCCBF13A16ECD96ED4E /* AIChatPanelBridging.swift */; };
 		5C518564BC39D8D844BCA4EF /* ContentBlockingSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = A99F8238F606FE6A51B5B631 /* ContentBlockingSettings.swift */; };
 		5D1FCB130435E47C4C7D387A /* PhiURLRuleLocalAccess.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0749CDB5BD32A8DC759F2C88 /* PhiURLRuleLocalAccess.swift */; };
 		5EA17ABC0000000000000100 /* SearchTabsModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5EA17ABC0000000000000110 /* SearchTabsModels.swift */; };
@@ -830,6 +832,7 @@
 		35EE13005B45461A584F7F1C /* SyncKeyController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SyncKeyController.swift; sourceTree = "<group>"; };
 		DB90EAB144A61C14E0121401 /* SyncProfileMappingPause.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncProfileMappingPause.swift; sourceTree = "<group>"; };
 		3703C88B2F68F78500E7CF6D /* AISettingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AISettingView.swift; sourceTree = "<group>"; };
+		302B57687539046049CE6E3D /* BrowserState+AIChatPanelRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "BrowserState+AIChatPanelRecord.swift"; sourceTree = "<group>"; };
 		3703C9812F69558C00E7CF6D /* BrowserState+ToggleAI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "BrowserState+ToggleAI.swift"; sourceTree = "<group>"; };
 		3703C9832F6956E600E7CF6D /* SentinelHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SentinelHelper.swift; sourceTree = "<group>"; };
 		3703C9852F6956E600E7CF6D /* SentinelVersionGuard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SentinelVersionGuard.swift; sourceTree = "<group>"; };
@@ -1193,6 +1196,7 @@
 		A94C011853FB4653964F3285 /* ShellWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShellWindowController.swift; sourceTree = "<group>"; };
 		A94C011853FB4653964F3286 /* ShellSplitViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShellSplitViewController.swift; sourceTree = "<group>"; };
 		A95471B53513ADA4F465A3F5 /* PhiSyncInvalidation.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PhiSyncInvalidation.swift; sourceTree = "<group>"; };
+		A4BC0BCCBF13A16ECD96ED4E /* AIChatPanelBridging.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIChatPanelBridging.swift; sourceTree = "<group>"; };
 		A99F8238F606FE6A51B5B631 /* ContentBlockingSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentBlockingSettings.swift; sourceTree = "<group>"; };
 		A9A1D8147A6979F022AFEB5B /* AdvancedSettingViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AdvancedSettingViewController.swift; sourceTree = "<group>"; };
 		AA10000000000000000000F1 /* TabSwitchMetrics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabSwitchMetrics.swift; sourceTree = "<group>"; };
@@ -2427,6 +2431,7 @@
 		B02586F92E42FDA9001B08FC /* ChromiumBridge */ = {
 			isa = PBXGroup;
 			children = (
+				A4BC0BCCBF13A16ECD96ED4E /* AIChatPanelBridging.swift */,
 				A99F8238F606FE6A51B5B631 /* ContentBlockingSettings.swift */,
 				8E571D4F30131FEF00E3FBE7 /* SessionRestorePreference.swift */,
 				ACDC00000000000000000C01 /* AgentCDP */,
@@ -3052,6 +3057,7 @@
 				B17DE0000000000000000027 /* CredentialAuditLog.swift */,
 				B17DE0000000000000000B02 /* BitwardenSessionStore.swift */,
 				376581F62EEA845700D3E031 /* BrowserState+Bookmark.swift */,
+				302B57687539046049CE6E3D /* BrowserState+AIChatPanelRecord.swift */,
 				3703C9812F69558C00E7CF6D /* BrowserState+ToggleAI.swift */,
 				EAD000000000000000000011 /* ReaderExtractionService.swift */,
 				EAD000000000000000000019 /* ReaderAccessibilityExtractor.swift */,
@@ -3474,6 +3480,7 @@
 			files = (
 				3908371DDE11819BEE6F447A /* ContentBlockingAnalytics.swift in Sources */,
 				4A0B34B89EDDDD8EF26394E7 /* ContentBlockingListInfoPopover.swift in Sources */,
+				EF7BF5709C02A5EF0C4EAD3E /* AIChatPanelBridging.swift in Sources */,
 				5C518564BC39D8D844BCA4EF /* ContentBlockingSettings.swift in Sources */,
 				5A454E000000000000000001 /* KioskBrowserState.swift in Sources */,
 				5A454E000000000000000002 /* KioskBrowserContentViewController.swift in Sources */,
@@ -3872,6 +3879,7 @@
 				CCBF0C9C2ECB2C90005E729B /* LoginViewController.swift in Sources */,
 				CCBF8F692E65A9D700B9A99E /* ExtensionList.swift in Sources */,
 				CC35D7942E7271CE00E1A970 /* LiquidGlassCompatible.swift in Sources */,
+				D9576F3DD269A40D56202F9B /* BrowserState+AIChatPanelRecord.swift in Sources */,
 				3703C9822F69558C00E7CF6D /* BrowserState+ToggleAI.swift in Sources */,
 				EAD000000000000000000012 /* ReaderExtractionService.swift in Sources */,
 				EAD00000000000000000001A /* ReaderAccessibilityExtractor.swift in Sources */,
