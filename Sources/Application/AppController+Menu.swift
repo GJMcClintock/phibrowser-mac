@@ -839,6 +839,7 @@ extension AppController {
                 || item.tag == CommandWrapper.PHI_NEW_INCOGNITO_SPACE.rawValue
                 || item.tag == CommandWrapper.PHI_SHARE_PAGE.rawValue
                 || item.action == #selector(AppController.copyFullPageScreenshotFromMenu(_:))
+                || item.action == #selector(AppController.capturePageAreaFromMenu(_:))
                 || item.tag == CommandWrapper.PHI_SAVE_FOR_LATER.rawValue
                 || item.tag == AppController.fileSaveForLaterLibraryItemTag
         }
@@ -902,14 +903,22 @@ extension AppController {
         )
         screenshotItem.target = target
 
+        let areaScreenshotItem = NSMenuItem(
+            title: NSLocalizedString("app.fileMenu.capturePageArea", value: "Capture Area…",
+                                     comment: "File menu - Select a visible webpage area to capture and edit"),
+            action: #selector(AppController.capturePageAreaFromMenu(_:)), keyEquivalent: "")
+        areaScreenshotItem.target = target
+
         // Same slot Safari uses: directly above Print.
         if let printIndex = subMenu.items.firstIndex(where: {
             $0.tag == CommandWrapper.IDC_PRINT.rawValue
         }) {
             subMenu.insertItem(screenshotItem, at: printIndex)
-            subMenu.insertItem(sharePageItem, at: printIndex + 1)
+            subMenu.insertItem(areaScreenshotItem, at: printIndex + 1)
+            subMenu.insertItem(sharePageItem, at: printIndex + 2)
         } else {
             subMenu.addItem(screenshotItem)
+            subMenu.addItem(areaScreenshotItem)
             subMenu.addItem(sharePageItem)
         }
 
@@ -1241,6 +1250,12 @@ extension AppController {
     }
 
     @MainActor
+    @objc func capturePageAreaFromMenu(_ sender: Any?) {
+        guard let state = SpaceSessionControllersManager.shared.getActiveWindowState() else { return }
+        PageScreenshotService.shared.capture(in: state, area: true)
+    }
+
+    @MainActor
     @objc func sharePageFromMenu(_ sender: Any?) {
         SpaceSessionControllersManager.shared.activeWindowController?.sharePage(sender)
     }
@@ -1344,7 +1359,7 @@ extension AppController {
     }
 
     /// Bookmark-export writes still running on the background queue, and
-    /// whether app termination is parked on them (`.terminateLater`).
+    /// whether app termination is parked on confirmed bookmark or screenshot writes (`.terminateLater`).
     /// Main-thread only.
     static var inFlightBookmarkExportWrites = 0
     static var bookmarkExportTerminationPending = false
@@ -1399,10 +1414,10 @@ extension AppController {
                     // quit is parked on this write, a failure is deliberately
                     // silent (log only) — quitting must not stay blocked on
                     // an alert nobody will see.
-                    if AppController.bookmarkExportTerminationPending,
-                       AppController.inFlightBookmarkExportWrites == 0 {
-                        AppController.bookmarkExportTerminationPending = false
-                        NSApp.reply(toApplicationShouldTerminate: true)
+                    if AppController.bookmarkExportTerminationPending {
+                        MainActor.assumeIsolated {
+                            AppController.shared.resumeTerminationAfterConfirmedExports()
+                        }
                     }
                     if case .failure(let error) = result {
                         AppLogError("Bookmark export failed: \(error.localizedDescription)")
@@ -3335,11 +3350,11 @@ extension AppController {
             }
             return state.hasCopyableSelectedTabURLs
         }
-        if item.action == #selector(copyFullPageScreenshotFromMenu(_:)) {
+        if item.action == #selector(copyFullPageScreenshotFromMenu(_:)) || item.action == #selector(capturePageAreaFromMenu(_:)) {
             return MainActor.assumeIsolated {
                 guard ApplicationState.shared.canUseBrowser,
                       let state = SpaceSessionControllersManager.shared.getActiveWindowState() else { return false }
-                return PageScreenshotService.shared.canCapture(in: state)
+                return PageScreenshotService.shared.canCapture(in: state, area: item.action == #selector(capturePageAreaFromMenu(_:)))
             }
         }
         if item.action == #selector(sharePageFromMenu(_:)) {

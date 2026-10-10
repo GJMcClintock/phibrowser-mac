@@ -682,6 +682,15 @@
 		FBD200012FD0000000000001 /* FeedbackOutbox.swift in Sources */ = {isa = PBXBuildFile; fileRef = FBD200012FD0000000000002 /* FeedbackOutbox.swift */; };
 		FBD200012FD0000000000003 /* FeedbackV2.swift in Sources */ = {isa = PBXBuildFile; fileRef = FBD200012FD0000000000004 /* FeedbackV2.swift */; };
 		FDBA75FD3062F5A52D24B871 /* encryption.pb.swift in Sources */ = {isa = PBXBuildFile; fileRef = 40BAF44C72CFEA80E580CDF7 /* encryption.pb.swift */; };
+		5C4EF1000000000000000001 /* PageScreenshotGeometry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C4EF0000000000000000001 /* PageScreenshotGeometry.swift */; };
+		5C4EF1000000000000000002 /* PageScreenshotRegionSelector.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C4EF0000000000000000002 /* PageScreenshotRegionSelector.swift */; };
+		5C4EF100000000000000000A /* ScreenshotEditorModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C4EF000000000000000000A /* ScreenshotEditorModel.swift */; };
+		5C4EF100000000000000000F /* ScreenshotAnnotation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C4EF000000000000000000F /* ScreenshotAnnotation.swift */; };
+		5C4EF100000000000000000B /* ScreenshotCanvasView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C4EF000000000000000000B /* ScreenshotCanvasView.swift */; };
+		5C4EF100000000000000000C /* ScreenshotCanvasScrollView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C4EF000000000000000000C /* ScreenshotCanvasScrollView.swift */; };
+		5C4EF100000000000000000D /* ScreenshotEditorWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C4EF000000000000000000D /* ScreenshotEditorWindowController.swift */; };
+		5C4EF100000000000000000E /* ScreenshotImageExport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C4EF000000000000000000E /* ScreenshotImageExport.swift */; };
+		5C4EF1000000000000000FFF /* ItsPaint-LICENSE.txt in Resources */ = {isa = PBXBuildFile; fileRef = 5C4EF0000000000000000FFF /* ItsPaint-LICENSE.txt */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -1500,6 +1509,15 @@
 		FBD200012FD0000000000002 /* FeedbackOutbox.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedbackOutbox.swift; sourceTree = "<group>"; };
 		FBD200012FD0000000000004 /* FeedbackV2.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedbackV2.swift; sourceTree = "<group>"; };
 		FED7DED52045A7D29820DB3B /* SyncableSettings.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SyncableSettings.swift; sourceTree = "<group>"; };
+		5C4EF0000000000000000001 /* PageScreenshotGeometry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PageScreenshotGeometry.swift; sourceTree = "<group>"; };
+		5C4EF0000000000000000002 /* PageScreenshotRegionSelector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PageScreenshotRegionSelector.swift; sourceTree = "<group>"; };
+		5C4EF000000000000000000A /* ScreenshotEditorModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenshotEditorModel.swift; sourceTree = "<group>"; };
+		5C4EF000000000000000000F /* ScreenshotAnnotation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenshotAnnotation.swift; sourceTree = "<group>"; };
+		5C4EF000000000000000000B /* ScreenshotCanvasView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenshotCanvasView.swift; sourceTree = "<group>"; };
+		5C4EF000000000000000000C /* ScreenshotCanvasScrollView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenshotCanvasScrollView.swift; sourceTree = "<group>"; };
+		5C4EF000000000000000000D /* ScreenshotEditorWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenshotEditorWindowController.swift; sourceTree = "<group>"; };
+		5C4EF000000000000000000E /* ScreenshotImageExport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenshotImageExport.swift; sourceTree = "<group>"; };
+		5C4EF0000000000000000FFF /* ItsPaint-LICENSE.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = Resources/ThirdParty/ItsPaint-LICENSE.txt; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -1689,6 +1707,7 @@
 				5C1B0C0A0000000000000E10 /* SiteContentBlockingToggle.swift */,
 				3AC0FFEE00000000000000A2 /* PageSharingPresenter.swift */,
 				5C4EE0000000000000000003 /* PageScreenshotPresenter.swift */,
+				5C4EF0000000000000000002 /* PageScreenshotRegionSelector.swift */,
 			);
 			path = Header;
 			sourceTree = "<group>";
@@ -2527,6 +2546,7 @@
 				B0C4694D2E3B10E2007F0C7A /* Assets.xcassets */,
 				37B1C532302492FA00F46814 /* InfoPlist.xcstrings */,
 				3765817A2EE9637F00D3E031 /* Localizable.xcstrings */,
+				5C4EF0000000000000000FFF /* ItsPaint-LICENSE.txt */,
 				375C66372EFB923C00885D78 /* Fonts */,
 				37C1B2FF2EE672D500DD4496 /* LottieFiles */,
 			);
@@ -2558,6 +2578,7 @@
 				37C1B1E22EDEA02100DD4496 /* Feedback */,
 				8EC70DAD2F0A5CFD009FE2CD /* HorizontalBar */,
 				D10000000000000000000020 /* ImagePreview */,
+				5C4EF2000000000000000001 /* PageScreenshot */,
 				5A454E000000000000000015 /* Kiosk */,
 				CCBF8F372E653A4900B9A99E /* MainBrowserWindow */,
 				376CE4082F28917C0093D937 /* Notifications */,
@@ -3078,6 +3099,7 @@
 				EAD000000000000000000013 /* BrowserState+Reader.swift */,
 				EAD000000000000000000031 /* ReaderExtensionBridge.swift */,
 				5C4EE0000000000000000001 /* PageScreenshotService.swift */,
+				5C4EF0000000000000000001 /* PageScreenshotGeometry.swift */,
 				A10A10000000000000000001 /* SidecarAIOutputStateStore.swift */,
 				EAD000000000000000000033 /* ReaderViewAnalytics.swift */,
 				EAD000000000000000000035 /* PeekViewAnalytics.swift */,
@@ -3213,6 +3235,19 @@
 			path = Reader;
 			sourceTree = "<group>";
 		};
+		5C4EF2000000000000000001 /* PageScreenshot */ = {
+            isa = PBXGroup;
+            children = (
+				5C4EF000000000000000000A /* ScreenshotEditorModel.swift */,
+				5C4EF000000000000000000F /* ScreenshotAnnotation.swift */,
+				5C4EF000000000000000000B /* ScreenshotCanvasView.swift */,
+				5C4EF000000000000000000C /* ScreenshotCanvasScrollView.swift */,
+				5C4EF000000000000000000D /* ScreenshotEditorWindowController.swift */,
+				5C4EF000000000000000000E /* ScreenshotImageExport.swift */,
+            );
+            path = PageScreenshot;
+            sourceTree = "<group>";
+        };
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -3401,6 +3436,7 @@
 				37F574482F7A7C5D00879867 /* PhiIcon.icon in Resources */,
 				B0C4694E2E3B10E2007F0C7A /* Assets.xcassets in Resources */,
 				3765817B2EE963AD00D3E031 /* Localizable.xcstrings in Resources */,
+				5C4EF1000000000000000FFF /* ItsPaint-LICENSE.txt in Resources */,
 				37B977D52EF3F62F007E0568 /* login-dot-bg.mp4 in Resources */,
 				37B1C533302492FA00F46814 /* InfoPlist.xcstrings in Resources */,
 				CC99097C2EBC9F090046BC81 /* login-bg.mp4 in Resources */,
@@ -3893,6 +3929,14 @@
 				EAD000000000000000000014 /* BrowserState+Reader.swift in Sources */,
 				EAD000000000000000000032 /* ReaderExtensionBridge.swift in Sources */,
 				5C4EE0000000000000000002 /* PageScreenshotService.swift in Sources */,
+				5C4EF100000000000000000E /* ScreenshotImageExport.swift in Sources */,
+				5C4EF100000000000000000D /* ScreenshotEditorWindowController.swift in Sources */,
+				5C4EF100000000000000000C /* ScreenshotCanvasScrollView.swift in Sources */,
+				5C4EF100000000000000000B /* ScreenshotCanvasView.swift in Sources */,
+				5C4EF100000000000000000A /* ScreenshotEditorModel.swift in Sources */,
+				5C4EF100000000000000000F /* ScreenshotAnnotation.swift in Sources */,
+				5C4EF1000000000000000002 /* PageScreenshotRegionSelector.swift in Sources */,
+				5C4EF1000000000000000001 /* PageScreenshotGeometry.swift in Sources */,
 				A10A10000000000000000002 /* SidecarAIOutputStateStore.swift in Sources */,
 				EAD000000000000000000034 /* ReaderViewAnalytics.swift in Sources */,
 				EAD000000000000000000036 /* PeekViewAnalytics.swift in Sources */,

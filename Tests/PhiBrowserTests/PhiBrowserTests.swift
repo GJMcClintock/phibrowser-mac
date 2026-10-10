@@ -545,7 +545,10 @@ final class PhiBrowserTests: XCTestCase {
         }
         let screenshotItem = try XCTUnwrap(screenshotItems.first)
         XCTAssertEqual(screenshotItems.count, 1)
-        XCTAssertEqual(menu.items.firstIndex(of: screenshotItem), shareIndex - 1)
+        XCTAssertEqual(menu.items.firstIndex(of: screenshotItem), shareIndex - 2)
+        let areaItems = menu.items.filter { $0.action == NSSelectorFromString("capturePageAreaFromMenu:") }
+        XCTAssertEqual(areaItems.count, 1)
+        XCTAssertEqual(menu.items.firstIndex(of: try XCTUnwrap(areaItems.first)), shareIndex - 1)
         XCTAssertEqual(screenshotItem.keyEquivalent, "")
         XCTAssertFalse(screenshotItem.isHidden)
         XCTAssertEqual(
