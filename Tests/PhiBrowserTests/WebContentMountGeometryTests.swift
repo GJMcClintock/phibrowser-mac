@@ -133,10 +133,17 @@ final class WebContentMountGeometryTests: XCTestCase {
         fixture.state.updateNormalTabs()
         RunLoop.main.run(until: Date().addingTimeInterval(0.05))
         XCTAssertNil(fixture.container.currentWebPanelSize, "the closed tab is still current")
+        var deferredAtMount: [Bool] = []
+        fixture.container.willMountControllerForTesting = {
+            deferredAtMount.append($0.hasDeferredContentUpdate)
+        }
         fixture.state.focusingTab = fixture.tabs[1]
         // Mounts the focused tab synchronously.
         fixture.container.mountActiveTabForRestore()
 
+        // Precondition: the successor's content waits for the deferred
+        // update, so only the container's earlier mount lets it join now.
+        XCTAssertEqual(deferredAtMount, [true])
         XCTAssertNotNil(fixture.webViews[1].window)
     }
 
