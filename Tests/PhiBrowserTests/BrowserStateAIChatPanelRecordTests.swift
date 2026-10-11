@@ -35,8 +35,24 @@ final class BrowserStateAIChatPanelRecordTests: XCTestCase {
     private let conversationX = "3f2a8c1e-5b7d-4e9a-8c6f-1d2e3f4a5b6c"
     private let conversationY = "9b8a7c6d-5e4f-4a3b-9c2d-1e0f9a8b7c6d"
     private var tempDirectories: [URL] = []
+    private var originalPhiAIEnabled: Any?
+
+    override func setUpWithError() throws {
+        // Expanding a panel is gated on the AI switch; pin it on and give the
+        // user's value back afterwards.
+        let key = PhiPreferences.AISettings.phiAIEnabled.rawValue
+        originalPhiAIEnabled = UserDefaults.standard.object(forKey: key)
+        UserDefaults.standard.set(true, forKey: key)
+    }
 
     override func tearDownWithError() throws {
+        let key = PhiPreferences.AISettings.phiAIEnabled.rawValue
+        if let originalPhiAIEnabled {
+            UserDefaults.standard.set(originalPhiAIEnabled, forKey: key)
+        } else {
+            UserDefaults.standard.removeObject(forKey: key)
+        }
+        originalPhiAIEnabled = nil
         for directory in tempDirectories {
             try? FileManager.default.removeItem(at: directory)
         }
@@ -80,6 +96,14 @@ final class BrowserStateAIChatPanelRecordTests: XCTestCase {
 
     private func record(expanded: Bool, _ conversationId: String?) -> AIChatPanelRecord? {
         AIChatPanelRecord(isExpanded: expanded, conversationId: conversationId)
+    }
+
+    /// Every live `BrowserState` reacts to this preference on the main queue
+    /// (`updateAISettings`), and turning it off there tears Sentinel down. A
+    /// test that turns it off must turn it back on, or let tearDown restore
+    /// it, without yielding to the main queue in between.
+    private func setAIEnabled(_ enabled: Bool) {
+        UserDefaults.standard.set(enabled, forKey: PhiPreferences.AISettings.phiAIEnabled.rawValue)
     }
 
     // MARK: - Out: pushing the record
@@ -386,6 +410,107 @@ final class BrowserStateAIChatPanelRecordTests: XCTestCase {
         expand(tab, in: state)
 
         let request = try XCTUnwrap(bridge.panelRequests.dropFirst().first)
+        let query = URLComponents(string: request.url)?.queryItems ?? []
+        XCTAssertNil(query.first(where: { $0.name == "conv_id" }))
+    }
+
+    // MARK: - Dropped: AI switch off, guest mode, unreadable records
+
+    func testWithTheAISwitchOffAnArrivingRecordIsDropped() throws {
+        for expanded in [true, false] {
+            let bridge = FakeAIChatPanelBridge()
+            let state = try makeState(bridge: bridge)
+            state.aiChatTabCreationGateOverrideForTesting = true
+            _ = seed(state, guids: [1])
+            setAIEnabled(false)
+
+            let tab = arrive(state, guid: 5, record: record(expanded: expanded, conversationX),
+                             isActiveAtCreation: true)
+
+            XCTAssertTrue(tab.aiChatCollapsed, "expanded=\(expanded)")
+            XCTAssertTrue(bridge.panelRequests.isEmpty, "expanded=\(expanded)")
+            XCTAssertEqual(bridge.pushes.map(\.tabId), [5], "expanded=\(expanded)")
+            XCTAssertEqual(bridge.pushes.map(\.record), [nil], "expanded=\(expanded)")
+            // With AI back on, closing the tab again leaves Chromium no record
+            // for the closed entry.
+            setAIEnabled(true)
+            state.closeTab(5)
+            XCTAssertEqual(bridge.pushes.count, 1, "expanded=\(expanded)")
+        }
+    }
+
+    func testARecordDroppedWithTheAISwitchOffKeepsNoConversationForLater() throws {
+        let bridge = FakeAIChatPanelBridge()
+        let state = try makeState(bridge: bridge)
+        state.aiChatTabCreationGateOverrideForTesting = true
+        _ = seed(state, guids: [1])
+        setAIEnabled(false)
+        let tab = arrive(state, guid: 5, record: record(expanded: false, conversationX),
+                         isActiveAtCreation: true)
+        setAIEnabled(true)
+
+        expand(tab, in: state)
+
+        let request = try XCTUnwrap(bridge.panelRequests.first)
+        let query = URLComponents(string: request.url)?.queryItems ?? []
+        XCTAssertNil(query.first(where: { $0.name == "conv_id" }))
+        XCTAssertEqual(bridge.records(forTabId: 5).last, record(expanded: true, nil))
+    }
+
+    func testInGuestModeAnArrivingRecordIsDropped() throws {
+        for expanded in [true, false] {
+            let bridge = FakeAIChatPanelBridge()
+            let state = try makeState(bridge: bridge)
+            state.aiChatTabCreationGateOverrideForTesting = true
+            state.guestModeOverrideForTesting = true
+            _ = seed(state, guids: [1])
+
+            let tab = arrive(state, guid: 5, record: record(expanded: expanded, conversationX),
+                             isActiveAtCreation: true)
+
+            XCTAssertTrue(tab.aiChatCollapsed, "expanded=\(expanded)")
+            XCTAssertTrue(bridge.panelRequests.isEmpty, "expanded=\(expanded)")
+            XCTAssertEqual(bridge.pushes.map(\.tabId), [5], "expanded=\(expanded)")
+            XCTAssertEqual(bridge.pushes.map(\.record), [nil], "expanded=\(expanded)")
+            // Signed in later, the panel opens on a new conversation.
+            state.guestModeOverrideForTesting = false
+            expand(tab, in: state)
+            let request = try XCTUnwrap(bridge.panelRequests.first, "expanded=\(expanded)")
+            let query = URLComponents(string: request.url)?.queryItems ?? []
+            XCTAssertNil(query.first(where: { $0.name == "conv_id" }), "expanded=\(expanded)")
+        }
+    }
+
+    func testAMalformedRecordReadsAsNone() {
+        XCTAssertNil(AIChatPanelRecord(encoded: ""))
+        XCTAssertNil(AIChatPanelRecord(encoded: "not json"))
+        XCTAssertNil(AIChatPanelRecord(encoded: #"{"expanded":true}"#))
+        XCTAssertNil(AIChatPanelRecord(encoded: #"{"conversationId":"\#(conversationX)","v":1}"#))
+        XCTAssertNil(AIChatPanelRecord(encoded: #"{"expanded":"yes","v":1}"#))
+    }
+
+    func testTurningTheAISwitchOffClearsEveryTabsRecord() throws {
+        let bridge = FakeAIChatPanelBridge()
+        let state = try makeState(bridge: bridge)
+        state.aiChatTabCreationGateOverrideForTesting = true
+        let tabs = seed(state, guids: [1, 2])
+        tabs[0].aiChatCollapsed = false
+        addPanel(to: tabs[0], in: state, url: conversationURL(conversationX, tabId: 1))
+        let restored = arrive(state, guid: 5, record: record(expanded: false, conversationY),
+                              isActiveAtCreation: false)
+
+        setAIEnabled(false)
+        state.closeAllAIContent()
+
+        XCTAssertNil(try XCTUnwrap(bridge.pushes.last(where: { $0.tabId == 1 })).record)
+        XCTAssertNil(try XCTUnwrap(bridge.pushes.last(where: { $0.tabId == 5 })).record)
+        // A tab moved in from another window can hold a record this window
+        // never pushed.
+        XCTAssertNil(try XCTUnwrap(bridge.pushes.last(where: { $0.tabId == 2 })).record)
+        // The conversation the restored tab was waiting on is gone as well.
+        setAIEnabled(true)
+        expand(restored, in: state)
+        let request = try XCTUnwrap(bridge.panelRequests.first)
         let query = URLComponents(string: request.url)?.queryItems ?? []
         XCTAssertNil(query.first(where: { $0.name == "conv_id" }))
     }

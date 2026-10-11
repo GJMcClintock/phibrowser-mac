@@ -288,6 +288,12 @@ class BrowserState {
     /// meet. nil in production.
     var aiChatTabCreationGateOverrideForTesting: Bool?
 
+    /// Test seam: stands in for `ApplicationState.shared.isGuest` when a
+    /// restored tab's panel record arrives (`restoreAIChatPanel`), which the
+    /// test process cannot change without rewriting the persisted guest
+    /// choice. nil in production.
+    var guestModeOverrideForTesting: Bool?
+
     /// Panel records as last handed to Chromium, by page tab id. See
     /// `BrowserState+AIChatPanelRecord.swift`.
     var aiChatPanelRecordsPushed: [Int: AIChatPanelRecord] = [:]

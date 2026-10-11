@@ -33,6 +33,11 @@ it holds into the tab's recently-closed entry. A push that has not reached
 Chromium when the tab closes is lost, so a conversation switched right before the
 close comes back as the previous one.
 
+Turning the AI switch off closes every panel tab (`closeAllAIContent`) and then
+clears the record of every page tab in the window, along with any conversation
+still waiting for its panel tab, so tabs closed afterwards come back without a
+panel even once AI is on again.
+
 ## Coming back
 
 Chromium hands the record back as `aiChatPanelRecord` in the new-tab payload of
@@ -42,8 +47,8 @@ pushes the record straight back when it takes it over, which ends the hand-back,
 so moving the tab away and back does not bring the panel again either. It keeps
 the record's conversation for the panel tab to come.
 
-When such a tab arrives with an expanded record, `BrowserState` expands it
-(subject to the AI switch). When it is the current tab, `BrowserState` asks for
+When such a tab arrives with an expanded record, `BrowserState` expands it. When
+it is the current tab, `BrowserState` asks for
 its panel tab at once with `conv_id` in the panel URL, so the chat finds the
 panel already there and leaves focus on the page; other tabs get theirs from the
 ordinary on-demand path when shown. A tab that arrives with a collapsed record
@@ -51,15 +56,19 @@ stays collapsed, and its panel tab is created on that conversation when the user
 expands it. Closing the tab before then pushes nothing, so the record Chromium
 writes into the closed entry still names the conversation.
 
+A record that arrives while the AI switch is off, or in guest mode, is dropped
+instead: `BrowserState` pushes a clear and neither expands the tab nor keeps the
+conversation, so the panel does not come back later either.
+
 A page controller created for a tab whose panel is already expanded expands the
 chat pane while it is still appearing itself, and AppKit then sends the chat
 controller no appearance callbacks; the page controller sets the chat up when
 that expansion finishes. Without it the pane stays empty until the tab is shown
 again.
 
-Current limitations: windows and tab groups restored as a whole, the AI switch
-being off, guest mode and the split handoff get no special handling yet; session
-restore never carries records. A conversation still waiting for its panel tab is
+Current limitations: windows and tab groups restored as a whole and the split
+handoff get no special handling yet; session restore never carries records. A
+conversation still waiting for its panel tab is
 not dropped when the tab closes or leaves the window, so a pinned or bookmarked
 tab closed before its panel was expanded opens its panel on that conversation
 the next time it is opened from the sidebar and expanded.
@@ -73,4 +82,5 @@ the next time it is opened from the sidebar and expanded.
 - [Tests](../../Tests/PhiBrowserTests/BrowserStateAIChatPanelRecordTests.swift)
 
 Check expanding and collapsing, switching conversations, closing the tab, and
-undo close from Cmd+Shift+T, the History menu and Search Tabs on a signed-in build.
+undo close from Cmd+Shift+T, the History menu and Search Tabs on a signed-in
+build, and undo close with the AI switch off, then again once it is back on.

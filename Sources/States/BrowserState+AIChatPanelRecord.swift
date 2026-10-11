@@ -147,10 +147,19 @@ extension BrowserState {
     /// An expanded panel comes back expanded; the current tab asks for its
     /// panel tab right away, so the chat finds it already there and leaves
     /// focus on the page. A collapsed one stays collapsed until the user
-    /// expands it.
+    /// expands it. With the AI switch off, or in guest mode, the panel does
+    /// not come back and the record is cleared in Chromium, so it does not
+    /// come back later either.
     func restoreAIChatPanel(of tab: Tab, isActiveAtCreation: Bool) {
         guard let record = tab.restoredAIChatPanel else { return }
         tab.restoredAIChatPanel = nil
+        let isAIEnabled = PhiPreferences.AISettings.phiAIEnabled.loadValue()
+        let isGuest = guestModeOverrideForTesting ?? ApplicationState.shared.isGuest
+        guard isAIEnabled, !isGuest else {
+            AppLogInfo("[AIChat] dropped panel record tabId=\(tab.guid) aiEnabled=\(isAIEnabled) guest=\(isGuest)")
+            aiChatPanelBridge.setAIChatPanelRecord(nil, forTabId: tab.guid)
+            return
+        }
         AppLogInfo("[AIChat] restored panel tabId=\(tab.guid) record=\(record.encoded) active=\(isActiveAtCreation)")
         // Pushing it back ends Chromium's hand-back, so moving the tab to
         // another window and back does not bring the panel again.
@@ -163,5 +172,19 @@ extension BrowserState {
         setAIChatCollapsed(for: tab, collapsed: false)
         guard isActiveAtCreation, !tab.aiChatCollapsed else { return }
         createAIChatTab(for: chatIdentifier(for: tab), chromeTabId: tab.guid)
+    }
+
+    /// The AI switch turned off and every panel tab is gone: no page tab
+    /// keeps a record or a conversation waiting for its panel tab, so undo
+    /// close brings no panel back. Every tab is cleared, not only the ones
+    /// pushed from here, since a tab moved in from another window carries
+    /// its record along.
+    func clearAIChatPanelRecords() {
+        pendingAIChatConversations.removeAll()
+        aiChatPanelRecordsPushed.removeAll()
+        AppLogInfo("[AIChat] cleared panel records of \(tabs.count) tabs")
+        for tab in tabs {
+            aiChatPanelBridge.setAIChatPanelRecord(nil, forTabId: tab.guid)
+        }
     }
 }
