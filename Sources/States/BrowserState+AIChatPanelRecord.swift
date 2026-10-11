@@ -73,7 +73,8 @@ extension BrowserState {
     /// Keeps Chromium's copy of each page tab's panel record current: it is
     /// recomputed when the tab expands or collapses, when its panel tab
     /// appears, and when the panel's URL names another conversation. Closing
-    /// the page tab pushes nothing, so the record goes into its closed entry.
+    /// the page tab pushes nothing, so the record goes into its closed entry,
+    /// unless a split pane hands its panel over (`handOffAIChatPanelRecord`).
     func watchAIChatPanelRecords() {
         $tabs
             .sink { [weak self] tabs in self?.watchAIChatCollapse(of: tabs) }
@@ -114,6 +115,13 @@ extension BrowserState {
                     let key = self.aiChatTabs.first(where: { $0.value === chat })?.key ?? identifier
                     guard let owner = self.tab(forChatIdentifier: key) else { return }
                     self.pushAIChatPanelRecord(of: owner, panelURL: url)
+                    // Before the panel existed, the other pane of a split
+                    // resolved to itself and may have pushed a record.
+                    if let partnerId = self.splitGroup(forTabId: owner.guid)?.partnerTabId(of: owner.guid),
+                       let partner = self.tabs.first(where: { $0.guid == partnerId }),
+                       self.aiChatTabs[self.getTabIdentifier(for: partner)] == nil {
+                        self.sendAIChatPanelRecord(nil, of: partner)
+                    }
                 }
             // The panel exists now; its URL names the conversation from here on.
             pendingAIChatConversations[identifier] = nil
@@ -136,10 +144,47 @@ extension BrowserState {
             record = AIChatPanelRecord(isExpanded: isExpanded ?? !tab.aiChatCollapsed,
                                        conversationId: conversationId)
         }
+        sendAIChatPanelRecord(record, of: tab)
+    }
+
+    /// Hands `record` to Chromium as the page tab `tab`'s, unless it is the
+    /// one handed over last.
+    private func sendAIChatPanelRecord(_ record: AIChatPanelRecord?, of tab: Tab) {
         guard record != aiChatPanelRecordsPushed[tab.guid] else { return }
         aiChatPanelRecordsPushed[tab.guid] = record
         AppLogInfo("[AIChat] panel record tabId=\(tab.guid) record=\(record?.encoded ?? "none")")
         aiChatPanelBridge.setAIChatPanelRecord(record?.encoded, forTabId: tab.guid)
+    }
+
+    /// Chromium is about to remove the tab `tabId`, closing it or moving it to
+    /// another window. It writes a closed tab's recently-closed entry as soon
+    /// as this returns, before this window's `closeTab` runs, so the bridge
+    /// callback calls this directly rather than through EventBus. Only a split
+    /// pane has anything to do here: it is noted as leaving, and its panel
+    /// record is handed over (`handOffAIChatPanelRecord`).
+    func splitPaneWillBeRemoved(_ tabId: Int) {
+        guard let tab = tabs.first(where: { $0.guid == tabId }),
+              splitGroup(forTabId: tabId) != nil else { return }
+        splitPaneIdsBeingRemoved.insert(tabId)
+        handOffAIChatPanelRecord(of: tab)
+    }
+
+    /// When `tab` holds its split's panel and the other pane stays, `closeTab`
+    /// hands the panel to that pane, and the record goes along: cleared on
+    /// `tab`, set on the other pane. Pushed before Chromium writes `tab`'s
+    /// closed entry, so undo close does not bring a second panel back. A pane
+    /// Chromium is removing as well does not stay: when both panes close, the
+    /// record stays with the one that closes last.
+    func handOffAIChatPanelRecord(of tab: Tab) {
+        guard let panel = aiChatTabs[getTabIdentifier(for: tab)],
+              let partnerId = splitGroup(forTabId: tab.guid)?.partnerTabId(of: tab.guid),
+              !splitPaneIdsBeingRemoved.contains(partnerId),
+              let partner = tabs.first(where: { $0.guid == partnerId }) else { return }
+        sendAIChatPanelRecord(nil, of: tab)
+        sendAIChatPanelRecord(
+            AIChatPanelRecord(isExpanded: !partner.aiChatCollapsed,
+                              conversationId: AIChatPanelRecord.conversationId(fromPanelURL: panel.url)),
+            of: partner)
     }
 
     /// A tab undo close brought back arrived with the panel it had when it

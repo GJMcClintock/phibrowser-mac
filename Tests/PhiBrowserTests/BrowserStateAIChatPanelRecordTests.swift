@@ -221,6 +221,125 @@ final class BrowserStateAIChatPanelRecordTests: XCTestCase {
         XCTAssertEqual(bridge.pushes.count, pushesBeforeClose)
     }
 
+    // MARK: - Split: two panes share one panel
+
+    private func splitPanes(_ state: BrowserState, _ primary: Int, _ secondary: Int) {
+        state.splits = [SplitGroup(id: "split-\(primary)-\(secondary)", primaryTabId: primary,
+                                   secondaryTabId: secondary, layout: .vertical, ratio: 0.5)]
+    }
+
+    /// Chromium files the panel tab `createAIChatTab` asked for under `identifier`.
+    private func filePanel(for identifier: String, in state: BrowserState, url: String) {
+        let chat = Tab(guid: 900, url: url, isActive: false, index: 0)
+        chat.guidInLocalDB = BrowserState.aiChatId(for: identifier)
+        state.handleNewTabFromChromium(chat)
+    }
+
+    /// Tab 1 holds the split's panel, expanded on conversation X.
+    private func makeSplitWithPanelOnTab1(bridge: FakeAIChatPanelBridge) throws -> BrowserState {
+        let state = try makeState(bridge: bridge)
+        state.aiChatTabCreationGateOverrideForTesting = true
+        let tabs = seed(state, guids: [1, 2])
+        splitPanes(state, 1, 2)
+        // Expanding mirrors to tab 2 before the panel exists.
+        expand(tabs[0], in: state)
+        filePanel(for: state.getTabIdentifier(for: tabs[0]), in: state,
+                  url: conversationURL(conversationX, tabId: 1))
+        return state
+    }
+
+    func testInASplitOnlyThePaneHoldingThePanelKeepsARecord() throws {
+        let bridge = FakeAIChatPanelBridge()
+        _ = try makeSplitWithPanelOnTab1(bridge: bridge)
+
+        XCTAssertEqual(bridge.records(forTabId: 1).last, record(expanded: true, conversationX))
+        XCTAssertNil(try XCTUnwrap(bridge.pushes.last(where: { $0.tabId == 2 })).record)
+    }
+
+    func testClosingThePaneHoldingThePanelHandsTheRecordToTheOtherPane() throws {
+        let bridge = FakeAIChatPanelBridge()
+        let state = try makeSplitWithPanelOnTab1(bridge: bridge)
+
+        state.closeTab(1)
+
+        XCTAssertNotNil(state.aiChatTabs[state.getTabIdentifier(for: state.tabs[0])])
+        XCTAssertNil(try XCTUnwrap(bridge.pushes.last(where: { $0.tabId == 1 })).record)
+        XCTAssertEqual(bridge.records(forTabId: 2).last, record(expanded: true, conversationX))
+    }
+
+    func testTheHandOffIsPushedWhenChromiumAnnouncesTheRemoval() throws {
+        let bridge = FakeAIChatPanelBridge()
+        let state = try makeSplitWithPanelOnTab1(bridge: bridge)
+
+        // Chromium writes tab 1's closed entry once this returns, before the
+        // client's `closeTab` runs.
+        state.splitPaneWillBeRemoved(1)
+
+        XCTAssertNil(try XCTUnwrap(bridge.pushes.last(where: { $0.tabId == 1 })).record)
+        XCTAssertEqual(bridge.records(forTabId: 2).last, record(expanded: true, conversationX))
+        let pushesBeforeClose = bridge.pushes.count
+        state.closeTab(1)
+        XCTAssertEqual(bridge.pushes.count, pushesBeforeClose)
+    }
+
+    func testACollapsedPanelIsHandedOverCollapsed() throws {
+        let bridge = FakeAIChatPanelBridge()
+        let state = try makeSplitWithPanelOnTab1(bridge: bridge)
+        // Collapsing mirrors to tab 2.
+        state.setAIChatCollapsed(for: state.tabs[0], collapsed: true)
+        XCTAssertEqual(bridge.records(forTabId: 1).last, record(expanded: false, conversationX))
+
+        state.splitPaneWillBeRemoved(1)
+
+        XCTAssertNil(try XCTUnwrap(bridge.pushes.last(where: { $0.tabId == 1 })).record)
+        XCTAssertEqual(bridge.records(forTabId: 2).last, record(expanded: false, conversationX))
+    }
+
+    // When both panes close, the record each holds when Chromium announces its
+    // removal is the one its closed entry gets, so it stays with the pane that
+    // closes last.
+
+    func testWhenTheHolderClosesFirstTheOtherPaneEndsWithTheRecord() throws {
+        let bridge = FakeAIChatPanelBridge()
+        let state = try makeSplitWithPanelOnTab1(bridge: bridge)
+
+        state.splitPaneWillBeRemoved(1)
+        state.closeTab(1)
+        state.splitPaneWillBeRemoved(2)
+        state.closeTab(2)
+
+        XCTAssertNil(try XCTUnwrap(bridge.pushes.last(where: { $0.tabId == 1 })).record)
+        XCTAssertEqual(bridge.records(forTabId: 2).last, record(expanded: true, conversationX))
+    }
+
+    /// Close Other Tabs closes both panes in one go: Chromium announces both
+    /// removals before the client handles either close.
+    func testWhenBothAreRemovedTogetherHolderFirstTheOtherPaneEndsWithTheRecord() throws {
+        let bridge = FakeAIChatPanelBridge()
+        let state = try makeSplitWithPanelOnTab1(bridge: bridge)
+
+        state.splitPaneWillBeRemoved(1)
+        state.splitPaneWillBeRemoved(2)
+        state.closeTab(1)
+        state.closeTab(2)
+
+        XCTAssertNil(try XCTUnwrap(bridge.pushes.last(where: { $0.tabId == 1 })).record)
+        XCTAssertEqual(bridge.records(forTabId: 2).last, record(expanded: true, conversationX))
+    }
+
+    func testWhenTheOtherPaneIsRemovedFirstTheHolderKeepsTheRecord() throws {
+        let bridge = FakeAIChatPanelBridge()
+        let state = try makeSplitWithPanelOnTab1(bridge: bridge)
+
+        state.splitPaneWillBeRemoved(2)
+        state.splitPaneWillBeRemoved(1)
+        state.closeTab(2)
+        state.closeTab(1)
+
+        XCTAssertNil(try XCTUnwrap(bridge.pushes.last(where: { $0.tabId == 2 })).record)
+        XCTAssertEqual(bridge.records(forTabId: 1).last, record(expanded: true, conversationX))
+    }
+
     // MARK: - In: a restored tab arrives with its record
 
     private func arrive(_ state: BrowserState, guid: Int, record: AIChatPanelRecord?,

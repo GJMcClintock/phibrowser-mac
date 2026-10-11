@@ -21,15 +21,30 @@ tab exists, the conversation it came back with stands in for it, and moves with
 the tab when the tab's identifier changes (pinning it, binding it to a bookmark).
 
 In a split the record stays with the pane that holds the shared panel
-(`chatIdentifier(for:)`).
+(`chatIdentifier(for:)`). Expanding mirrors to both panes before the panel
+exists, so the other pane's record is cleared when the panel appears.
+
+When the holding pane closes, or moves to another window, while the other pane
+stays, the panel goes to that pane and so does the record: cleared on the
+closing pane, set on the other. Chromium writes the closing tab's
+recently-closed entry as soon as its tab-removal callback returns, before
+`closeTab` runs, so `PhiChromiumCoordinator.tabWillBeRemove` calls
+`splitPaneWillBeRemoved(_:)` directly rather than through EventBus, as the
+coordinator already does for placeholder mode and the extension side panel. The
+bridge keeps the closing tab's id resolvable until that callback returns. Undo
+close then brings the closed pane back without a second panel. When both panes
+close (the split row's Close, Close Other Tabs, or one after the other), each
+becomes its own closed entry and the split is not restored; the record stays
+with the pane that closes last, which is the first one undo close brings back.
 
 ## Pushing it to Chromium
 
 `BrowserState` recomputes a tab's record when the tab expands or collapses, when
 its panel tab appears, and when the panel's URL names another conversation, and
 pushes it through `AIChatPanelBridging.setAIChatPanelRecord(_:forTabId:)` only
-when it changed. Closing the page tab pushes nothing: Chromium writes the record
-it holds into the tab's recently-closed entry. A push that has not reached
+when it changed. Closing the page tab pushes nothing, except for the split
+handoff above: Chromium writes the record it holds into the tab's
+recently-closed entry. A push that has not reached
 Chromium when the tab closes is lost, so a conversation switched right before the
 close comes back as the previous one.
 
@@ -66,17 +81,21 @@ controller no appearance callbacks; the page controller sets the chat up when
 that expansion finishes. Without it the pane stays empty until the tab is shown
 again.
 
-Current limitations: windows and tab groups restored as a whole and the split
-handoff get no special handling yet; session restore never carries records. A
+Current limitations: windows and tab groups restored as a whole get no special
+handling yet; session restore never carries records. A
 conversation still waiting for its panel tab is
 not dropped when the tab closes or leaves the window, so a pinned or bookmarked
 tab closed before its panel was expanded opens its panel on that conversation
-the next time it is opened from the sidebar and expanded.
+the next time it is opened from the sidebar and expanded. When a split is formed
+from two tabs that both had a panel, the panel that is closed leaves its tab's
+record behind. When a whole split moves to another window, the record can end up
+on the pane that did not hold the panel, and that window does not clear it.
 
 ## Source and checks
 
 - [Record, pushes and arrival](../../Sources/States/BrowserState+AIChatPanelRecord.swift)
 - [Bridge seam](../../Sources/ChromiumBridge/AIChatPanelBridging.swift)
+- [Split handoff on removal](../../Sources/ChromiumBridge/PhiChromiumCoordinator.swift) (`tabWillBeRemove`)
 - [Panel creation](../../Sources/States/BrowserState.swift) (`createAIChatTab(for:chromeTabId:)`)
 - [Chat pane expansion](../../Sources/UserInterface/WebContent/WebContentViewController.swift) (`animateAIChatCollapseTransition`)
 - [Tests](../../Tests/PhiBrowserTests/BrowserStateAIChatPanelRecordTests.swift)
@@ -84,3 +103,5 @@ the next time it is opened from the sidebar and expanded.
 Check expanding and collapsing, switching conversations, closing the tab, and
 undo close from Cmd+Shift+T, the History menu and Search Tabs on a signed-in
 build, and undo close with the AI switch off, then again once it is back on.
+In a split, check closing the pane that holds the panel and then undo close
+(one panel only), and closing the whole split and then undo close twice.

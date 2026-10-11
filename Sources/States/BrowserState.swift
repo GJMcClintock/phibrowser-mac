@@ -300,6 +300,9 @@ class BrowserState {
     /// Conversations that came back with a page tab whose panel tab does not
     /// exist yet, by the tab's identifier; the panel is created on them.
     var pendingAIChatConversations: [String: String] = [:]
+    /// Split panes Chromium announced it is removing whose `closeTab` has not
+    /// run yet. See `splitPaneWillBeRemoved(_:)`.
+    var splitPaneIdsBeingRemoved: Set<Int> = []
     var aiChatCollapseWatches: [ObjectIdentifier: (tabId: Int, watch: AnyCancellable)] = [:]
     var aiChatPanelURLWatches: [ObjectIdentifier: AnyCancellable] = [:]
     var aiChatPanelRecordSubscriptions = Set<AnyCancellable>()
@@ -5020,6 +5023,7 @@ class BrowserState {
     @MainActor
     func closeTab(_ tabId: Int) {
         let t0 = CFAbsoluteTimeGetCurrent()
+        defer { splitPaneIdsBeingRemoved.remove(tabId) }
         // Ensure selection override is computed before the graph is modified.
         // Tab.close() already calls this for sidebar-initiated closes, but
         // Chromium-driven closes (CMD+W, etc.) arrive via tabWillBeRemove
@@ -5105,6 +5109,9 @@ class BrowserState {
                 BrowserTabCloseInfoKey.localGuid: closedTab.guidInLocalDB as Any,
             ]
         )
+
+        // Usually pushed already from the removal callback; nothing is resent.
+        handOffAIChatPanelRecord(of: closedTab)
 
         // Close the linked AI Chat synchronously. EventBus already hops through a
         // `Task @MainActor`, so we are no longer inside Chromium's tab strip

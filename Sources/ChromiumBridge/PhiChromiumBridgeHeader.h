@@ -215,6 +215,9 @@ typedef NS_ENUM(NSInteger, PhiGhostMaterializeOutcome) {
 
 // tab service
 - (void)newTabCreatedWithInfo:(NSDictionary *)tabInfo windowId:(int64_t)windowId;
+/// Called synchronously, as is the `context:` variant, before Chromium writes a
+/// closed tab's recently-closed entry. Until it returns, `tabId` still resolves
+/// for calls such as `setAIChatPanelRecord:forTabId:`.
 - (void)tabWillBeRemove:(int64_t)tabId windowId:(int64_t)windowId;
 - (void)tabTitleUpdated:(int64_t)tabId title:(NSString *)title windowId:(int64_t)windowId;
 - (void)activeTabChanged:(int64_t)tabId index:(int)index windowId:(int64_t)windowId;

@@ -2933,6 +2933,10 @@ extension PhiChromiumCoordinator: PhiChromiumBridgeDelegate {
         if Thread.isMainThread {
             MainActor.assumeIsolated {
                 AgentUserSpaceDriveRegistry.shared.tabWasRemoved(tabId: tabId.intValue)
+                // Chromium writes a closed tab's recently-closed entry once this
+                // returns, before the EventBus close below runs.
+                SpaceSessionControllersManager.shared.getBrowserState(for: windowId.intValue)?
+                    .splitPaneWillBeRemoved(tabId.intValue)
             }
         }
         EventBus.shared
