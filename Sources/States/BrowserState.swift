@@ -584,6 +584,10 @@ class BrowserState {
             aiChatTabs[targetIdentifier] = aiChatTab
             AppLogInfo("🔄 [AIChat] Migrated AI Chat tab from '\(oldIdentifier)' to '\(targetIdentifier)'")
         }
+        // A conversation waiting for the panel tab follows the tab the same way.
+        if let conversationId = pendingAIChatConversations.removeValue(forKey: oldIdentifier) {
+            pendingAIChatConversations[targetIdentifier] = conversationId
+        }
     }
 
     /// Move the shared chat tab from one identifier to another (e.g. when a split

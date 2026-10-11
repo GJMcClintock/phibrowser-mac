@@ -27,8 +27,9 @@ private final class FakeAIChatPanelBridge: AIChatPanelBridging {
 
 /// Undo close brings a tab back with the AI Chat panel it had (chromium ADR
 /// 0017). Out: the window's `BrowserState` pushes each page tab's panel record
-/// to Chromium as it changes. In: a restored tab that arrives with an
-/// expanded record gets its panel back on the same conversation.
+/// to Chromium as it changes. In: a restored tab that arrives with a record
+/// gets its panel back on the same conversation, expanded or collapsed as it
+/// was.
 @MainActor
 final class BrowserStateAIChatPanelRecordTests: XCTestCase {
     private let conversationX = "3f2a8c1e-5b7d-4e9a-8c6f-1d2e3f4a5b6c"
@@ -209,6 +210,12 @@ final class BrowserStateAIChatPanelRecordTests: XCTestCase {
         return tab
     }
 
+    /// The user expands the panel, and the chat pane asks for its panel tab.
+    private func expand(_ tab: Tab, in state: BrowserState) {
+        state.setAIChatCollapsed(for: tab, collapsed: false)
+        state.createAIChatTab(for: state.chatIdentifier(for: tab), chromeTabId: tab.guid)
+    }
+
     func testTheCurrentTabArrivingExpandedAsksForItsPanelOnTheSameConversation() throws {
         let bridge = FakeAIChatPanelBridge()
         let state = try makeState(bridge: bridge)
@@ -267,7 +274,7 @@ final class BrowserStateAIChatPanelRecordTests: XCTestCase {
         XCTAssertNil(AIChatPanelRecord(encoded: #"{"conversationId":"x&tabId=1","expanded":true,"v":1}"#))
     }
 
-    func testACollapsedRecordArrivingLeavesThePanelAlone() throws {
+    func testACollapsedRecordArrivingStaysCollapsedAndIsPushedBack() throws {
         let bridge = FakeAIChatPanelBridge()
         let state = try makeState(bridge: bridge)
         state.aiChatTabCreationGateOverrideForTesting = true
@@ -278,6 +285,108 @@ final class BrowserStateAIChatPanelRecordTests: XCTestCase {
 
         XCTAssertTrue(tab.aiChatCollapsed)
         XCTAssertTrue(bridge.panelRequests.isEmpty)
-        XCTAssertTrue(bridge.pushes.isEmpty)
+        // Chromium stops handing the record back once the client pushes it.
+        XCTAssertEqual(bridge.records(forTabId: 5), [record(expanded: false, conversationX)])
+    }
+
+    func testExpandingACollapsedArrivalAsksForItsPanelOnTheSameConversation() throws {
+        let bridge = FakeAIChatPanelBridge()
+        let state = try makeState(bridge: bridge)
+        state.aiChatTabCreationGateOverrideForTesting = true
+        _ = seed(state, guids: [1])
+        let tab = arrive(state, guid: 5, record: record(expanded: false, conversationX),
+                         isActiveAtCreation: true)
+
+        expand(tab, in: state)
+
+        let request = try XCTUnwrap(bridge.panelRequests.first)
+        let query = URLComponents(string: request.url)?.queryItems ?? []
+        XCTAssertEqual(query.first(where: { $0.name == "conv_id" })?.value, conversationX)
+        XCTAssertEqual(bridge.records(forTabId: 5).last, record(expanded: true, conversationX))
+    }
+
+    func testARecomputeBeforeThePanelExistsKeepsTheConversation() throws {
+        let bridge = FakeAIChatPanelBridge()
+        let state = try makeState(bridge: bridge)
+        state.aiChatTabCreationGateOverrideForTesting = true
+        _ = seed(state, guids: [1])
+        let tab = arrive(state, guid: 5, record: record(expanded: false, conversationX),
+                         isActiveAtCreation: true)
+
+        // Setting the unchanged state still publishes, so the record is recomputed.
+        state.setAIChatCollapsed(for: tab, collapsed: true)
+
+        XCTAssertEqual(bridge.records(forTabId: 5), [record(expanded: false, conversationX)])
+    }
+
+    func testOnceThePanelExistsSwitchingAndCollapsingArePushedFromItsURL() throws {
+        let bridge = FakeAIChatPanelBridge()
+        let state = try makeState(bridge: bridge)
+        state.aiChatTabCreationGateOverrideForTesting = true
+        _ = seed(state, guids: [1])
+        let tab = arrive(state, guid: 5, record: record(expanded: false, conversationX),
+                         isActiveAtCreation: true)
+        expand(tab, in: state)
+        let chat = addPanel(to: tab, in: state, url: conversationURL(conversationX, tabId: 5))
+
+        chat.url = conversationURL(conversationY, tabId: 5)
+        state.setAIChatCollapsed(for: tab, collapsed: true)
+
+        XCTAssertEqual(bridge.records(forTabId: 5),
+                       [record(expanded: false, conversationX), record(expanded: true, conversationX),
+                        record(expanded: true, conversationY), record(expanded: false, conversationY)])
+    }
+
+    func testClosingBeforeThePanelExistsLeavesChromiumTheCollapsedRecord() throws {
+        let bridge = FakeAIChatPanelBridge()
+        let state = try makeState(bridge: bridge)
+        state.aiChatTabCreationGateOverrideForTesting = true
+        _ = seed(state, guids: [1])
+        _ = arrive(state, guid: 5, record: record(expanded: false, conversationX),
+                   isActiveAtCreation: true)
+
+        state.closeTab(5)
+
+        // Chromium writes the record it last got into the closed entry.
+        XCTAssertEqual(bridge.records(forTabId: 5), [record(expanded: false, conversationX)])
+    }
+
+    func testPinningBeforeExpandingKeepsTheConversation() throws {
+        let bridge = FakeAIChatPanelBridge()
+        let state = try makeState(bridge: bridge)
+        state.aiChatTabCreationGateOverrideForTesting = true
+        _ = seed(state, guids: [1])
+        let tab = arrive(state, guid: 5, record: record(expanded: false, conversationX),
+                         isActiveAtCreation: true)
+        state.moveNormalTabToPinned(tab, after: nil)
+
+        expand(tab, in: state)
+
+        let request = try XCTUnwrap(bridge.panelRequests.first)
+        let query = URLComponents(string: request.url)?.queryItems ?? []
+        XCTAssertEqual(query.first(where: { $0.name == "conv_id" })?.value, conversationX)
+        XCTAssertEqual(bridge.records(forTabId: 5).last, record(expanded: true, conversationX))
+    }
+
+    func testAPanelCreatedAgainLaterDoesNotReopenTheRestoredConversation() throws {
+        let bridge = FakeAIChatPanelBridge()
+        let state = try makeState(bridge: bridge)
+        state.aiChatTabCreationGateOverrideForTesting = true
+        _ = seed(state, guids: [1])
+        let tab = arrive(state, guid: 5, record: record(expanded: false, conversationX),
+                         isActiveAtCreation: true)
+        expand(tab, in: state)
+        let identifier = state.getTabIdentifier(for: tab)
+        let chat = Tab(guid: 500, url: conversationURL(conversationX, tabId: 5), isActive: false, index: 0)
+        chat.guidInLocalDB = BrowserState.aiChatId(for: identifier)
+        state.handleNewTabFromChromium(chat)
+        // The panel tab goes away while the page tab stays.
+        state.closeAIChatTab(for: identifier)
+
+        expand(tab, in: state)
+
+        let request = try XCTUnwrap(bridge.panelRequests.dropFirst().first)
+        let query = URLComponents(string: request.url)?.queryItems ?? []
+        XCTAssertNil(query.first(where: { $0.name == "conv_id" }))
     }
 }

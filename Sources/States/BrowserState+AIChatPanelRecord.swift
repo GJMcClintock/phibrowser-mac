@@ -143,15 +143,15 @@ extension BrowserState {
     }
 
     /// A tab undo close brought back arrived with the panel it had when it
-    /// was closed. An expanded panel comes back expanded and shows the same
-    /// conversation; the current tab asks for its panel tab right away, so
-    /// the chat finds it already there and leaves focus on the page. A
-    /// collapsed one is left as it is.
+    /// was closed, and its panel shows the same conversation once created.
+    /// An expanded panel comes back expanded; the current tab asks for its
+    /// panel tab right away, so the chat finds it already there and leaves
+    /// focus on the page. A collapsed one stays collapsed until the user
+    /// expands it.
     func restoreAIChatPanel(of tab: Tab, isActiveAtCreation: Bool) {
         guard let record = tab.restoredAIChatPanel else { return }
         tab.restoredAIChatPanel = nil
         AppLogInfo("[AIChat] restored panel tabId=\(tab.guid) record=\(record.encoded) active=\(isActiveAtCreation)")
-        guard record.isExpanded else { return }
         // Pushing it back ends Chromium's hand-back, so moving the tab to
         // another window and back does not bring the panel again.
         aiChatPanelRecordsPushed[tab.guid] = record
@@ -159,6 +159,7 @@ extension BrowserState {
         if let conversationId = record.conversationId {
             pendingAIChatConversations[getTabIdentifier(for: tab)] = conversationId
         }
+        guard record.isExpanded else { return }
         setAIChatCollapsed(for: tab, collapsed: false)
         guard isActiveAtCreation, !tab.aiChatCollapsed else { return }
         createAIChatTab(for: chatIdentifier(for: tab), chromeTabId: tab.guid)

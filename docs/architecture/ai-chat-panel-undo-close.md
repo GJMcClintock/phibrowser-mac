@@ -1,7 +1,7 @@
 # AI Chat panel across undo close
 
 Undo close brings a page tab back with the AI Chat panel it had when it was
-closed: an expanded panel comes back expanded, on the same conversation. The
+closed: on the same conversation, and expanded or collapsed as it was. The
 decision and the rejected alternatives are in the Chromium fork's
 `docs/adr/0017-undo-close-carries-the-ai-chat-panel-in-the-closed-entry.md`.
 
@@ -17,7 +17,8 @@ parse, counts as none.
 The conversation is read off the panel tab's URL. Chromium hands it over as
 `chrome://conversation/<uuid>?...` (the page itself is
 `index.html?...&conv_id=<uuid>`); both forms are read. Until a restored tab's panel
-tab exists, the conversation it came back with stands in for it.
+tab exists, the conversation it came back with stands in for it, and moves with
+the tab when the tab's identifier changes (pinning it, binding it to a bookmark).
 
 In a split the record stays with the pane that holds the shared panel
 (`chatIdentifier(for:)`).
@@ -37,13 +38,18 @@ close comes back as the previous one.
 Chromium hands the record back as `aiChatPanelRecord` in the new-tab payload of
 the tab undo close restored, and only in the window it was restored into, so a
 tab later moved to another window does not bring its panel along. `BrowserState`
-pushes an expanded record straight back when it takes it over, which ends the
-hand-back, so moving the tab away and back does not bring the panel again either.
-When such a tab arrives with an expanded record, `BrowserState` expands it (subject to the AI
-switch) and keeps the conversation. When it is the current tab, `BrowserState`
-asks for its panel tab at once with `conv_id` in the panel URL, so the chat finds
-the panel already there and leaves focus on the page; other tabs get theirs from
-the ordinary on-demand path when shown.
+pushes the record straight back when it takes it over, which ends the hand-back,
+so moving the tab away and back does not bring the panel again either. It keeps
+the record's conversation for the panel tab to come.
+
+When such a tab arrives with an expanded record, `BrowserState` expands it
+(subject to the AI switch). When it is the current tab, `BrowserState` asks for
+its panel tab at once with `conv_id` in the panel URL, so the chat finds the
+panel already there and leaves focus on the page; other tabs get theirs from the
+ordinary on-demand path when shown. A tab that arrives with a collapsed record
+stays collapsed, and its panel tab is created on that conversation when the user
+expands it. Closing the tab before then pushes nothing, so the record Chromium
+writes into the closed entry still names the conversation.
 
 A page controller created for a tab whose panel is already expanded expands the
 chat pane while it is still appearing itself, and AppKit then sends the chat
@@ -51,10 +57,12 @@ controller no appearance callbacks; the page controller sets the chat up when
 that expansion finishes. Without it the pane stays empty until the tab is shown
 again.
 
-Current limitations: a collapsed record is left alone on arrival; windows and
-tab groups restored as a whole, the AI switch being off, guest mode and the
-split handoff get no special handling yet; session restore never carries
-records.
+Current limitations: windows and tab groups restored as a whole, the AI switch
+being off, guest mode and the split handoff get no special handling yet; session
+restore never carries records. A conversation still waiting for its panel tab is
+not dropped when the tab closes or leaves the window, so a pinned or bookmarked
+tab closed before its panel was expanded opens its panel on that conversation
+the next time it is opened from the sidebar and expanded.
 
 ## Source and checks
 
