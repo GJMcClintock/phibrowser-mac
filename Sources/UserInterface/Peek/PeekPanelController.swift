@@ -4,6 +4,7 @@
 // found in the LICENSE file.
 
 import AppKit
+import Combine
 import SnapKit
 import SwiftUI
 
@@ -191,7 +192,7 @@ final class PeekPanelController {
     private static let paneInsetRatio: CGFloat = 0.04
     private static let minPaneInset: CGFloat = 24
     private static let paneVerticalInset: CGFloat = 24
-    private static let cornerRadius: CGFloat = 12
+    static let cornerRadius: CGFloat = 12
 
     /// The card carries no chrome of its own (Arc's peek layout): the page
     /// fills it edge to edge and the controls live in a transparent strip the
@@ -240,6 +241,13 @@ final class PeekPanelController {
     private let toastCenter = OverlayToastCenter()
     private let toastViewController: OverlayToastViewController
     private weak var hostedTab: Tab?
+    /// Shown while the hosted page is readable or already has a reader up
+    /// (so the same button closes it).
+    private weak var readerButton: NSButton?
+    private var readerButtonVisibility: AnyCancellable?
+    /// Fires after every relayout: a reader covering the card has to follow
+    /// it, and a card moved inside the overlay posts no frame change.
+    var onLayout: (() -> Void)?
     private var eventMonitor: Any?
     private var parentResizeObserver: NSObjectProtocol?
     private var anchorFrameObserver: NSObjectProtocol?
@@ -339,8 +347,16 @@ final class PeekPanelController {
             make.edges.equalToSuperview()
         }
         PageOverlayDevToolsDock.mount(tab, in: webHostView)
+        bindReaderButton(to: tab, in: browserState)
 
         reveal(focusContent: true, flyIn: flyIn)
+    }
+
+    /// The page card, for a reader opened over the hosted page to cover.
+    var pageCardView: NSView { containerView }
+
+    func isHosting(_ tab: Tab) -> Bool {
+        hostedTab === tab
     }
 
     /// Dock area for `tab`'s DevTools: the page card while this panel hosts
@@ -445,6 +461,27 @@ final class PeekPanelController {
         browserState?.openPeekAsSplitWithOpener(peekTabId: tab.guid)
     }
 
+    @objc private func readerButtonClicked(_ sender: Any?) {
+        guard let tab = hostedTab, let browserState else { return }
+        MainActor.assumeIsolated {
+            browserState.toggleReaderView(for: tab, from: .peekPanel)
+        }
+    }
+
+    private func bindReaderButton(to tab: Tab, in browserState: BrowserState) {
+        // The id, not the tab: a hidden panel keeps this subscription, and
+        // must not keep a closed peek's Tab alive with it.
+        let tabId = tab.guid
+        readerButtonVisibility = tab.$isReaderOfferable
+            .combineLatest(browserState.readerOverlayState.$readersByOrigin)
+            .map { offerable, readers in offerable || readers[tabId] != nil }
+            .removeDuplicates()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] shown in
+                self?.readerButton?.isHidden = !shown
+            }
+    }
+
     /// Closes the peek the panel is currently hosting (the focused opener's).
     private func closeHostedPeek() {
         guard let tab = hostedTab else { return }
@@ -488,6 +525,8 @@ final class PeekPanelController {
         landAppearFlight()
         webHostView.subviews.forEach { $0.removeFromSuperview() }
         hostedTab = nil
+        readerButtonVisibility = nil
+        readerButton?.isHidden = true
     }
 
     // MARK: - Appear flight
@@ -735,9 +774,31 @@ final class PeekPanelController {
             ),
             action: #selector(splitButtonClicked(_:))
         )
+        let readerTooltip = NSLocalizedString(
+            "peek.panel.readerButtonTooltip",
+            value: "Reader View",
+            comment: "Peek popup panel - Tooltip of the button that opens or closes Reader View for the page shown in the floating page preview"
+        )
+        let readerButton = makeControlButton(
+            symbolName: "doc.plaintext",
+            tooltip: readerTooltip,
+            action: #selector(readerButtonClicked(_:))
+        )
+        MainActor.assumeIsolated {
+            readerButton.setCustomTooltip {
+                CommandShortcutTooltipContent(
+                    title: readerTooltip,
+                    command: .PHI_TOGGLE_READER
+                )
+            }
+        }
+        // Last in the column: hidden until the page is readable, and a
+        // hidden last button leaves no gap between the others.
+        readerButton.isHidden = true
+        self.readerButton = readerButton
 
         var previous: NSView?
-        for button in [closeButton, expandButton, splitButton] {
+        for button in [closeButton, expandButton, splitButton, readerButton] {
             controlColumn.addSubview(button)
             button.snp.makeConstraints { make in
                 make.centerX.equalToSuperview()
@@ -816,6 +877,7 @@ final class PeekPanelController {
         // a layer still carrying its pre-frame bounds would shrink about the
         // wrong point and fly out of the wrong place. `setScreenFrame` above
         // also completes that layout before the flight is armed.
+        onLayout?()
     }
 
     /// Screen rect of the card alone: the overlay frame minus the shadow

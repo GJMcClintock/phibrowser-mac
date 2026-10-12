@@ -3943,6 +3943,9 @@ class BrowserState {
         presentedPeekContexts[tab.guid] = nil
         peekState.removePeek(forOpener: openerTabId)
         clearPeekOpenerMarkerIfNeeded(openerTabId: openerTabId)
+        // A reader over the peek covers a card that is going away.
+        closeReaderOverlay(forOrigin: tab.guid)
+        cancelPendingReaderOverlay(forOrigin: tab.guid)
         // User-initiated AppKit context — safe to close synchronously; same
         // WebContentWrapper.close() rule as presentPeek.
         tab.webContentWrapper?.close()
@@ -4092,21 +4095,67 @@ class BrowserState {
 
     /// Safety net mirroring `installPeekOpenerWatchIfNeeded`: whenever an
     /// origin leaves `tabs` for ANY reason (close, tear-off, cross-Space
-    /// move), its reader overlay must go with it.
+    /// move) — or, for a peek origin, stops being a presented peek — its
+    /// reader overlay must go with it.
     private var readerOverlayOriginWatch: AnyCancellable?
     private func installReaderOverlayOriginWatchIfNeeded() {
         guard readerOverlayOriginWatch == nil else { return }
-        readerOverlayOriginWatch = $tabs
+        // Judged against current state on the main turn, not the emitted
+        // values: "Open as Tab" removes the peek before adopting it into
+        // `tabs`, and the reader must survive that hand-over.
+        readerOverlayOriginWatch = $tabs.map { _ in () }
+            .merge(with: peekState.$peeksByOpener.map { _ in () })
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] tabs in
+            .sink { [weak self] in
                 guard let self, !self.readerOverlayState.readersByOrigin.isEmpty else { return }
-                let liveTabIds = Set(tabs.map(\.guid))
                 for originTabId in self.readerOverlayState.readersByOrigin.keys
-                where !liveTabIds.contains(originTabId) {
+                where !self.isLiveReaderOverlayOrigin(originTabId) {
                     AppLogInfo("📖 [ReaderOverlay] origin \(originTabId) left the tab list — closing its reader")
                     self.closeReaderOverlay(forOrigin: originTabId)
                 }
             }
+    }
+
+    /// A reader overlay's origin is a strip tab, or the page a presented
+    /// peek is showing — the reader then covers the peek card.
+    func isLiveReaderOverlayOrigin(_ originTabId: Int) -> Bool {
+        tabs.contains(where: { $0.guid == originTabId })
+            || peekState.peekTab(withId: originTabId) != nil
+    }
+
+    /// The tab Reader View commands (shortcut, View menu) act on. A peek is
+    /// the page in front of its opener, so it is the target — unless the
+    /// opener's own reader is up, which covers the peek and is what a toggle
+    /// must close.
+    func readerViewTarget(focusingTab: Tab?) -> Tab? {
+        guard let focusingTab else { return nil }
+        if readerOverlayState.reader(forOrigin: focusingTab.guid) != nil {
+            return focusingTab
+        }
+        return peekState.peek(forOpener: focusingTab.guid) ?? focusingTab
+    }
+
+    /// The reader overlay on screen for `focusingTab`: its own, else the one
+    /// over its peek. The opener's wins — it covers the whole page card,
+    /// peek included.
+    func visibleReaderOverlayTab(focusingTab: Tab?) -> Tab? {
+        Self.visibleReaderOverlayTab(focusingTab: focusingTab,
+                                     readersByOrigin: readerOverlayState.readersByOrigin,
+                                     peeksByOpener: peekState.peeksByOpener)
+    }
+
+    /// Value form for publisher pipelines: `@Published` emits before the new
+    /// value is stored, so a sink must judge the values it was handed, not
+    /// read them back from the state.
+    static func visibleReaderOverlayTab(focusingTab: Tab?,
+                                        readersByOrigin: [Int: Tab],
+                                        peeksByOpener: [Int: Tab]) -> Tab? {
+        guard let focusingTab else { return nil }
+        if let reader = readersByOrigin[focusingTab.guid] {
+            return reader
+        }
+        guard let peek = peeksByOpener[focusingTab.guid] else { return nil }
+        return readersByOrigin[peek.guid]
     }
 
     /// Records that a reader-open for `originTabId` is on its way to the
@@ -4121,14 +4170,32 @@ class BrowserState {
         dismissReaderOverlayPreparingToast(forOrigin: originTabId)
         // Lives as long as the request itself: an open the extension never
         // answers expires with the TTL, and the toast with it.
-        let toastId = OverlayToastCenter.shared.show(
+        let toastId = showReaderToast(
             title: NSLocalizedString(
                 "browser.readerView.preparing",
                 value: "Preparing Reader View…",
                 comment: "Reader View - Toast shown while the article is being extracted after the user asked to open Reader View"),
             duration: Self.readerOverlayOpenTTLSeconds,
-            in: .windowId(windowId))
+            forOrigin: originTabId)
         pendingReaderOverlayToasts[originTabId] = toastId
+    }
+
+    /// Shows a Reader View toast about `originTabId`'s page. For a peek's
+    /// page it goes to the peek panel: the window's own toasts sit beneath
+    /// the peek card, out of sight.
+    @discardableResult
+    func showReaderToast(title: String,
+                         duration: TimeInterval = OverlayToastCenter.defaultDuration,
+                         forOrigin originTabId: Int) -> UUID? {
+        let id = UUID()
+        if peekState.peekTab(withId: originTabId) != nil,
+           windowController?.peekPanelControllerIfLoaded?.showToast(
+               id: id, message: title, shareURLs: [], duration: duration,
+               tabId: originTabId) == true {
+            return id
+        }
+        return OverlayToastCenter.shared.show(
+            title: title, duration: duration, in: .windowId(windowId), id: id)
     }
 
     /// The request settled (answered, refused, expired, or its origin
@@ -4136,6 +4203,7 @@ class BrowserState {
     private func dismissReaderOverlayPreparingToast(forOrigin originTabId: Int) {
         guard let toastId = pendingReaderOverlayToasts.removeValue(forKey: originTabId) else { return }
         OverlayToastCenter.shared.dismiss(id: toastId)
+        windowController?.peekPanelControllerIfLoaded?.dismissToast(id: toastId)
     }
 
     /// Whether a reader-open for `originTabId` is still in flight — lets the
@@ -4246,7 +4314,7 @@ class BrowserState {
         dismissReaderOverlayPreparingToast(forOrigin: originTabId)
         guard let requestedAt = pendingReaderOverlayOrigins.removeValue(forKey: originTabId),
               Date().timeIntervalSince(requestedAt) < Self.readerOverlayOpenTTLSeconds,
-              tabs.contains(where: { $0.guid == originTabId }) else {
+              isLiveReaderOverlayOrigin(originTabId) else {
             // A reader surface with no open in flight: a session-restored or
             // reopened surface tab. The surface is transient — its article
             // cache died with the extension's session storage, and the
@@ -4304,9 +4372,11 @@ class BrowserState {
         installReaderOverlayNavigationWatch(for: tab)
         readerOverlayState.present(tab, originTabId: originTabId)
         // Chromium foregrounded the new tab on insert; hand strip-active
-        // back to the origin so tab-scoped commands keep targeting it.
-        // Deferred a turn (in-stack discipline).
-        if let origin = tabs.first(where: { $0.guid == originTabId }) {
+        // back to the origin so tab-scoped commands keep targeting it — for
+        // a peek origin, to its opener, which holds strip-active while the
+        // peek is up. Deferred a turn (in-stack discipline).
+        let stripOriginTabId = peekState.openerTabId(forPeekTabId: originTabId) ?? originTabId
+        if let origin = tabs.first(where: { $0.guid == stripOriginTabId }) {
             DispatchQueue.main.async { origin.webContentWrapper?.setAsActiveTab() }
         }
     }
@@ -4932,6 +5002,8 @@ class BrowserState {
             presentedPeekContexts[tabId] = nil
             peekState.removePeek(forOpener: openerTabId)
             clearPeekOpenerMarkerIfNeeded(openerTabId: openerTabId)
+            closeReaderOverlay(forOrigin: tabId)
+            cancelPendingReaderOverlay(forOrigin: tabId)
             return
         }
         if peekCandidate?.tab.guid == tabId {

@@ -777,25 +777,33 @@ class SpaceSessionController: NSWindowController {
             }
             .store(in: &cancellables)
 
-        // Reader View overlay: each reader belongs to its origin tab, so the
-        // one panel always shows the focused tab's reader — switching tabs
-        // swaps the hosted content to the newly focused origin's reader,
-        // hides the panel while the focused tab has none, and dismisses it
-        // only when no reader is left in the window.
+        // Reader View overlay: each reader belongs to its origin tab — a
+        // strip tab, or the page in a peek — so the one panel always shows
+        // the reader on screen for the focused tab (its own, else its
+        // peek's): switching tabs swaps the hosted content, hides the panel
+        // while the focused tab has none, and dismisses it only when no
+        // reader is left in the window. Peeks are an input because a peek's
+        // reader comes and goes with its peek.
         $browserState
             .flatMap { state in
                 state.readerOverlayState.$readersByOrigin
-                    .combineLatest(state.$focusingTab)
+                    .combineLatest(state.$focusingTab, state.peekState.$peeksByOpener)
+                    .map { readersByOrigin, focusingTab, peeksByOpener in
+                        (readersByOrigin.isEmpty,
+                         BrowserState.visibleReaderOverlayTab(focusingTab: focusingTab,
+                                                              readersByOrigin: readersByOrigin,
+                                                              peeksByOpener: peeksByOpener))
+                    }
             }
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] readersByOrigin, focusingTab in
+            .sink { [weak self] noReaders, visibleReader in
                 guard let self else { return }
-                guard !readersByOrigin.isEmpty else {
+                guard !noReaders else {
                     self.readerPanelController?.dismiss()
                     return
                 }
-                if let focusingTab, let tab = readersByOrigin[focusingTab.guid] {
-                    self.presentReaderPanel(for: tab)
+                if let visibleReader {
+                    self.presentReaderPanel(for: visibleReader)
                 } else {
                     self.readerPanelController?.hide()
                 }
@@ -870,8 +878,28 @@ class SpaceSessionController: NSWindowController {
                 cardViewProvider: { [weak container] in container?.currentPageCardView },
                 originTracker: peekOriginTracker
             )
+            // A reader over the peek covers the peek card, which moves with
+            // the peek's own layout.
+            peekPanelController?.onLayout = { [weak self] in
+                self?.readerPanelController?.relayoutIfVisible()
+            }
         }
         peekPanelController?.present(tab: tab, flyIn: flyIn)
+    }
+
+    /// The card a reader covers: the peek card when its origin is the page
+    /// the peek panel is showing, else the focused tab's page card.
+    private func readerCard(for readerTab: Tab,
+                            container: WebContentContainerViewController?) -> ReaderPanelController.Card? {
+        if let originTabId = browserState.readerOverlayState.originTabId(forReaderTabId: readerTab.guid),
+           let peekTab = browserState.peekState.peekTab(withId: originTabId),
+           let peekPanel = peekPanelController, peekPanel.isHosting(peekTab) {
+            return .init(view: peekPanel.pageCardView,
+                         cornerRadius: PeekPanelController.cornerRadius)
+        }
+        guard let card = container?.currentPageCardView else { return nil }
+        return .init(view: card,
+                     cornerRadius: LiquidGlassCompatible.webContentContainerCornerRadius)
     }
 
     private func presentReaderPanel(for tab: Tab) {
@@ -882,7 +910,9 @@ class SpaceSessionController: NSWindowController {
                 browserState: browserState,
                 parentWindow: window,
                 anchorView: container.view,
-                cardViewProvider: { [weak container] in container?.currentPageCardView }
+                cardViewProvider: { [weak self, weak container] readerTab in
+                    self?.readerCard(for: readerTab, container: container)
+                }
             )
         }
         readerPanelController?.present(tab: tab)
@@ -1095,7 +1125,7 @@ class SpaceSessionController: NSWindowController {
         if let peekTab = browserState.peekState.peeksByOpener[focusingTab.guid] {
             presentPeekPanel(for: peekTab, flyIn: false)
         }
-        if let readerTab = browserState.readerOverlayState.readersByOrigin[focusingTab.guid] {
+        if let readerTab = browserState.visibleReaderOverlayTab(focusingTab: focusingTab) {
             presentReaderPanel(for: readerTab)
         }
     }

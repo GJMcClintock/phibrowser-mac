@@ -1229,7 +1229,7 @@ extension AppController {
     @MainActor
     @objc func toggleReaderView(_ sender: Any?) {
         guard let state = SpaceSessionControllersManager.shared.activeWindowController?.browserState,
-              let tab = state.focusingTab else {
+              let tab = state.readerViewTarget(focusingTab: state.focusingTab) else {
             return
         }
         state.toggleReaderView(for: tab, from: .viewMenu)
@@ -3191,9 +3191,10 @@ extension AppController {
 
         if item.action == #selector(toggleReaderView(_:)) {
             if let menuItem = item as? NSMenuItem {
-                let tab = MainActor.assumeIsolated {
-                    SpaceSessionControllersManager.shared
-                        .activeWindowController?.browserState.focusingTab
+                let tab = MainActor.assumeIsolated { () -> Tab? in
+                    guard let state = SpaceSessionControllersManager.shared
+                        .activeWindowController?.browserState else { return nil }
+                    return state.readerViewTarget(focusingTab: state.focusingTab)
                 }
                 menuItem.state = (tab?.extensionReaderActive ?? false) ? .on : .off
                 // Nothing to distill on the native NTP: it has no WebContents,

@@ -16,6 +16,9 @@ final class ReaderPanelController {
     /// full-pane cover reads as the pane itself switching to the reader
     /// rather than a card floating over it.
     private final class ReaderContainerView: PageOverlayView {
+        /// Above Peek: a reader can cover a peek's card.
+        override var stackingRank: Int { 1 }
+
         override init(frame frameRect: NSRect) {
             super.init(frame: frameRect)
             wantsLayer = true
@@ -43,15 +46,22 @@ final class ReaderPanelController {
         }
     }
 
+    /// The rounded card a reader covers, edge to edge.
+    struct Card {
+        let view: NSView
+        let cornerRadius: CGFloat
+    }
+
     private weak var browserState: BrowserState?
     private weak var parentWindow: NSWindow?
     /// The web-content container view; geometry-observation anchor and the
     /// sizing fallback while no tab content is mounted.
     private weak var anchorView: NSView?
-    /// Resolves the focused tab's rounded page card — the region the panel
-    /// covers. A closure because the card view belongs to whichever
-    /// `WebContentViewController` is currently displayed.
-    private let cardViewProvider: () -> NSView?
+    /// Resolves the card the hosted reader covers: its origin's rounded page
+    /// card, or the peek card when the origin is a peek's page. A closure
+    /// because those views belong to whichever `WebContentViewController` is
+    /// displayed, or to the peek panel.
+    private let cardViewProvider: (Tab) -> Card?
     private let containerView = ReaderContainerView()
     private weak var hostedTab: Tab?
     private var eventMonitor: Any?
@@ -69,7 +79,7 @@ final class ReaderPanelController {
     init(browserState: BrowserState,
          parentWindow: NSWindow,
          anchorView: NSView,
-         cardViewProvider: @escaping () -> NSView?) {
+         cardViewProvider: @escaping (Tab) -> Card?) {
         self.browserState = browserState
         self.parentWindow = parentWindow
         self.anchorView = anchorView
@@ -153,8 +163,7 @@ final class ReaderPanelController {
     private func revealIfStillCurrent() {
         guard let tab = hostedTab,
               let browserState,
-              let focusedTabId = browserState.focusingTab?.guid,
-              browserState.readerOverlayState.reader(forOrigin: focusedTabId) === tab else {
+              browserState.visibleReaderOverlayTab(focusingTab: browserState.focusingTab) === tab else {
             return
         }
         reveal()
@@ -169,10 +178,15 @@ final class ReaderPanelController {
         removeGeometryObservers()
         containerView.removeFromSuperview()
         detachHostedContent()
-        if restoreFocus, let page = browserState?.focusingTab?.webContentView,
+        // Back to the page the reader stood over: the focused tab's, or the
+        // peek in front of it.
+        let pageTab = browserState?.focusingTab.map {
+            browserState?.peekState.peek(forOpener: $0.guid) ?? $0
+        }
+        if restoreFocus, let page = pageTab?.webContentView,
            page.window === parentWindow {
             parentWindow?.makeFirstResponder(page)
-            browserState?.focusingTab?.webContentWrapper?.focus()
+            pageTab?.webContentWrapper?.focus()
         }
     }
 
@@ -221,7 +235,10 @@ final class ReaderPanelController {
     /// degraded fallback (the card excludes the window margins and the tab
     /// strip, which the panel must leave visible).
     private func paneScreenRect() -> NSRect? {
-        let target = cardViewProvider() ?? anchorView
+        let card = hostedTab.flatMap(cardViewProvider)
+        containerView.layer?.cornerRadius = card?.cornerRadius
+            ?? LiquidGlassCompatible.webContentContainerCornerRadius
+        let target = card?.view ?? anchorView
         guard let target, let window = target.window else { return nil }
         refreshCardFrameObserverIfNeeded(for: target)
         let inWindow = target.convert(target.bounds, to: nil)
@@ -276,7 +293,10 @@ final class ReaderPanelController {
         }
     }
 
-    private func relayoutIfVisible() {
+    /// Re-fits the panel to its card; the window controller calls this when
+    /// a card moves without any frame change the panel observes (a peek card
+    /// relaid inside its own overlay).
+    func relayoutIfVisible() {
         guard containerView.isPresented else { return }
         layoutOnAnchor()
     }

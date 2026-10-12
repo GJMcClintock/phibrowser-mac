@@ -3475,8 +3475,8 @@ extension PhiChromiumCoordinator {
     }
 
     func openReaderView(forTabId tabId: Int64, windowId: Int64) {
-        AppLogDebug("[Reader] context menu asked for Reader View: " +
-                    "tab=\(tabId) window=\(windowId)")
+        AppLogInfo("📖 [Reader] context menu asked for Reader View: " +
+                   "tab=\(tabId) window=\(windowId)")
         EventBus.shared.send(TabEvent(
             browserId: windowId.intValue,
             action: .openReaderView(tabId: tabId.intValue)))

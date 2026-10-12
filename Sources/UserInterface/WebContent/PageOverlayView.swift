@@ -28,6 +28,11 @@ class PageOverlayView: NSView {
         return responder === self || responder.isDescendant(of: self)
     }
 
+    /// Stacking among page overlays: a higher rank always sits above a lower
+    /// one, however often either is re-installed. Reader (1) can cover a
+    /// peek's card, so it must stay above Peek (0).
+    var stackingRank: Int { 0 }
+
     var screenFrame: NSRect {
         guard let window else { return .zero }
         return window.convertToScreen(convert(bounds, to: nil))
@@ -53,6 +58,12 @@ extension WebContentContainerViewController {
         // In standalone windows the sidebar is a sibling here; in hosted
         // windows the shell already places it above this whole page tree.
         let sidebar = floatingSidebarHost.view
+        if let higher = view.subviews.first(where: {
+            $0 !== overlay && (($0 as? PageOverlayView)?.stackingRank ?? .min) > overlay.stackingRank
+        }) {
+            view.addSubview(overlay, positioned: .below, relativeTo: higher)
+            return
+        }
         view.addSubview(overlay,
                         positioned: sidebar.superview === view ? .below : .above,
                         relativeTo: sidebar.superview === view ? sidebar : nil)

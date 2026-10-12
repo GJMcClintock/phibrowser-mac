@@ -55741,6 +55741,18 @@
         }
       }
     },
+    "peek.panel.readerButtonTooltip" : {
+      "comment" : "Peek popup panel - Tooltip of the button that opens or closes Reader View for the page shown in the floating page preview",
+      "extractionState" : "extracted_with_value",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Reader View"
+          }
+        }
+      }
+    },
     "peek.panel.splitButtonTooltip" : {
       "comment" : "Peek popup panel - Tooltip of the button that pairs the floating page preview with its bound tab in a side-by-side split view",
       "extractionState" : "extracted_with_value",
