@@ -531,6 +531,119 @@ final class HostedSidebarStateTests: XCTestCase {
         XCTAssertNil(host.view.hitTest(point))
     }
 
+    func testPresentedShellMatchesTrafficLightInsetsAcrossLayoutChanges() async throws {
+        let slot = makeSlot()
+        let session = makeSession(in: slot, spaceId: "traffic-light-layouts")
+        session.presentInShell(deferringChromium: true)
+        let window = try XCTUnwrap(slot.shell?.window)
+        let closeButton = try XCTUnwrap(window.standardWindowButton(.closeButton))
+
+        for (layout, expectedCenter) in [(LayoutMode.performance, CGFloat(20)), (.balanced, 27.5), (.comfortable, 22)] {
+            PhiPreferences.GeneralSettings.saveLayoutMode(layout)
+            NotificationCenter.default.post(name: UserDefaults.didChangeNotification, object: UserDefaults.standard)
+            await drainPresentationUpdates()
+            let frame = closeButton.convert(closeButton.bounds, to: nil)
+            XCTAssertEqual(frame.minX, window.frame.height - frame.maxY, accuracy: 0.01, "\(layout)")
+            XCTAssertEqual(window.frame.height - frame.midY, expectedCenter, accuracy: 0.01, "\(layout)")
+        }
+    }
+
+    func testSidebarHeaderClearsTrafficLightsAtMinimumAndUpdateThresholdWidths() async throws {
+        let identifiers = ["sidebarHeader.sidebarButton", "sidebarHeader.searchTabsButton",
+            "sidebarHeader.upgradeButton", "sidebarHeader.backButton", "sidebarHeader.forwardButton",
+            "sidebarHeader.refreshButton", "sidebarHeader.stopButton"]
+
+        for mode in [LayoutMode.performance, .balanced] {
+            PhiPreferences.GeneralSettings.saveLayoutMode(mode)
+            for width in [CGFloat(193), 225, 226, 260] {
+                let slot = makeSlot()
+                let session = makeSession(in: slot, spaceId: "header-clearance")
+                let shell = try XCTUnwrap(slot.shell)
+                shell.split.setSidebarGeometry(width: width, collapsed: false)
+                session.presentInShell(deferringChromium: true)
+                session.browserState.exitPlaceholderMode()
+                await drainPresentationUpdates()
+                let header = try XCTUnwrap(descendants(of: shell.split.sidebarHost.view)
+                    .compactMap { $0 as? SidebarHeaderView }.first)
+                let controls = try identifiers.map { identifier in
+                    try XCTUnwrap(descendants(of: header).first { $0.accessibilityIdentifier() == identifier })
+                }
+                let green = try XCTUnwrap(shell.window.standardWindowButton(.zoomButton))
+
+                func assertClearance() {
+                    shell.split.view.layoutSubtreeIfNeeded()
+                    XCTAssertEqual(header.bounds.width, width, accuracy: 0.5)
+                    let greenFrame = green.convert(green.bounds, to: nil)
+                    let visibleFrames = controls.filter { !$0.isHiddenOrHasHiddenAncestor }
+                        .map { $0.convert($0.bounds, to: nil) }.sorted { $0.minX < $1.minX }
+                    XCTAssertGreaterThanOrEqual(visibleFrames.count, mode == .performance ? 4 : 2,
+                        "Clearance must be checked with the header actions visible")
+                    for frame in visibleFrames {
+                        XCTAssertGreaterThanOrEqual(frame.minX - greenFrame.maxX, 9.99,
+                            "\(mode), width \(width): header control overlaps native traffic lights")
+                    }
+                    for pair in zip(visibleFrames, visibleFrames.dropFirst()) {
+                        XCTAssertLessThanOrEqual(pair.0.maxX, pair.1.minX + 0.01,
+                            "\(mode), width \(width): adjacent header controls overlap")
+                    }
+                    if mode == .performance {
+                        let leading = controls[2].isHiddenOrHasHiddenAncestor ? controls[0] : controls[2]
+                        let leadingFrame = leading.convert(leading.bounds, to: nil)
+                        let backFrame = controls[3].convert(controls[3].bounds, to: nil)
+                        print("[Header clearance] width=\(width), navigationGap=\(backFrame.minX - leadingFrame.maxX)")
+                    }
+                }
+
+                NotificationCenter.default.post(name: .sparkleDidSkipUpdate, object: nil)
+                await drainPresentationUpdates()
+                assertClearance()
+                NotificationCenter.default.post(name: .sparkleDidDownloadUpdate, object: nil,
+                    userInfo: ["displayVersion": "1.2.3"])
+                await drainPresentationUpdates()
+                assertClearance()
+                let update = controls[2]
+                XCTAssertEqual(update.isHiddenOrHasHiddenAncestor, width <= 225)
+                if mode == .balanced && width > 225 {
+                    let frame = update.convert(update.bounds, to: nil)
+                    XCTAssertEqual(frame.minX - green.convert(green.bounds, to: nil).maxX, 10, accuracy: 0.01)
+                }
+            }
+        }
+        NotificationCenter.default.post(name: .sparkleDidSkipUpdate, object: nil)
+    }
+
+    func testComfortableSpacePickerTracksNativeTrafficLightsWithTenPointGap() throws {
+        PhiPreferences.GeneralSettings.saveLayoutMode(.comfortable)
+        let slot = makeSlot()
+        let session = makeSession(in: slot, spaceId: "space-picker-clearance")
+        let window = try XCTUnwrap(slot.shell?.window)
+        let bar = TabStripBarController(browserState: session.browserState)
+        bar.view.frame = NSRect(x: 0, y: window.frame.height - 42, width: 1000, height: 36)
+        let picker = try XCTUnwrap(descendants(of: bar.view)
+            .first { $0.accessibilityIdentifier() == "tabStrip.spacePicker" })
+        window.contentView?.addSubview(bar.view)
+        let green = try XCTUnwrap(window.standardWindowButton(.zoomButton))
+
+        func assertGap() {
+            bar.view.layoutSubtreeIfNeeded()
+            let pickerFrame = picker.convert(picker.bounds, to: nil)
+            let greenFrame = green.convert(green.bounds, to: nil)
+            XCTAssertEqual(pickerFrame.minX - greenFrame.maxX, 10, accuracy: 0.01)
+        }
+
+        assertGap()
+        let positioner = TrafficLightPositioner(window: window, centerFromWindowTop: 22)
+        positioner.start()
+        assertGap()
+        positioner.stop(restoringPlacement: true)
+        assertGap()
+        bar.view.setFrameOrigin(NSPoint(x: 17, y: bar.view.frame.minY))
+        assertGap()
+        green.setFrameOrigin(NSPoint(x: green.frame.minX + 5, y: green.frame.minY))
+        assertGap()
+        bar.view.removeFromSuperview()
+    }
+
     func testHostedTitlebarGapsReachWindowWithoutDiscardingContentHits() throws {
         for mode: LayoutMode in [.performance, .balanced, .comfortable] {
             PhiPreferences.GeneralSettings.saveLayoutMode(mode)

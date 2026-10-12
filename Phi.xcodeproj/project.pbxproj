@@ -28,7 +28,6 @@
 		31CA905CB7B349718546747A /* ShellWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A94C011853FB4653964F3285 /* ShellWindowController.swift */; };
 		31CA905CB7B349718546747B /* ShellSplitViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A94C011853FB4653964F3286 /* ShellSplitViewController.swift */; };
 		3703C88C2F68F78500E7CF6D /* AISettingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3703C88B2F68F78500E7CF6D /* AISettingView.swift */; };
-		D9576F3DD269A40D56202F9B /* BrowserState+AIChatPanelRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = 302B57687539046049CE6E3D /* BrowserState+AIChatPanelRecord.swift */; };
 		3703C9822F69558C00E7CF6D /* BrowserState+ToggleAI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3703C9812F69558C00E7CF6D /* BrowserState+ToggleAI.swift */; };
 		3703C9842F6956E600E7CF6D /* SentinelHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3703C9832F6956E600E7CF6D /* SentinelHelper.swift */; };
 		3703C9862F6956E600E7CF6D /* SentinelVersionGuard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3703C9852F6956E600E7CF6D /* SentinelVersionGuard.swift */; };
@@ -240,7 +239,6 @@
 		5C1B0C110000000000000E17 /* ContentBlockingRuleSetSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C1B0C100000000000000E16 /* ContentBlockingRuleSetSheet.swift */; };
 		5C4EE0000000000000000002 /* PageScreenshotService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C4EE0000000000000000001 /* PageScreenshotService.swift */; };
 		5C4EE0000000000000000004 /* PageScreenshotPresenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C4EE0000000000000000003 /* PageScreenshotPresenter.swift */; };
-		EF7BF5709C02A5EF0C4EAD3E /* AIChatPanelBridging.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4BC0BCCBF13A16ECD96ED4E /* AIChatPanelBridging.swift */; };
 		5C518564BC39D8D844BCA4EF /* ContentBlockingSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = A99F8238F606FE6A51B5B631 /* ContentBlockingSettings.swift */; };
 		5D1FCB130435E47C4C7D387A /* PhiURLRuleLocalAccess.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0749CDB5BD32A8DC759F2C88 /* PhiURLRuleLocalAccess.swift */; };
 		5EA17ABC0000000000000100 /* SearchTabsModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5EA17ABC0000000000000110 /* SearchTabsModels.swift */; };
@@ -622,6 +620,7 @@
 		D1F600082FD6000000000008 /* SidebarDiffableSnapshotBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1F600072FD6000000000007 /* SidebarDiffableSnapshotBuilder.swift */; };
 		D37B98E344D6E556D8905064 /* SpaceOverwriteDiff.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1C7683ECEB27E49DFDEFC3C /* SpaceOverwriteDiff.swift */; };
 		D5E902235143FB0E14F29182 /* WaitingForApprovalView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 23216985BAC98CA63F9CB2AC /* WaitingForApprovalView.swift */; };
+		D9576F3DD269A40D56202F9B /* BrowserState+AIChatPanelRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = 302B57687539046049CE6E3D /* BrowserState+AIChatPanelRecord.swift */; };
 		D996649CAC474B1EB5FBF515 /* CrashFeedbackCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 68A1E1BFA1F745FFB849186B /* CrashFeedbackCoordinator.swift */; };
 		DAE6C75EA01EF14F3B7A68E2 /* DevicesSettingHostingViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 500D8A44ACCDE44A010C744F /* DevicesSettingHostingViewController.swift */; };
 		DB3B811377A5EF1C83D51CA0 /* PhiFaviconBackfillQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0AD0F4246CFD7B71017E76C5 /* PhiFaviconBackfillQueue.swift */; };
@@ -664,6 +663,7 @@
 		EE7E00000000000000000003 /* PeekOriginTracker.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE7E00000000000000000013 /* PeekOriginTracker.swift */; };
 		EE7E00000000000000000004 /* BrowserReaderOverlayState.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE7E00000000000000000014 /* BrowserReaderOverlayState.swift */; };
 		EE7E00000000000000000005 /* ReaderPanelController.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE7E00000000000000000015 /* ReaderPanelController.swift */; };
+		EF7BF5709C02A5EF0C4EAD3E /* AIChatPanelBridging.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4BC0BCCBF13A16ECD96ED4E /* AIChatPanelBridging.swift */; };
 		F01D3A000000000000000001 /* bookmark-folder-open.svg in Resources */ = {isa = PBXBuildFile; fileRef = F01D3A000000000000000011 /* bookmark-folder-open.svg */; };
 		F01D3A000000000000000002 /* bookmark-folder-closed.svg in Resources */ = {isa = PBXBuildFile; fileRef = F01D3A000000000000000012 /* bookmark-folder-closed.svg */; };
 		F02B00010000000000000001 /* BookmarkFolderIcon.swift in Sources */ = {isa = PBXBuildFile; fileRef = F02B00110000000000000001 /* BookmarkFolderIcon.swift */; };
@@ -823,13 +823,13 @@
 		2A224E00416E12C6EEE8F7EF /* URLRuleKind.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = URLRuleKind.swift; sourceTree = "<group>"; };
 		2C7336AA246BCAF2A4BFD0F7 /* entity_specifics.pb.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = entity_specifics.pb.swift; sourceTree = "<group>"; };
 		2F9D6C4581B0A73E5D18F0C6 /* TabDataModelSchemaV13.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TabDataModelSchemaV13.swift; sourceTree = "<group>"; };
+		302B57687539046049CE6E3D /* BrowserState+AIChatPanelRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "BrowserState+AIChatPanelRecord.swift"; sourceTree = "<group>"; };
 		34C88E2EA8AD746676A4B111 /* SyncableOwnedItems.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SyncableOwnedItems.swift; sourceTree = "<group>"; };
 		34F236AC381F208106EF9B34 /* BookmarkKind.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BookmarkKind.swift; sourceTree = "<group>"; };
 		356C43512D010ACB56FE22E3 /* DevicesSettingViewModel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DevicesSettingViewModel.swift; sourceTree = "<group>"; };
 		35C9DFC9858BD91409670173 /* SyncableSpaces.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SyncableSpaces.swift; sourceTree = "<group>"; };
 		35EE13005B45461A584F7F1C /* SyncKeyController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SyncKeyController.swift; sourceTree = "<group>"; };
 		3703C88B2F68F78500E7CF6D /* AISettingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AISettingView.swift; sourceTree = "<group>"; };
-		302B57687539046049CE6E3D /* BrowserState+AIChatPanelRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "BrowserState+AIChatPanelRecord.swift"; sourceTree = "<group>"; };
 		3703C9812F69558C00E7CF6D /* BrowserState+ToggleAI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "BrowserState+ToggleAI.swift"; sourceTree = "<group>"; };
 		3703C9832F6956E600E7CF6D /* SentinelHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SentinelHelper.swift; sourceTree = "<group>"; };
 		3703C9852F6956E600E7CF6D /* SentinelVersionGuard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SentinelVersionGuard.swift; sourceTree = "<group>"; };
@@ -1176,6 +1176,7 @@
 		A1B2C3D4E5F60718293A4B55 /* SharedAuthTokenStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedAuthTokenStore.swift; sourceTree = "<group>"; };
 		A2641EED1C4477FEDD13FA92 /* ContentBlockingListInfoPopover.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentBlockingListInfoPopover.swift; sourceTree = "<group>"; };
 		A4A632200E83D8AF97F002EB /* RecoveryCodeEntryView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = RecoveryCodeEntryView.swift; path = UI/RecoveryCodeEntryView.swift; sourceTree = "<group>"; };
+		A4BC0BCCBF13A16ECD96ED4E /* AIChatPanelBridging.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIChatPanelBridging.swift; sourceTree = "<group>"; };
 		A55D7E5143F932DF1031B744 /* SyncKeyStack.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SyncKeyStack.swift; sourceTree = "<group>"; };
 		A57A00000000000000000001 /* agent.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = agent.json; sourceTree = "<group>"; };
 		A57A00000000000000000003 /* inputting.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = inputting.json; sourceTree = "<group>"; };
@@ -1196,7 +1197,6 @@
 		A94C011853FB4653964F3285 /* ShellWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShellWindowController.swift; sourceTree = "<group>"; };
 		A94C011853FB4653964F3286 /* ShellSplitViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShellSplitViewController.swift; sourceTree = "<group>"; };
 		A95471B53513ADA4F465A3F5 /* PhiSyncInvalidation.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PhiSyncInvalidation.swift; sourceTree = "<group>"; };
-		A4BC0BCCBF13A16ECD96ED4E /* AIChatPanelBridging.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIChatPanelBridging.swift; sourceTree = "<group>"; };
 		A99F8238F606FE6A51B5B631 /* ContentBlockingSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentBlockingSettings.swift; sourceTree = "<group>"; };
 		A9A1D8147A6979F022AFEB5B /* AdvancedSettingViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AdvancedSettingViewController.swift; sourceTree = "<group>"; };
 		AA10000000000000000000F1 /* TabSwitchMetrics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabSwitchMetrics.swift; sourceTree = "<group>"; };
