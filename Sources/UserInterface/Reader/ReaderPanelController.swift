@@ -46,10 +46,13 @@ final class ReaderPanelController {
         }
     }
 
-    /// The rounded card a reader covers, edge to edge.
+    /// The rounded card a reader covers: edge to edge, or `inset` inside
+    /// it to leave room for what the card draws at its edge (a split pane's
+    /// focus ring).
     struct Card {
         let view: NSView
         let cornerRadius: CGFloat
+        var inset: CGFloat = 0
     }
 
     private weak var browserState: BrowserState?
@@ -95,13 +98,16 @@ final class ReaderPanelController {
 
     // MARK: - Presentation
 
-    func present(tab: Tab) {
+    /// - Parameter focusContent: whether the reader takes keyboard focus —
+    ///   true for the reader over the focused page, false for a split
+    ///   partner's reader re-shown beside it.
+    func present(tab: Tab, focusContent: Bool = true) {
         guard let browserState else { return }
 
         // Re-focus of the origin tab with the same reader still mounted:
         // just reveal — the panel is coming back from a tab switch.
         if hostedTab === tab, !containerView.subviews.isEmpty {
-            reveal()
+            reveal(focusContent: focusContent)
             return
         }
 
@@ -122,7 +128,7 @@ final class ReaderPanelController {
         }
         PageOverlayDevToolsDock.mount(tab, in: containerView)
 
-        reveal()
+        reveal(focusContent: focusContent)
     }
 
     /// Dock area for `tab`'s DevTools: the panel while it hosts the tab, nil
@@ -163,10 +169,11 @@ final class ReaderPanelController {
     private func revealIfStillCurrent() {
         guard let tab = hostedTab,
               let browserState,
-              browserState.visibleReaderOverlayTab(focusingTab: browserState.focusingTab) === tab else {
+              browserState.visibleReaderOverlays(focusingTab: browserState.focusingTab)
+                .contains(where: { $0 === tab }) else {
             return
         }
-        reveal()
+        reveal(focusContent: browserState.readerOverlayTakesFocus(tab))
     }
 
     /// Idempotent teardown of the panel. Never closes the tab itself — that
@@ -181,7 +188,7 @@ final class ReaderPanelController {
         // Back to the page the reader stood over: the focused tab's, or the
         // peek in front of it.
         let pageTab = browserState?.focusingTab.map {
-            browserState?.peekState.peek(forOpener: $0.guid) ?? $0
+            browserState?.visiblePeek(focusingTab: $0)?.tab ?? $0
         }
         if restoreFocus, let page = pageTab?.webContentView,
            page.window === parentWindow {
@@ -206,7 +213,7 @@ final class ReaderPanelController {
         browserState?.closeReaderOverlay(readerTabId: tab.guid)
     }
 
-    private func reveal() {
+    private func reveal(focusContent: Bool) {
         guard !isConcealedByInWindowOverlay,
               let parentWindow, anchorView?.window === parentWindow,
               let content = browserState?.windowController?.mainSplitViewController
@@ -215,7 +222,7 @@ final class ReaderPanelController {
         layoutOnAnchor()
         containerView.isHidden = false
         // The page, not `subviews.first` — docked DevTools sits below it.
-        if !isEclipsedByInWindowOverlay,
+        if focusContent, !isEclipsedByInWindowOverlay,
            let webView = hostedTab?.webContentView, webView.superview === containerView {
             parentWindow.makeKey()
             parentWindow.makeFirstResponder(webView)
@@ -242,7 +249,8 @@ final class ReaderPanelController {
         guard let target, let window = target.window else { return nil }
         refreshCardFrameObserverIfNeeded(for: target)
         let inWindow = target.convert(target.bounds, to: nil)
-        return window.convertToScreen(inWindow)
+        let inset = card?.inset ?? 0
+        return window.convertToScreen(inWindow).insetBy(dx: inset, dy: inset)
     }
 
     private func layoutOnAnchor() {
@@ -317,12 +325,33 @@ final class ReaderPanelController {
         observedCardView = nil
     }
 
+    /// A click on a split pane's reader focuses that pane, as a click on the
+    /// pane itself does (`SplitPaneHostView.onPaneInteraction`) — the reader
+    /// sits above the split host, which so never sees it. The address bar
+    /// and the focus ring follow the focused tab.
+    private func activateOriginPaneIfClicked(_ event: NSEvent) {
+        guard containerView.isPresented,
+              let window = parentWindow, event.window === window,
+              let hitView = window.contentView?.hitTest(event.locationInWindow),
+              hitView.isDescendant(of: containerView),
+              let readerTab = hostedTab, let browserState,
+              let originTabId = browserState.readerOverlayState.originTabId(forReaderTabId: readerTab.guid),
+              let origin = browserState.tabs.first(where: { $0.guid == originTabId }),
+              !origin.isActive else { return }
+        origin.makeSelfActive()
+    }
+
     private func installEventMonitorIfNeeded() {
         guard eventMonitor == nil else { return }
         eventMonitor = NSEvent.addLocalMonitorForEvents(
-            matching: [.keyDown]
+            matching: [.keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown]
         ) { [weak self] event in
-            guard let self, self.containerView.isPresented,
+            guard let self else { return event }
+            if event.type != .keyDown {
+                self.activateOriginPaneIfClicked(event)
+                return event
+            }
+            guard self.containerView.isPresented,
                   !self.isEclipsedByInWindowOverlay,
                   event.window === self.parentWindow,
                   self.parentWindow?.isKeyWindow == true,

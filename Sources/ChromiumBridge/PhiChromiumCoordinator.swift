@@ -2923,8 +2923,8 @@ extension PhiChromiumCoordinator: PhiChromiumBridgeDelegate {
                     controller?.peekPanelControllerIfLoaded?
                         .detachContentIfHosting(tabId: tabId.intValue)
                     // Same rule for a closing reader-overlay surface tab.
-                    controller?.readerPanelControllerIfLoaded?
-                        .detachContentIfHosting(tabId: tabId.intValue)
+                    controller?.readerPanelControllersIfLoaded
+                        .forEach { $0.detachContentIfHosting(tabId: tabId.intValue) }
                 }
             }
         } else {

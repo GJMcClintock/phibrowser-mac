@@ -596,6 +596,11 @@ extension BrowserState {
     /// bookmark-bound source tab doesn't drag its binding into the split.
     @MainActor
     func handleOpenLinkAsSplitPartner(partnerTabId: Int, url: String) {
+        // A link inside a peek or reader overlay: that page is no strip tab
+        // yet — it becomes one, paired with the link.
+        if openOverlaySurfaceAsSplit(surfaceTabId: partnerTabId, partnerURL: url) {
+            return
+        }
         makeTabNormalOpened(tabId: partnerTabId)
         openNewTabAsSplit(partnerTabId: partnerTabId,
                           newTabSlot: .right,

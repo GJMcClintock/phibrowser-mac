@@ -241,10 +241,13 @@ final class PeekPanelController {
     private let toastCenter = OverlayToastCenter()
     private let toastViewController: OverlayToastViewController
     private weak var hostedTab: Tab?
+    /// Top-down order of the control column; hidden buttons leave no gap
+    /// (`restackControlButtons`).
+    private var controlButtons: [NSButton] = []
     /// Shown while the hosted page is readable or already has a reader up
     /// (so the same button closes it).
     private weak var readerButton: NSButton?
-    private var readerButtonVisibility: AnyCancellable?
+    private var controlVisibility: AnyCancellable?
     /// Fires after every relayout: a reader covering the card has to follow
     /// it, and a card moved inside the overlay posts no frame change.
     var onLayout: (() -> Void)?
@@ -347,7 +350,7 @@ final class PeekPanelController {
             make.edges.equalToSuperview()
         }
         PageOverlayDevToolsDock.mount(tab, in: webHostView)
-        bindReaderButton(to: tab, in: browserState)
+        bindControlVisibility(to: tab, in: browserState)
 
         reveal(focusContent: true, flyIn: flyIn)
     }
@@ -399,8 +402,7 @@ final class PeekPanelController {
     private func revealIfStillCurrent() {
         guard let tab = hostedTab,
               let browserState,
-              let focusedTabId = browserState.focusingTab?.guid,
-              browserState.peekState.peek(forOpener: focusedTabId) === tab else {
+              browserState.visiblePeek(focusingTab: browserState.focusingTab)?.tab === tab else {
             return
         }
         reveal(focusContent: true, flyIn: false)
@@ -468,18 +470,50 @@ final class PeekPanelController {
         }
     }
 
-    private func bindReaderButton(to tab: Tab, in browserState: BrowserState) {
+    private func bindControlVisibility(to tab: Tab, in browserState: BrowserState) {
         // The id, not the tab: a hidden panel keeps this subscription, and
         // must not keep a closed peek's Tab alive with it.
         let tabId = tab.guid
-        readerButtonVisibility = tab.$isReaderOfferable
+        controlVisibility = tab.$isReaderOfferable
             .combineLatest(browserState.readerOverlayState.$readersByOrigin)
             .map { offerable, readers in offerable || readers[tabId] != nil }
             .removeDuplicates()
             .receive(on: DispatchQueue.main)
             .sink { [weak self] shown in
-                self?.readerButton?.isHidden = !shown
+                self?.setReaderButtonShown(shown)
             }
+    }
+
+    private func setReaderButtonShown(_ shown: Bool) {
+        readerButton?.isHidden = !shown
+        restackControlButtons()
+    }
+
+    /// Chains the visible control buttons top-down: a hidden button leaves
+    /// the chain rather than a gap in the column.
+    private func restackControlButtons() {
+        var previous: NSView?
+        for button in controlButtons {
+            guard !button.isHidden else {
+                button.snp.removeConstraints()
+                continue
+            }
+            button.snp.remakeConstraints { make in
+                make.centerX.equalToSuperview()
+                make.width.height.equalTo(Self.controlButtonSize)
+                if let previous {
+                    make.top.equalTo(previous.snp.bottom).offset(Self.controlSpacing)
+                } else {
+                    make.top.equalToSuperview().offset(Self.controlTopInset)
+                }
+            }
+            previous = button
+        }
+        // The column is only as tall as its buttons; the rest of the strip
+        // beside the card stays empty page pane.
+        previous?.snp.makeConstraints { make in
+            make.bottom.equalToSuperview()
+        }
     }
 
     /// Closes the peek the panel is currently hosting (the focused opener's).
@@ -525,8 +559,8 @@ final class PeekPanelController {
         landAppearFlight()
         webHostView.subviews.forEach { $0.removeFromSuperview() }
         hostedTab = nil
-        readerButtonVisibility = nil
-        readerButton?.isHidden = true
+        controlVisibility = nil
+        setReaderButtonShown(false)
     }
 
     // MARK: - Appear flight
@@ -792,30 +826,13 @@ final class PeekPanelController {
                 )
             }
         }
-        // Last in the column: hidden until the page is readable, and a
-        // hidden last button leaves no gap between the others.
+        // Hidden until the page is readable.
         readerButton.isHidden = true
         self.readerButton = readerButton
 
-        var previous: NSView?
-        for button in [closeButton, expandButton, splitButton, readerButton] {
-            controlColumn.addSubview(button)
-            button.snp.makeConstraints { make in
-                make.centerX.equalToSuperview()
-                make.width.height.equalTo(Self.controlButtonSize)
-                if let previous {
-                    make.top.equalTo(previous.snp.bottom).offset(Self.controlSpacing)
-                } else {
-                    make.top.equalToSuperview().offset(Self.controlTopInset)
-                }
-            }
-            previous = button
-        }
-        // The column is only as tall as its buttons; the rest of the strip
-        // beside the card stays empty page pane.
-        previous?.snp.makeConstraints { make in
-            make.bottom.equalToSuperview()
-        }
+        controlButtons = [closeButton, expandButton, splitButton, readerButton]
+        controlButtons.forEach { controlColumn.addSubview($0) }
+        restackControlButtons()
     }
 
     private func makeControlButton(symbolName: String, tooltip: String, action: Selector) -> NSButton {

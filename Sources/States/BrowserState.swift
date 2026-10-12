@@ -3641,15 +3641,18 @@ class BrowserState {
     /// toggle both hide the menu item (Chromium asks via
     /// `isPeekLinkSurfaceEnabled`); the guards here are the skew backstop.
     func openLinkAsPeek(urlString: String, sourceTabId: Int) {
+        // A link inside a peek peeks from that peek's opener: presentPeek's
+        // one-peek-per-opener rule then replaces the current peek with it.
+        // A split pane is an opener too — its peek covers the whole split.
+        let openerTabId = peekState.openerTabId(forPeekTabId: sourceTabId) ?? sourceTabId
         guard !isIncognito, !layoutMode.isTraditional,
               PhiPreferences.GeneralSettings.peekViewEnabled.loadValue(),
-              tabs.contains(where: { $0.guid == sourceTabId }),
-              splitGroup(forTabId: sourceTabId) == nil else {
+              tabs.contains(where: { $0.guid == openerTabId }) else {
             createTab(urlString)
             return
         }
         pendingExplicitPeek = PendingExplicitPeek(urlString: urlString,
-                                                  openerTabId: sourceTabId,
+                                                  openerTabId: openerTabId,
                                                   requestedAt: Date())
         // Explicit "peek it HERE" intent outranks Space URL routing — use the
         // one-shot routing bypass so a rule-matching link is not re-homed to
@@ -3823,8 +3826,9 @@ class BrowserState {
         ChromiumLauncher.sharedInstance().bridge?
             .markPendingSplitPartner(withTabId: Int64(tab.guid),
                                      windowId: Int64(windowId))
-        // Chromium-side marker: suppresses split/peek link surfaces (context
-        // menu items, Option-click split) inside the peeked page.
+        // Chromium-side marker: page commands (Reload, DevTools, find)
+        // target the peeked page, and its link surfaces route back here
+        // (nested Peek replaces this one; split view adopts it as a tab).
         if let wrapper = tab.webContentWrapper,
            wrapper.responds(to: #selector(WebContentWrapper.updateIsPeekSurface(_:))) {
             wrapper.updateIsPeekSurface(true)
@@ -3841,7 +3845,11 @@ class BrowserState {
                 if !Self.isAIChatId(localGuid) {
                     openerKey = localGuid
                 }
-            } else {
+            } else if splitGroup(forTabId: openerTabId) == nil {
+                // Not for a split pane: split operations read a pane's
+                // guidInLocalDB as a binding and clear it, and a restored
+                // peek is never re-bound to a split pane anyway
+                // (presentRestoredPeek).
                 let pairKey = Self.peekOpenerGuidPrefix + UUID().uuidString
                 opener.guidInLocalDB = pairKey
                 opener.webContentWrapper?.updateTabCustomValue(pairKey)
@@ -4029,8 +4037,7 @@ class BrowserState {
     /// the opener's history invisibly beneath the panel. Returns true when a
     /// peek was closed and the caller must skip the navigation.
     func closePeekForBackForwardNavigation() -> Bool {
-        guard let openerTabId = focusingTab?.guid,
-              peekState.peek(forOpener: openerTabId) != nil else { return false }
+        guard let openerTabId = visiblePeek(focusingTab: focusingTab)?.openerTabId else { return false }
         AppLogInfo("👀 [Peek] back/forward on opener=\(openerTabId) — closing its peek")
         closePeek(forOpener: openerTabId)
         return true
@@ -4057,14 +4064,31 @@ class BrowserState {
     /// Forms a vertical split between a presented peek and its bound
     /// opener (opener left, peek right), mirroring formSplitFromBookmark's
     /// attached-and-distinct path: both tabs are normalized into plain tabs
-    /// first so the split inherits no bookmark/pinned binding. Falls back to
-    /// a plain expansion when the opener is gone or already in a split.
+    /// first so the split inherits no bookmark/pinned binding. An opener
+    /// already in a split is duplicated instead (see below). Falls back to a
+    /// plain expansion when the opener is gone.
     func openPeekAsSplitWithOpener(peekTabId: Int) {
         guard let openerTabId = peekState.openerTabId(forPeekTabId: peekTabId),
               let peekTab = peekState.peek(forOpener: openerTabId) else { return }
-        guard tabs.contains(where: { $0.guid == openerTabId }),
-              splitGroup(forTabId: openerTabId) == nil else {
+        guard let opener = tabs.first(where: { $0.guid == openerTabId }) else {
             expandPeekIntoTab(peekTabId: peekTabId)
+            return
+        }
+        // An opener already in a split stays there: a duplicate of it (a
+        // fresh tab on its URL, as "Duplicate Tab" does) pairs with the peek
+        // page instead, as a new split tab.
+        if splitGroup(forTabId: openerTabId) != nil {
+            var paired = false
+            if let openerURL = opener.url, !openerURL.isEmpty {
+                paired = MainActor.assumeIsolated {
+                    openOverlaySurfaceAsSplit(surfaceTabId: peekTabId,
+                                              partnerURL: openerURL,
+                                              newTabSlot: .left)
+                }
+            }
+            if !paired {
+                expandPeekIntoTab(peekTabId: peekTabId)
+            }
             return
         }
         MainActor.assumeIsolated {
@@ -4078,6 +4102,55 @@ class BrowserState {
         adoptPeekTabIntoStrip(peekTab, context: context, activate: false)
         makeTabNormalOpened(tabId: openerTabId)
         createSplit(leftTabId: openerTabId, rightTabId: peekTab.guid, layout: .vertical)
+    }
+
+    /// Turns a floating surface — a peek, or a reader overlay — into a
+    /// regular tab paired with a new tab on `partnerURL` as a split, through
+    /// the same new-tab-as-split path a strip tab uses. Serves "Open Link in
+    /// Split View" (context menu or Option-click) from inside the surface,
+    /// and the peek's "Open as Split View" when its opener is already in a
+    /// split (the partner is then a duplicate of the opener, on the left).
+    /// Returns false when `surfaceTabId` is no presented surface.
+    @MainActor
+    func openOverlaySurfaceAsSplit(surfaceTabId: Int,
+                                   partnerURL: String,
+                                   newTabSlot: SplitSlot = .right) -> Bool {
+        let surface: Tab
+        let context: NativeTabCreationContext?
+        if let openerTabId = peekState.openerTabId(forPeekTabId: surfaceTabId),
+           let peekTab = peekState.peek(forOpener: openerTabId) {
+            PeekViewAnalytics.ended(peekTabId: peekTab.guid, reason: .openedAsSplit)
+            context = presentedPeekContexts.removeValue(forKey: peekTab.guid)
+            peekState.removePeek(forOpener: openerTabId)  // Panel dismisses via the window-controller sink.
+            clearPeekOpenerMarkerIfNeeded(openerTabId: openerTabId)
+            surface = peekTab
+        } else if let originTabId = readerOverlayState.originTabId(forReaderTabId: surfaceTabId),
+                  let readerTab = readerOverlayState.reader(forOrigin: originTabId) {
+            context = presentedReaderOverlayContexts.removeValue(forKey: readerTab.guid)
+            readerOverlayNavigationWatches[readerTab.guid] = nil
+            readerOverlayState.removeReader(forOrigin: originTabId)
+            surface = readerTab
+        } else {
+            return false
+        }
+        AppLogInfo("👀 [Peek] surface tabId=\(surface.guid) opened as split with \(partnerURL)")
+        // The surface keeps its pending-split-partner mark: it must keep
+        // painting until the split forms, and openNewTabAsSplit re-arms the
+        // mark with its own timeout. Not activated — the link's new tab
+        // takes focus and the split forms around it.
+        adoptPeekTabIntoStrip(surface, context: context, activate: false)
+        if !openNewTabAsSplit(partnerTabId: surface.guid,
+                              newTabSlot: newTabSlot,
+                              partnerNavigateURL: partnerURL) {
+            // No split coming: the adopted tab is plain now — hand its
+            // visibility back to the active-tab path and show it.
+            ChromiumLauncher.sharedInstance().bridge?
+                .clearPendingSplitPartner(withTabId: Int64(surface.guid),
+                                          windowId: Int64(windowId))
+            focuseTab(surface)
+            DispatchQueue.main.async { surface.webContentWrapper?.setAsActiveTab() }
+        }
+        return true
     }
 
     /// Peek exists only in the sidebar layouts: entering the traditional
@@ -4184,30 +4257,79 @@ class BrowserState {
         if readerOverlayState.reader(forOrigin: focusingTab.guid) != nil {
             return focusingTab
         }
-        return peekState.peek(forOpener: focusingTab.guid) ?? focusingTab
+        return visiblePeek(focusingTab: focusingTab)?.tab ?? focusingTab
     }
 
-    /// The reader overlay on screen for `focusingTab`: its own, else the one
-    /// over its peek. The opener's wins — it covers the whole page card,
+    /// The peek on screen for `focusingTab`: its own, else its split
+    /// partner's — a peek covers its opener's whole split, so it stays up
+    /// whichever pane is focused. The focused pane's own peek wins.
+    func visiblePeek(focusingTab: Tab?) -> (openerTabId: Int, tab: Tab)? {
+        Self.visiblePeek(focusingTab: focusingTab,
+                         peeksByOpener: peekState.peeksByOpener,
+                         splits: splits)
+    }
+
+    /// Value form for publisher pipelines (see `visibleReaderOverlays`).
+    static func visiblePeek(focusingTab: Tab?,
+                            peeksByOpener: [Int: Tab],
+                            splits: [SplitGroup]) -> (openerTabId: Int, tab: Tab)? {
+        guard let focusingTab else { return nil }
+        if let tab = peeksByOpener[focusingTab.guid] {
+            return (focusingTab.guid, tab)
+        }
+        guard let group = splits.first(where: { $0.contains(tabId: focusingTab.guid) }) else {
+            return nil
+        }
+        let partnerTabId = group.primaryTabId == focusingTab.guid
+            ? group.secondaryTabId : group.primaryTabId
+        guard let tab = peeksByOpener[partnerTabId] else { return nil }
+        return (partnerTabId, tab)
+    }
+
+    /// The reader overlays on screen for `focusingTab`. A reader covers its
+    /// origin's page: in a split, each pane's reader covers that pane and
+    /// stays up whichever pane is focused. A peek sits in front of the whole
+    /// page card, so while one is up only a reader over the peek shows —
+    /// or, for a single tab, the opener's own reader, which covers the card
     /// peek included.
-    func visibleReaderOverlayTab(focusingTab: Tab?) -> Tab? {
-        Self.visibleReaderOverlayTab(focusingTab: focusingTab,
-                                     readersByOrigin: readerOverlayState.readersByOrigin,
-                                     peeksByOpener: peekState.peeksByOpener)
+    func visibleReaderOverlays(focusingTab: Tab?) -> [Tab] {
+        Self.visibleReaderOverlays(focusingTab: focusingTab,
+                                   readersByOrigin: readerOverlayState.readersByOrigin,
+                                   peeksByOpener: peekState.peeksByOpener,
+                                   splits: splits)
     }
 
     /// Value form for publisher pipelines: `@Published` emits before the new
     /// value is stored, so a sink must judge the values it was handed, not
     /// read them back from the state.
-    static func visibleReaderOverlayTab(focusingTab: Tab?,
-                                        readersByOrigin: [Int: Tab],
-                                        peeksByOpener: [Int: Tab]) -> Tab? {
-        guard let focusingTab else { return nil }
-        if let reader = readersByOrigin[focusingTab.guid] {
-            return reader
+    static func visibleReaderOverlays(focusingTab: Tab?,
+                                      readersByOrigin: [Int: Tab],
+                                      peeksByOpener: [Int: Tab],
+                                      splits: [SplitGroup]) -> [Tab] {
+        guard let focusingTab else { return [] }
+        let group = splits.first(where: { $0.contains(tabId: focusingTab.guid) })
+        if let peek = visiblePeek(focusingTab: focusingTab,
+                                  peeksByOpener: peeksByOpener,
+                                  splits: splits)?.tab {
+            if group == nil, let reader = readersByOrigin[focusingTab.guid] {
+                return [reader]
+            }
+            return readersByOrigin[peek.guid].map { [$0] } ?? []
         }
-        guard let peek = peeksByOpener[focusingTab.guid] else { return nil }
-        return readersByOrigin[peek.guid]
+        guard let group else {
+            return readersByOrigin[focusingTab.guid].map { [$0] } ?? []
+        }
+        return [group.primaryTabId, group.secondaryTabId].compactMap { readersByOrigin[$0] }
+    }
+
+    /// Whether `readerTab`'s overlay should take keyboard focus when shown:
+    /// it stands over the focused tab, or over the peek in front of it.
+    func readerOverlayTakesFocus(_ readerTab: Tab) -> Bool {
+        guard let originTabId = readerOverlayState.originTabId(forReaderTabId: readerTab.guid) else {
+            return false
+        }
+        return originTabId == focusingTab?.guid
+            || originTabId == visiblePeek(focusingTab: focusingTab)?.tab.guid
     }
 
     /// Records that a reader-open for `originTabId` is on its way to the
@@ -4414,8 +4536,9 @@ class BrowserState {
         ChromiumLauncher.sharedInstance().bridge?
             .markPendingSplitPartner(withTabId: Int64(tab.guid),
                                      windowId: Int64(windowId))
-        // Suppress split/peek link surfaces inside the hosted page, exactly
-        // as for a peeked page.
+        // Same Chromium-side marker as a peeked page: page commands target
+        // the reader page, and split view adopts it as a tab. A nested Peek
+        // from here has no strip opener and opens as a new tab instead.
         if let wrapper = tab.webContentWrapper,
            wrapper.responds(to: #selector(WebContentWrapper.updateIsPeekSurface(_:))) {
             wrapper.updateIsPeekSurface(true)
