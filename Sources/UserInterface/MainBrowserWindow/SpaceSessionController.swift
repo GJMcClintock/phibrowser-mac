@@ -1545,18 +1545,44 @@ class SpaceSessionController: NSWindowController {
     // =========================================================================
 
     func handleDevToolsDidAttach(tabId: Int, devToolsView: NSView) {
+        if let (tab, host) = pageOverlayDevToolsTarget(tabId: tabId) {
+            PageOverlayDevToolsDock.attach(devToolsView, to: tab, in: host)
+            return
+        }
         mainSplitViewController.webContentContainerViewController
             .handleDevToolsDidAttach(tabId: tabId, devToolsView: devToolsView)
     }
 
     func handleDevToolsDidDetach(tabId: Int) {
+        if let (tab, host) = pageOverlayDevToolsTarget(tabId: tabId) {
+            PageOverlayDevToolsDock.detach(tab, in: host)
+            return
+        }
         mainSplitViewController.webContentContainerViewController
             .handleDevToolsDidDetach(tabId: tabId)
     }
 
     func handleUpdateInspectedPageBounds(tabId: Int, bounds: CGRect, hide: Bool) {
+        if let (tab, host) = pageOverlayDevToolsTarget(tabId: tabId) {
+            PageOverlayDevToolsDock.updateInspectedPageBounds(bounds, hide: hide,
+                                                              for: tab, in: host)
+            return
+        }
         mainSplitViewController.webContentContainerViewController
             .handleUpdateInspectedPageBounds(tabId: tabId, bounds: bounds, hide: hide)
+    }
+
+    /// Peek and Reader overlay tabs have no WebContentViewController; their
+    /// docked DevTools lives in the overlay panel hosting them. `host` is nil
+    /// while that panel isn't showing the tab.
+    private func pageOverlayDevToolsTarget(tabId: Int) -> (tab: Tab, host: NSView?)? {
+        if let tab = browserState.peekState.peekTab(withId: tabId) {
+            return (tab, peekPanelController?.devToolsHost(for: tab))
+        }
+        if let tab = browserState.readerOverlayState.readerTab(withId: tabId) {
+            return (tab, readerPanelController?.devToolsHost(for: tab))
+        }
+        return nil
     }
 
 }

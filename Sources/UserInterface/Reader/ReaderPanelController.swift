@@ -110,8 +110,16 @@ final class ReaderPanelController {
         webView.snp.makeConstraints { make in
             make.edges.equalToSuperview()
         }
+        PageOverlayDevToolsDock.mount(tab, in: containerView)
 
         reveal()
+    }
+
+    /// Dock area for `tab`'s DevTools: the panel while it hosts the tab, nil
+    /// otherwise (the dock state then waits on the `Tab` until `present`
+    /// mounts it).
+    func devToolsHost(for tab: Tab) -> NSView? {
+        hostedTab === tab ? containerView : nil
     }
 
     /// Temporarily hides the panel while the origin tab is not focused. The
@@ -192,7 +200,9 @@ final class ReaderPanelController {
         content.installPageOverlay(containerView)
         layoutOnAnchor()
         containerView.isHidden = false
-        if !isEclipsedByInWindowOverlay, let webView = containerView.subviews.first {
+        // The page, not `subviews.first` — docked DevTools sits below it.
+        if !isEclipsedByInWindowOverlay,
+           let webView = hostedTab?.webContentView, webView.superview === containerView {
             parentWindow.makeKey()
             parentWindow.makeFirstResponder(webView)
             hostedTab?.webContentWrapper?.focus()
@@ -297,15 +307,21 @@ final class ReaderPanelController {
                   event.window === self.parentWindow,
                   self.parentWindow?.isKeyWindow == true,
                   self.containerView.containsFirstResponder else { return event }
-            // Esc closes the reader. Cmd-W must be swallowed here: strip-
-            // active is the origin while the overlay is up, so letting it
-            // reach Chromium's IDC_CLOSE_TAB would close the origin.
-            if event.keyCode == 53 {
+            // Cmd-W must be swallowed here: strip-active is the origin while
+            // the overlay is up, so letting it reach Chromium's
+            // IDC_CLOSE_TAB would close the origin.
+            if event.modifierFlags.contains(.command),
+               event.charactersIgnoringModifiers?.lowercased() == "w" {
                 self.closeHostedReader()
                 return nil
             }
-            if event.modifierFlags.contains(.command),
-               event.charactersIgnoringModifiers?.lowercased() == "w" {
+            // Docked DevTools owns its keys: Esc toggles its console drawer
+            // and Cmd-[ / Cmd-] switch its panels.
+            if PageOverlayDevToolsDock.hasFocus(self.hostedTab) {
+                return event
+            }
+            // Esc closes the reader.
+            if event.keyCode == 53 {
                 self.closeHostedReader()
                 return nil
             }

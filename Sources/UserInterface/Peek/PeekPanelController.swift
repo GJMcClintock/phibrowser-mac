@@ -338,8 +338,16 @@ final class PeekPanelController {
         webView.snp.makeConstraints { make in
             make.edges.equalToSuperview()
         }
+        PageOverlayDevToolsDock.mount(tab, in: webHostView)
 
         reveal(focusContent: true, flyIn: flyIn)
+    }
+
+    /// Dock area for `tab`'s DevTools: the page card while this panel hosts
+    /// the tab, nil otherwise (the dock state then waits on the `Tab` until
+    /// `present` mounts it).
+    func devToolsHost(for tab: Tab) -> NSView? {
+        hostedTab === tab ? webHostView : nil
     }
 
     /// Temporarily hides the panel while the opener tab is not focused. The
@@ -456,8 +464,9 @@ final class PeekPanelController {
         if flyIn { armAppearFlight() }
         rootView.isHidden = false
         runAppearFlight()
+        // The page, not `subviews.first` — docked DevTools sits below it.
         if focusContent, !isEclipsedByInWindowOverlay,
-           let webView = webHostView.subviews.first {
+           let webView = hostedTab?.webContentView, webView.superview === webHostView {
             parentWindow.makeKey()
             parentWindow.makeFirstResponder(webView)
             hostedTab?.webContentWrapper?.focus()
@@ -894,15 +903,21 @@ final class PeekPanelController {
                 guard event.window === self.parentWindow,
                       self.parentWindow?.isKeyWindow == true,
                       self.rootView.containsFirstResponder else { return event }
-                // Esc closes the peek. Cmd-W must be swallowed here: strip-
-                // active is the bound opener while the peek is up, so letting
-                // it reach Chromium's IDC_CLOSE_TAB would close the opener.
-                if event.keyCode == 53 {
+                // Cmd-W must be swallowed here: strip-active is the bound
+                // opener while the peek is up, so letting it reach Chromium's
+                // IDC_CLOSE_TAB would close the opener.
+                if event.modifierFlags.contains(.command),
+                   event.charactersIgnoringModifiers?.lowercased() == "w" {
                     self.closeHostedPeek()
                     return nil
                 }
-                if event.modifierFlags.contains(.command),
-                   event.charactersIgnoringModifiers?.lowercased() == "w" {
+                // Docked DevTools owns its keys: Esc toggles its console
+                // drawer and Cmd-[ / Cmd-] switch its panels.
+                if PageOverlayDevToolsDock.hasFocus(self.hostedTab) {
+                    return event
+                }
+                // Esc closes the peek.
+                if event.keyCode == 53 {
                     self.closeHostedPeek()
                     return nil
                 }
