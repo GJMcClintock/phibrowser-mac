@@ -187,6 +187,13 @@ extension BrowserState {
             of: partner)
     }
 
+    /// `reconcileSplitChatBinding` closed `tab`'s panel as its split formed
+    /// and kept the other pane's. The record goes with the closed panel, so
+    /// undo close of `tab` does not bring that panel back.
+    func splitPaneLostAIChatPanel(_ tab: Tab) {
+        sendAIChatPanelRecord(nil, of: tab)
+    }
+
     /// A tab undo close brought back arrived with the panel it had when it
     /// was closed, and its panel shows the same conversation once created.
     /// An expanded panel comes back expanded; the current tab asks for its

@@ -540,7 +540,8 @@ extension BrowserState {
     /// Reconcile a freshly-created split so it shares exactly one chat tab.
     /// Principle 1: a pane that already has a chat tab keeps it (resolver handles
     /// it; no action needed here). Principle 2: when BOTH panes have a chat tab,
-    /// keep the foreground pane's and close the other (a split owns one chat tab).
+    /// keep the foreground pane's and close the other (a split owns one chat tab),
+    /// clearing that pane's undo-close panel record with it.
     @MainActor
     func reconcileSplitChatBinding(_ group: SplitGroup) {
         guard let primary = tabs.first(where: { $0.guid == group.primaryTabId }),
@@ -555,6 +556,7 @@ extension BrowserState {
         let keepSecondary = focusingTab?.guid == secondary.guid
         let dropId = keepSecondary ? primaryId : secondaryId
         closeAIChatTab(for: dropId)
+        splitPaneLostAIChatPanel(keepSecondary ? primary : secondary)
     }
 
     @MainActor

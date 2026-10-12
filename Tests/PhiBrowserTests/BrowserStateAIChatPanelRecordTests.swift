@@ -340,6 +340,65 @@ final class BrowserStateAIChatPanelRecordTests: XCTestCase {
         XCTAssertEqual(bridge.records(forTabId: 1).last, record(expanded: true, conversationX))
     }
 
+    // A split formed from two tabs keeps at most one of their panels.
+
+    /// Chromium reports the split formed, unlike `splitPanes`:
+    /// `handleSplitCreated` reconciles the panels and syncs collapse.
+    private func formSplit(_ state: BrowserState, _ primary: Int, _ secondary: Int) {
+        state.handleSplitCreated(splitId: "split-\(primary)-\(secondary)", primaryTabId: primary,
+                                 secondaryTabId: secondary, layout: .vertical, ratio: 0.5)
+    }
+
+    func testFormingASplitClearsTheRecordOfThePaneWhosePanelIsClosed() throws {
+        let bridge = FakeAIChatPanelBridge()
+        let state = try makeState(bridge: bridge)
+        let tabs = seed(state, guids: [1, 2])
+        for (tab, conversation) in zip(tabs, [conversationX, conversationY]) {
+            tab.aiChatCollapsed = false
+            addPanel(to: tab, in: state, url: conversationURL(conversation, tabId: tab.guid))
+        }
+        state.focuseTab(tabs[1])
+        let pushesBefore = bridge.pushes.count
+
+        formSplit(state, 1, 2)
+
+        // The foreground pane keeps its panel; tab 1's is closed.
+        XCTAssertNil(state.aiChatTabs[state.getTabIdentifier(for: tabs[0])])
+        let pushes = bridge.pushes.dropFirst(pushesBefore)
+        XCTAssertEqual(pushes.map(\.tabId), [1])
+        XCTAssertNil(try XCTUnwrap(pushes.first).record)
+        XCTAssertEqual(bridge.records(forTabId: 2).last, record(expanded: true, conversationY))
+    }
+
+    func testFormingASplitWhereOnlyOnePaneHasAPanelPushesNothing() throws {
+        let bridge = FakeAIChatPanelBridge()
+        let state = try makeState(bridge: bridge)
+        let tabs = seed(state, guids: [1, 2])
+        tabs[0].aiChatCollapsed = false
+        addPanel(to: tabs[0], in: state, url: conversationURL(conversationX, tabId: 1))
+        state.focuseTab(tabs[1])
+        let pushesBefore = bridge.pushes.count
+
+        // Tab 2 expands to match tab 1, and resolves to tab 1's panel.
+        formSplit(state, 1, 2)
+
+        XCTAssertEqual(bridge.pushes.count, pushesBefore)
+    }
+
+    func testFormingASplitWhereNeitherPaneHasAPanelPushesNothing() throws {
+        let bridge = FakeAIChatPanelBridge()
+        let state = try makeState(bridge: bridge)
+        let tabs = seed(state, guids: [1, 2])
+        // Both expanded, before either panel exists.
+        tabs.forEach { $0.aiChatCollapsed = false }
+        state.focuseTab(tabs[1])
+        let pushesBefore = bridge.pushes.count
+
+        formSplit(state, 1, 2)
+
+        XCTAssertEqual(bridge.pushes.count, pushesBefore)
+    }
+
     // MARK: - In: a restored tab arrives with its record
 
     private func arrive(_ state: BrowserState, guid: Int, record: AIChatPanelRecord?,

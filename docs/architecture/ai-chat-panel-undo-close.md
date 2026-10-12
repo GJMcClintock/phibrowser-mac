@@ -22,7 +22,9 @@ the tab when the tab's identifier changes (pinning it, binding it to a bookmark)
 
 In a split the record stays with the pane that holds the shared panel
 (`chatIdentifier(for:)`). Expanding mirrors to both panes before the panel
-exists, so the other pane's record is cleared when the panel appears.
+exists, so the other pane's record is cleared when the panel appears. When a
+split is formed from two tabs that both have a panel, only one panel stays, and
+the record of the tab whose panel is closed is cleared with it.
 
 When the holding pane closes, or moves to another window, while the other pane
 stays, the panel goes to that pane and so does the record: cleared on the
@@ -86,9 +88,8 @@ handling yet; session restore never carries records. A
 conversation still waiting for its panel tab is
 not dropped when the tab closes or leaves the window, so a pinned or bookmarked
 tab closed before its panel was expanded opens its panel on that conversation
-the next time it is opened from the sidebar and expanded. When a split is formed
-from two tabs that both had a panel, the panel that is closed leaves its tab's
-record behind. When a whole split moves to another window, the record can end up
+the next time it is opened from the sidebar and expanded. When a whole split
+moves to another window, the record can end up
 on the pane that did not hold the panel, and that window does not clear it.
 
 ## Source and checks
@@ -104,4 +105,7 @@ Check expanding and collapsing, switching conversations, closing the tab, and
 undo close from Cmd+Shift+T, the History menu and Search Tabs on a signed-in
 build, and undo close with the AI switch off, then again once it is back on.
 In a split, check closing the pane that holds the panel and then undo close
-(one panel only), and closing the whole split and then undo close twice.
+(one panel only), and closing the whole split and then undo close twice. With a
+split formed from two tabs that both had a panel, check closing the pane whose
+panel was closed and then undo close (no panel), and closing the whole split and
+then undo close twice (one panel only).
