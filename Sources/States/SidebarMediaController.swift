@@ -216,6 +216,8 @@ final class SidebarMediaController: ObservableObject {
             isVolumeExpanded = false
             cancelHoverExpansion(clearHover: true)
             cancelCycle()
+            dismissedSources.removeAll()
+            isDismissed = false
             activeSurface = presented
             applyPresentationMode(resetDynamic: true)
         }
@@ -549,6 +551,10 @@ final class SidebarMediaController: ObservableObject {
     private func refreshSelection(preservePresentation: Bool = false) {
         guard !isSyncingTabs else { return }
         guard isActive else { backgroundSourceCount = 0; return }
+        // Dismissal lasts only until the source is visible or the sidebar returns.
+        dismissedSources = dismissedSources.filter {
+            !isVisible($0.key) && candidates[$0.key]?.playback.isPictureInPicture != true
+        }
         // Empty activation caches are not selection loss. Keep the retained
         // manual/paused identity concealed until its own fresh result arrives.
         if isRevalidating, let retained = item, isValid(retained), candidates[retained.key] == nil { return }
@@ -666,8 +672,7 @@ final class SidebarMediaController: ObservableObject {
         }
         if let item {
             if !playback.isPictureInPicture { pipRetainedSources.removeValue(forKey: key) }
-            // A new track or document starts a new presentation session.
-            // Preserve dismissal only across updates of the same source.
+            // Snapshot updates preserve dismissal within the current presentation.
             isDismissed = dismissedSources[item.key] == SourceIdentity(item)
             updateSourceVisibility()
         }

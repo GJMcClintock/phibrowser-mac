@@ -14,9 +14,10 @@ final class SidebarMediaUITests: XCTestCase {
     private var app: XCUIApplication?
 
     private enum Presentation: String, CaseIterable {
+        case off = "Off"
         case alwaysExpanded = "Always expanded"
         case alwaysCompact = "Always compact"
-        case dynamic = "Dynamic (expand on hover)"
+        case dynamic = "Auto"
     }
 
     override func setUpWithError() throws {
@@ -37,7 +38,7 @@ final class SidebarMediaUITests: XCTestCase {
 
         let app = XCUIApplication()
         app.launchArguments += [
-            "-uitest", "1",
+            "-uitest", "1", "-skip-onboarding",
             "-layoutMode", "balanced",
             "-spacesFeatureEnabled", "NO",
             "-sidebarHeaderWidth", "193",
@@ -50,15 +51,14 @@ final class SidebarMediaUITests: XCTestCase {
                       "Phi's main window did not appear")
         app.activate()
         try ensureSidebarExpanded(in: app)
-        let originalPreferences = try setMediaPreferences(in: app, enabled: nil, mode: nil)
+        let originalPreferences = try setMediaPreferences(in: app, mode: nil)
         var preferencesRestored = false
         defer {
             if !preferencesRestored {
-                try? setMediaPreferences(in: app, enabled: originalPreferences.enabled,
-                                        mode: originalPreferences.mode)
+                try? setMediaPreferences(in: app, mode: originalPreferences)
             }
         }
-        try setMediaPreferences(in: app, enabled: true, mode: .dynamic)
+        try setMediaPreferences(in: app, mode: .dynamic)
 
         try navigateToFixture(fixtureURL, in: app)
         let start = app.buttons["Start playback"]
@@ -122,7 +122,7 @@ final class SidebarMediaUITests: XCTestCase {
                 .matching(identifier: "sidebarMedia.timeline").firstMatch
                 .waitForExistence(timeout: 5),
                 "Floating sidebar media should expand on hover")
-            assertFrame(floatingOutline, remains: floatingOutlineFrame, "Floating tab list")
+            assertExpandedTabList(floatingOutline, compactFrame: floatingOutlineFrame, in: app)
             assertFrame(floatingRow, remains: floatingRowFrame, "Floating ordinary tab row")
             assertFrame(pinned, remains: floatingPinnedFrame, "Floating pinned fixture")
             assertFrame(floatingFooter, remains: floatingFooterFrame, "Floating footer")
@@ -170,14 +170,14 @@ final class SidebarMediaUITests: XCTestCase {
             }
             XCTAssertEqual(pause.frame.midY, initialCenter, accuracy: 2,
                            "The play control should remain at the same pointer location")
-            XCTAssertEqual(title.label, "UI Test Track")
-            assertFrame(outline, remains: outlineFrame, "Expanded tab list")
+            XCTAssertEqual(elementText(title), "UI Test Track")
+            assertExpandedTabList(outline, compactFrame: outlineFrame, in: app)
             assertFrame(row, remains: rowFrame, "Expanded ordinary tab row")
             assertFrame(pinned, remains: pinnedFrame, "Expanded pinned fixture")
             assertFrame(footer, remains: footerFrame, "Expanded footer")
             assertFooterGap(in: app)
             XCTAssertLessThan(timeline.frame.maxY, compactCardFrame.minY,
-                              "The seek hit area should sit above the compact reserved slot")
+                              "The seek hit area should expand upward while the tab list makes room")
         }
 
         pause.click()
@@ -189,33 +189,34 @@ final class SidebarMediaUITests: XCTestCase {
 
         let elapsed = app.staticTexts["sidebarMedia.elapsed"]
         XCTAssertTrue(elapsed.waitForExistence(timeout: 5))
-        let beforeDrag = seconds(elapsed.label) ?? 0
+        let beforeDrag = seconds(elementText(elapsed)) ?? 0
         let dragStart = timeline.coordinate(withNormalizedOffset: CGVector(dx: 0.1, dy: 0.5))
         let dragEnd = timeline.coordinate(withNormalizedOffset: CGVector(dx: 0.55, dy: 0.5))
         dragStart.click(forDuration: 0.15, thenDragTo: dragEnd)
         XCTAssertTrue(waitUntil(timeout: 8) {
-            (seconds(elapsed.label) ?? 0) > beforeDrag + 50
+            (seconds(elementText(elapsed)) ?? 0) > beforeDrag + 50
         }, "Dragging the knobless timeline should seek the real media")
 
         let previous = app.buttons["sidebarMedia.previousTrack"]
         let next = app.buttons["sidebarMedia.nextTrack"]
         XCTAssertTrue(previous.exists && next.exists && !previous.isEnabled && !next.isEnabled,
                       "A single-file source without page queue handlers must disable track navigation")
-        try setMediaPreferences(in: app, enabled: nil, mode: .alwaysExpanded)
+        try setMediaPreferences(in: app, mode: .alwaysExpanded)
         offCard.hover()
         XCTAssertTrue(timeline.waitForExistence(timeout: 5), "Always expanded should show details without hovering")
         RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.8))
         XCTAssertTrue(timeline.exists, "Pointer exit must not collapse Always expanded")
-        assertFrame(outline, remains: outlineFrame, "Always-expanded tab list")
+        assertExpandedTabList(outline, compactFrame: outlineFrame, in: app)
         assertFrame(row, remains: rowFrame, "Always-expanded ordinary row")
         assertFrame(pinned, remains: pinnedFrame, "Always-expanded pinned fixture")
         assertFrame(footer, remains: footerFrame, "Always-expanded footer")
-        try setMediaPreferences(in: app, enabled: nil, mode: .alwaysCompact)
+        assertNotificationAndVolumeLayout(in: app, outline: outline)
+        try setMediaPreferences(in: app, mode: .alwaysCompact)
         offCard.hover()
         pause.hover()
         RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.8))
         XCTAssertFalse(timeline.exists, "Always compact should remain compact while hovered")
-        try setMediaPreferences(in: app, enabled: false, mode: nil)
+        try setMediaPreferences(in: app, mode: .off)
         XCTAssertTrue(waitUntil(timeout: 5) { !pause.exists },
                       "Disabling the player should remove the widget")
         pinned.click()
@@ -226,14 +227,14 @@ final class SidebarMediaUITests: XCTestCase {
         XCTAssertTrue(waitUntil(timeout: 5) {
             (fixturePositionSeconds(positionWhileDisabled.label) ?? 0) > disabledTime + 1
         }, "Turning the player off must leave page media playing")
-        try setMediaPreferences(in: app, enabled: true, mode: nil)
+        try setMediaPreferences(in: app, mode: .alwaysCompact)
         app.typeKey("t", modifierFlags: .command)
         XCTAssertTrue(pause.waitForExistence(timeout: 15))
         pause.hover()
         RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.8))
         XCTAssertFalse(timeline.exists,
-                       "Re-enabling the player must preserve Always compact")
-        try setMediaPreferences(in: app, enabled: nil, mode: .dynamic)
+                       "Selecting Always compact should restore compact playback controls")
+        try setMediaPreferences(in: app, mode: .dynamic)
         pause.hover()
         XCTAssertTrue(timeline.waitForExistence(timeout: 5))
 
@@ -244,10 +245,10 @@ final class SidebarMediaUITests: XCTestCase {
         XCTAssertTrue(pause.waitForExistence(timeout: 10),
                       "Switching away should restore background media")
         pause.hover()
-        try setMediaPreferences(in: app, enabled: nil, mode: .alwaysExpanded)
+        try setMediaPreferences(in: app, mode: .alwaysExpanded)
         let dismiss = app.buttons["sidebarMedia.dismiss"]
         XCTAssertTrue(dismiss.waitForExistence(timeout: 5))
-        let timeAtDismissal = seconds(elapsed.label) ?? 0
+        let timeAtDismissal = seconds(elementText(elapsed)) ?? 0
         dismiss.click()
         XCTAssertTrue(waitUntil(timeout: 5) { !pause.exists },
                       "Dismiss should hide the current media widget")
@@ -261,7 +262,8 @@ final class SidebarMediaUITests: XCTestCase {
             (fixturePositionSeconds(pagePosition.label) ?? 0) > timeAtDismissal + 1
         }, "Dismiss should leave the page media playing")
         app.typeKey("t", modifierFlags: .command)
-        XCTAssertFalse(pause.exists, "Switching tabs should not restore dismissed media")
+        XCTAssertTrue(pause.waitForExistence(timeout: 10),
+                      "Returning the same session to the background should restore the player")
         pinned.click()
         let replaceMetadata = app.buttons["Replace metadata"]
         XCTAssertTrue(replaceMetadata.waitForExistence(timeout: 15))
@@ -271,7 +273,7 @@ final class SidebarMediaUITests: XCTestCase {
                       "Metadata-only new track on the same element/source should restore dismissal")
         pause.hover()
         XCTAssertTrue(title.waitForExistence(timeout: 5))
-        XCTAssertEqual(title.label, "UI Test Next Track")
+        XCTAssertEqual(elementText(title), "UI Test Next Track")
         dismiss.click()
         XCTAssertTrue(waitUntil(timeout: 5) { !pause.exists })
         pinned.click()
@@ -282,15 +284,13 @@ final class SidebarMediaUITests: XCTestCase {
         XCTAssertTrue(pause.waitForExistence(timeout: 15),
                       "A new media source should restore the widget after dismissal")
 
-        try setMediaPreferences(in: app, enabled: false, mode: .alwaysCompact)
+        try setMediaPreferences(in: app, mode: .off)
         app.terminate()
         app.launch()
         XCTAssertTrue(app.windows.firstMatch.waitForExistence(timeout: 120))
-        let persisted = try setMediaPreferences(in: app, enabled: nil, mode: nil)
-        XCTAssertFalse(persisted.enabled, "The feature switch should persist after relaunch")
-        XCTAssertEqual(persisted.mode, .alwaysCompact, "The display mode should persist separately after relaunch")
-        try setMediaPreferences(in: app, enabled: originalPreferences.enabled,
-                                mode: originalPreferences.mode)
+        let persisted = try setMediaPreferences(in: app, mode: nil)
+        XCTAssertEqual(persisted, .off, "Off should persist after relaunch")
+        try setMediaPreferences(in: app, mode: originalPreferences)
         preferencesRestored = true
     }
 
@@ -387,9 +387,9 @@ final class SidebarMediaUITests: XCTestCase {
         XCTAssertTrue(app.windows.firstMatch.waitForExistence(timeout: 120))
         app.activate()
         try ensureSidebarExpanded(in: app)
-        let original = try setMediaPreferences(in: app, enabled: nil, mode: nil)
-        defer { try? setMediaPreferences(in: app, enabled: original.enabled, mode: original.mode) }
-        try setMediaPreferences(in: app, enabled: true, mode: .dynamic)
+        let original = try setMediaPreferences(in: app, mode: nil)
+        defer { try? setMediaPreferences(in: app, mode: original) }
+        try setMediaPreferences(in: app, mode: .dynamic)
         for label in ["Media A", "Media B", "Media C"] {
             if label != "Media A" { app.typeKey("t", modifierFlags: .command) }
             let url = fixtureURL + (fixtureURL.contains("?") ? "&" : "?") + "title="
@@ -432,8 +432,8 @@ final class SidebarMediaUITests: XCTestCase {
             XCTFail("Most recently visited background playing tab should lead; actual=\(presentedTitle())")
             return
         }
-        XCTAssertFalse(app.buttons["sidebarMedia.dismiss"].exists,
-                       "Dynamic header should not have a dismiss arrow")
+        XCTAssertTrue(app.buttons["sidebarMedia.dismiss"].waitForExistence(timeout: 5),
+                      "Expanded Dynamic header should show a dismiss arrow")
         let outline = app.outlines["sidebarTabList"].firstMatch
         let outlineFrame = outline.frame
         let windowFrame = app.windows.firstMatch.frame
@@ -491,35 +491,31 @@ final class SidebarMediaUITests: XCTestCase {
 
     @MainActor
     @discardableResult
-    private func setMediaPreferences(in app: XCUIApplication, enabled: Bool?, mode: Presentation?) throws
-        -> (enabled: Bool, mode: Presentation) {
+    private func setMediaPreferences(in app: XCUIApplication, mode: Presentation?) throws
+        -> Presentation {
         app.typeKey(",", modifierFlags: .command)
-        let general = app.toolbars.buttons["General"]
-        if general.waitForExistence(timeout: 3) { general.click() }
+        let advanced = app.toolbars.buttons["Advanced"]
+        XCTAssertTrue(advanced.waitForExistence(timeout: 5))
+        advanced.click()
         // XCUIElement.label can be empty even when the actual window title is
-        // General. Select the observed title instead of rebuilding a label query.
-        let settings = app.windows["General"]
+        // Advanced. Select the observed title instead of rebuilding a label query.
+        let settings = app.windows["Advanced"]
         guard settings.waitForExistence(timeout: 10) else {
-            attachDiagnostics(app, reason: "General Settings window missing")
+            attachDiagnostics(app, reason: "Advanced Settings window missing")
             throw NSError(domain: "SidebarMediaUITests", code: 1)
         }
-        let enableToggle = settings.descendants(matching: .any)
-            .matching(identifier: "settings.sidebarMedia.enabled").firstMatch
         let modeMenu = settings.descendants(matching: .any)
             .matching(identifier: "settings.sidebarMedia.presentation").firstMatch
         for _ in 0..<10 {
-            if enableToggle.exists && enableToggle.isHittable
-                && modeMenu.exists && modeMenu.isHittable { break }
+            if modeMenu.exists && modeMenu.isHittable { break }
             let scroll = settings.scrollViews.firstMatch
             guard scroll.exists else {
-                attachDiagnostics(app, reason: "General Settings scroll surface missing")
+                attachDiagnostics(app, reason: "Advanced Settings scroll surface missing")
                 throw NSError(domain: "SidebarMediaUITests", code: 2)
             }
             scroll.scroll(byDeltaX: 0, deltaY: -160)
         }
-        XCTAssertTrue(enableToggle.waitForExistence(timeout: 10))
         XCTAssertTrue(modeMenu.waitForExistence(timeout: 10))
-        if let enabled, try XCTUnwrap(toggleValue(enableToggle)) != enabled { enableToggle.click() }
         if let mode {
             modeMenu.click()
             let option = app.menuItems[mode.rawValue].firstMatch
@@ -527,11 +523,11 @@ final class SidebarMediaUITests: XCTestCase {
             option.click()
         }
         let selectedMode = Presentation(rawValue: modeMenu.value as? String ?? modeMenu.label)
-        let values = (try XCTUnwrap(toggleValue(enableToggle)), try XCTUnwrap(selectedMode))
+        let value = try XCTUnwrap(selectedMode)
         app.typeKey("w", modifierFlags: .command)
-        XCTAssertTrue(waitUntil(timeout: 5) { !enableToggle.exists })
+        XCTAssertTrue(waitUntil(timeout: 5) { !modeMenu.exists })
         app.activate()
-        return values
+        return value
     }
 
     @MainActor
@@ -586,18 +582,56 @@ final class SidebarMediaUITests: XCTestCase {
         return element.label
     }
 
-    private func toggleValue(_ element: XCUIElement) -> Bool? {
-        if let number = element.value as? NSNumber { return number.boolValue }
-        if let value = element.value as? String, value == "0" || value == "1" { return value == "1" }
-        return nil
-    }
-
     @MainActor
     private func assertFrame(_ element: XCUIElement, remains original: CGRect, _ label: String) {
         XCTAssertEqual(element.frame.minX, original.minX, accuracy: 1, label)
         XCTAssertEqual(element.frame.minY, original.minY, accuracy: 1, label)
         XCTAssertEqual(element.frame.width, original.width, accuracy: 1, label)
         XCTAssertEqual(element.frame.height, original.height, accuracy: 1, label)
+    }
+
+    @MainActor
+    private func assertNotificationAndVolumeLayout(in app: XCUIApplication, outline: XCUIElement) {
+        let initialOutlineFrame = outline.frame
+        app.menuBars.menuBarItems["*DEBUG*"].click()
+        app.menuItems["Send Test Notification Card"].click()
+        let notification = app.descendants(matching: .any)
+            .matching(identifier: "notification.card").firstMatch
+        let player = app.descendants(matching: .any)
+            .matching(identifier: "sidebarMedia.card").firstMatch
+        XCTAssertTrue(notification.waitForExistence(timeout: 5))
+        XCTAssertTrue(waitUntil(timeout: 5) { outline.frame.height < initialOutlineFrame.height })
+        XCTAssertLessThanOrEqual(outline.frame.maxY, notification.frame.minY)
+        XCTAssertLessThanOrEqual(notification.frame.maxY, player.frame.minY,
+                                 "The notification must remain above the expanded player")
+
+        let withNotificationFrame = outline.frame
+        app.buttons["sidebarMedia.volumeButton"].click()
+        XCTAssertTrue(app.sliders["sidebarMedia.volumeSlider"].waitForExistence(timeout: 5))
+        XCTAssertTrue(waitUntil(timeout: 5) {
+            abs(outline.frame.height - (withNotificationFrame.height - 34)) <= 2
+        }, "The volume row must also reserve space below the notification")
+        XCTAssertLessThanOrEqual(outline.frame.maxY, notification.frame.minY)
+        XCTAssertLessThanOrEqual(notification.frame.maxY, player.frame.minY)
+
+        app.buttons["card-hide"].click()
+        XCTAssertTrue(waitUntil(timeout: 5) { !notification.exists })
+        XCTAssertTrue(waitUntil(timeout: 5) {
+            abs(outline.frame.height - initialOutlineFrame.height) <= 2
+        }, "Hiding the notification and leaving volume must release their layout space")
+    }
+
+    @MainActor
+    private func assertExpandedTabList(_ outline: XCUIElement, compactFrame: CGRect, in app: XCUIApplication) {
+        let card = app.descendants(matching: .any).matching(identifier: "sidebarMedia.card").firstMatch
+        XCTAssertTrue(waitUntil(timeout: 5) {
+            abs(outline.frame.height - (compactFrame.height - 86)) <= 2
+        }, "The tab list must reserve the player's additional expanded height")
+        XCTAssertEqual(outline.frame.minY, compactFrame.minY, accuracy: 1)
+        XCTAssertEqual(outline.frame.minX, compactFrame.minX, accuracy: 1)
+        XCTAssertEqual(outline.frame.width, compactFrame.width, accuracy: 1)
+        XCTAssertLessThanOrEqual(outline.frame.maxY, card.frame.minY,
+                                 "The player must remain below the tab list")
     }
 
     @MainActor

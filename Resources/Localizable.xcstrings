@@ -4,9 +4,6 @@
     "" : {
 
     },
-    "—" : {
-
-    },
     "・" : {
       "shouldTranslate" : false
     },
@@ -35,9 +32,6 @@
         }
       },
       "shouldTranslate" : false
-    },
-    "%lld%%" : {
-
     },
     "•" : {
       "shouldTranslate" : false
@@ -3886,22 +3880,28 @@
       "comment" : "Address bar - Placeholder after selecting a search engine; the placeholder is its name",
       "extractionState" : "manual",
       "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ durchsuchen"
+          }
+        },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Search %@"
           }
         },
-        "zh-Hans" : {
+        "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "搜索 %@"
+            "value" : "Buscar en %@"
           }
         },
-        "zh-Hant" : {
+        "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "搜尋 %@"
+            "value" : "Rechercher sur %@"
           }
         },
         "ja" : {
@@ -3916,28 +3916,22 @@
             "value" : "%@ 검색"
           }
         },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Rechercher sur %@"
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ durchsuchen"
-          }
-        },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Zoek met %@"
           }
         },
-        "es" : {
+        "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Buscar en %@"
+            "value" : "搜索 %@"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "搜尋 %@"
           }
         }
       }
@@ -3946,22 +3940,28 @@
       "comment" : "Address bar - Empty query placeholder beside the selected search engine badge",
       "extractionState" : "manual",
       "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Suchen…"
+          }
+        },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Search…"
           }
         },
-        "zh-Hans" : {
+        "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "搜索…"
+            "value" : "Buscar…"
           }
         },
-        "zh-Hant" : {
+        "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "搜尋…"
+            "value" : "Rechercher…"
           }
         },
         "ja" : {
@@ -3976,28 +3976,22 @@
             "value" : "검색…"
           }
         },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Rechercher…"
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Suchen…"
-          }
-        },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Zoek…"
           }
         },
-        "es" : {
+        "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Buscar…"
+            "value" : "搜索…"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "搜尋…"
           }
         }
       }
@@ -4006,22 +4000,28 @@
       "comment" : "Address bar - Suggestion that selects the named search engine",
       "extractionState" : "manual",
       "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ durchsuchen"
+          }
+        },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Search %@"
           }
         },
-        "zh-Hans" : {
+        "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "搜索 %@"
+            "value" : "Buscar en %@"
           }
         },
-        "zh-Hant" : {
+        "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "搜尋 %@"
+            "value" : "Rechercher sur %@"
           }
         },
         "ja" : {
@@ -4036,28 +4036,22 @@
             "value" : "%@ 검색"
           }
         },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Rechercher sur %@"
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ durchsuchen"
-          }
-        },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Zoek met %@"
           }
         },
-        "es" : {
+        "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Buscar en %@"
+            "value" : "搜索 %@"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "搜尋 %@"
           }
         }
       }
@@ -4066,22 +4060,28 @@
       "comment" : "Address bar - Hint to press Tab to search with the named search engine",
       "extractionState" : "manual",
       "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tabulatortaste drücken, um %@ zu durchsuchen"
+          }
+        },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Tab to search %@"
           }
         },
-        "zh-Hans" : {
+        "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "按 Tab 键搜索 %@"
+            "value" : "Tabulador para buscar en %@"
           }
         },
-        "zh-Hant" : {
+        "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "按 Tab 鍵搜尋 %@"
+            "value" : "Tab pour rechercher sur %@"
           }
         },
         "ja" : {
@@ -4096,28 +4096,22 @@
             "value" : "Tab 키를 눌러 %@ 검색"
           }
         },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Tab pour rechercher sur %@"
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Tabulatortaste drücken, um %@ zu durchsuchen"
-          }
-        },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Tab om te zoeken met %@"
           }
         },
-        "es" : {
+        "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Tabulador para buscar en %@"
+            "value" : "按 Tab 键搜索 %@"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "按 Tab 鍵搜尋 %@"
           }
         }
       }
@@ -4126,22 +4120,28 @@
       "comment" : "Address bar - Hint shown when Tab or Space can select the highlighted search engine; %@ is the engine name",
       "extractionState" : "manual",
       "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tabulatortaste oder Leertaste drücken, um %@ zu durchsuchen"
+          }
+        },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Tab or Space to search %@"
           }
         },
-        "zh-Hans" : {
+        "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "按 Tab 键或空格键搜索 %@"
+            "value" : "Tabulador o barra espaciadora para buscar en %@"
           }
         },
-        "zh-Hant" : {
+        "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "按 Tab 鍵或空白鍵搜尋 %@"
+            "value" : "Tab ou Barre d'espace pour rechercher sur %@"
           }
         },
         "ja" : {
@@ -4156,28 +4156,22 @@
             "value" : "Tab 또는 스페이스 바를 눌러 %@ 검색"
           }
         },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Tab ou Barre d'espace pour rechercher sur %@"
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Tabulatortaste oder Leertaste drücken, um %@ zu durchsuchen"
-          }
-        },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Tab of spatiebalk om te zoeken met %@"
           }
         },
-        "es" : {
+        "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Tabulador o barra espaciadora para buscar en %@"
+            "value" : "按 Tab 键或空格键搜索 %@"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "按 Tab 鍵或空白鍵搜尋 %@"
           }
         }
       }
@@ -14632,22 +14626,28 @@
       "comment" : "File menu - Capture the entire current webpage and copy it as an image",
       "extractionState" : "extracted_with_value",
       "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bildschirmfoto der ganzen Seite aufnehmen"
+          }
+        },
         "en" : {
           "stringUnit" : {
             "state" : "new",
             "value" : "Capture Full Page"
           }
         },
-        "zh-Hans" : {
+        "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "捕捉整个页面"
+            "value" : "Capturar página completa"
           }
         },
-        "zh-Hant" : {
+        "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "擷取整個網頁"
+            "value" : "Capturer la page entière"
           }
         },
         "ja" : {
@@ -14662,28 +14662,22 @@
             "value" : "전체 페이지 캡처"
           }
         },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Capturer la page entière"
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Bildschirmfoto der ganzen Seite aufnehmen"
-          }
-        },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Leg volledige pagina vast"
           }
         },
-        "es" : {
+        "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Capturar página completa"
+            "value" : "捕捉整个页面"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "擷取整個網頁"
           }
         }
       }
@@ -28119,22 +28113,28 @@
       "comment" : "Screenshot - Error toast when page capture fails or returns an invalid image",
       "extractionState" : "extracted_with_value",
       "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Von dieser Seite konnte kein Bildschirmfoto aufgenommen werden"
+          }
+        },
         "en" : {
           "stringUnit" : {
             "state" : "new",
             "value" : "Could not take a screenshot of this page"
           }
         },
-        "zh-Hans" : {
+        "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "无法截取此页面"
+            "value" : "No se pudo realizar una captura de pantalla de esta página"
           }
         },
-        "zh-Hant" : {
+        "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "無法為此網頁拍攝截圖"
+            "value" : "Impossible d'effectuer une capture d'écran de cette page"
           }
         },
         "ja" : {
@@ -28149,28 +28149,22 @@
             "value" : "이 페이지의 스크린샷을 찍지 못했어요"
           }
         },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Impossible d'effectuer une capture d'écran de cette page"
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Von dieser Seite konnte kein Bildschirmfoto aufgenommen werden"
-          }
-        },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Kan geen schermafbeelding van deze pagina maken"
           }
         },
-        "es" : {
+        "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "No se pudo realizar una captura de pantalla de esta página"
+            "value" : "无法截取此页面"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "無法為此網頁拍攝截圖"
           }
         }
       }
@@ -28179,22 +28173,28 @@
       "comment" : "Screenshot - Progress toast while capturing the current webpage",
       "extractionState" : "extracted_with_value",
       "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bildschirmfoto der ganzen Seite wird aufgenommen…"
+          }
+        },
         "en" : {
           "stringUnit" : {
             "state" : "new",
             "value" : "Taking full page screenshot…"
           }
         },
-        "zh-Hans" : {
+        "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "正在截取整个页面…"
+            "value" : "Realizando captura de página completa…"
           }
         },
-        "zh-Hant" : {
+        "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "正在拍攝整頁截圖…"
+            "value" : "Capture d'écran de la page entière en cours…"
           }
         },
         "ja" : {
@@ -28209,28 +28209,22 @@
             "value" : "전체 페이지 스크린샷 찍는 중…"
           }
         },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Capture d'écran de la page entière en cours…"
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Bildschirmfoto der ganzen Seite wird aufgenommen…"
-          }
-        },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Schermafbeelding van volledige pagina wordt gemaakt…"
           }
         },
-        "es" : {
+        "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Realizando captura de página completa…"
+            "value" : "正在截取整个页面…"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在拍攝整頁截圖…"
           }
         }
       }
@@ -28239,22 +28233,28 @@
       "comment" : "Screenshot - Toast when preserving content the user copied during capture",
       "extractionState" : "extracted_with_value",
       "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bildschirmfoto nicht kopiert, weil sich die Zwischenablage geändert hat"
+          }
+        },
         "en" : {
           "stringUnit" : {
             "state" : "new",
             "value" : "Screenshot not copied because the clipboard changed"
           }
         },
-        "zh-Hans" : {
+        "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "剪贴板已更改，截屏未拷贝"
+            "value" : "Captura de pantalla no copiada porque el portapapeles cambió"
           }
         },
-        "zh-Hant" : {
+        "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "剪貼板內容已變更，因此未複製截圖"
+            "value" : "Capture d'écran non copiée, car le presse-papiers a changé"
           }
         },
         "ja" : {
@@ -28269,28 +28269,22 @@
             "value" : "클립보드가 변경되어 스크린샷을 복사하지 않았어요"
           }
         },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Capture d'écran non copiée, car le presse-papiers a changé"
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Bildschirmfoto nicht kopiert, weil sich die Zwischenablage geändert hat"
-          }
-        },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Schermafbeelding niet gekopieerd omdat het klembord is gewijzigd"
           }
         },
-        "es" : {
+        "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Captura de pantalla no copiada porque el portapapeles cambió"
+            "value" : "剪贴板已更改，截屏未拷贝"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "剪貼板內容已變更，因此未複製截圖"
           }
         }
       }
@@ -28299,22 +28293,28 @@
       "comment" : "Screenshot - Success toast after copying the JPEG to the clipboard",
       "extractionState" : "extracted_with_value",
       "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bildschirmfoto der ganzen Seite kopiert"
+          }
+        },
         "en" : {
           "stringUnit" : {
             "state" : "new",
             "value" : "Full page screenshot copied"
           }
         },
-        "zh-Hans" : {
+        "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "已拷贝整页截屏"
+            "value" : "Captura de página completa copiada"
           }
         },
-        "zh-Hant" : {
+        "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "已複製整頁截圖"
+            "value" : "Capture d'écran de la page entière copiée"
           }
         },
         "ja" : {
@@ -28329,28 +28329,22 @@
             "value" : "전체 페이지 스크린샷이 복사됐어요"
           }
         },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Capture d'écran de la page entière copiée"
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Bildschirmfoto der ganzen Seite kopiert"
-          }
-        },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Schermafbeelding van volledige pagina gekopieerd"
           }
         },
-        "es" : {
+        "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Captura de página completa copiada"
+            "value" : "已拷贝整页截屏"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已複製整頁截圖"
           }
         }
       }
@@ -28359,22 +28353,28 @@
       "comment" : "Screenshot - Error toast when the system clipboard write fails",
       "extractionState" : "extracted_with_value",
       "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bildschirmfoto konnte nicht kopiert werden"
+          }
+        },
         "en" : {
           "stringUnit" : {
             "state" : "new",
             "value" : "Could not copy the screenshot"
           }
         },
-        "zh-Hans" : {
+        "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "无法拷贝截屏"
+            "value" : "No se pudo copiar la captura de pantalla"
           }
         },
-        "zh-Hant" : {
+        "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "無法複製截圖"
+            "value" : "Impossible de copier la capture d'écran"
           }
         },
         "ja" : {
@@ -28389,28 +28389,22 @@
             "value" : "스크린샷을 복사하지 못했어요"
           }
         },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Impossible de copier la capture d'écran"
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Bildschirmfoto konnte nicht kopiert werden"
-          }
-        },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Kan de schermafbeelding niet kopiëren"
           }
         },
-        "es" : {
+        "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "No se pudo copiar la captura de pantalla"
+            "value" : "无法拷贝截屏"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "無法複製截圖"
           }
         }
       }
@@ -28419,22 +28413,28 @@
       "comment" : "Screenshot - Fallback JPEG file name when the page title is empty or unusable",
       "extractionState" : "extracted_with_value",
       "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bildschirmfoto"
+          }
+        },
         "en" : {
           "stringUnit" : {
             "state" : "new",
             "value" : "Screenshot"
           }
         },
-        "zh-Hans" : {
+        "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "截屏"
+            "value" : "Captura de pantalla"
           }
         },
-        "zh-Hant" : {
+        "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "截圖"
+            "value" : "Capture d'écran"
           }
         },
         "ja" : {
@@ -28449,28 +28449,22 @@
             "value" : "스크린샷"
           }
         },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Capture d'écran"
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Bildschirmfoto"
-          }
-        },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Schermafbeelding"
           }
         },
-        "es" : {
+        "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Captura de pantalla"
+            "value" : "截屏"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "截圖"
           }
         }
       }
@@ -28479,22 +28473,28 @@
       "comment" : "Screenshot - Button on the copied screenshot toast to save the JPEG to a file",
       "extractionState" : "extracted_with_value",
       "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sichern"
+          }
+        },
         "en" : {
           "stringUnit" : {
             "state" : "new",
             "value" : "Save"
           }
         },
-        "zh-Hans" : {
+        "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "存储"
+            "value" : "Guardar"
           }
         },
-        "zh-Hant" : {
+        "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "儲存"
+            "value" : "Enregistrer"
           }
         },
         "ja" : {
@@ -28509,28 +28509,22 @@
             "value" : "저장"
           }
         },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Enregistrer"
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Sichern"
-          }
-        },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Bewaar"
           }
         },
-        "es" : {
+        "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Guardar"
+            "value" : "存储"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "儲存"
           }
         }
       }
@@ -28539,22 +28533,28 @@
       "comment" : "Screenshot - Error toast when writing the selected JPEG file fails",
       "extractionState" : "extracted_with_value",
       "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bildschirmfoto konnte nicht gesichert werden"
+          }
+        },
         "en" : {
           "stringUnit" : {
             "state" : "new",
             "value" : "Could not save the screenshot"
           }
         },
-        "zh-Hans" : {
+        "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "无法存储截屏"
+            "value" : "No se pudo guardar la captura de pantalla"
           }
         },
-        "zh-Hant" : {
+        "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "無法儲存截圖"
+            "value" : "Impossible d'enregistrer la capture d'écran"
           }
         },
         "ja" : {
@@ -28569,28 +28569,22 @@
             "value" : "스크린샷을 저장하지 못했어요"
           }
         },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Impossible d'enregistrer la capture d'écran"
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Bildschirmfoto konnte nicht gesichert werden"
-          }
-        },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Kan de schermafbeelding niet bewaren"
           }
         },
-        "es" : {
+        "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "No se pudo guardar la captura de pantalla"
+            "value" : "无法存储截屏"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "無法儲存截圖"
           }
         }
       }
@@ -28599,22 +28593,28 @@
       "comment" : "Screenshot - Error toast when the page capture does not finish in time",
       "extractionState" : "extracted_with_value",
       "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zeitüberschreitung beim Bildschirmfoto. Bitte versuche es erneut."
+          }
+        },
         "en" : {
           "stringUnit" : {
             "state" : "new",
             "value" : "Screenshot timed out. Please try again."
           }
         },
-        "zh-Hans" : {
+        "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "截屏超时。请重试。"
+            "value" : "Se agotó el tiempo de espera de la captura de pantalla. Inténtalo de nuevo."
           }
         },
-        "zh-Hant" : {
+        "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "截圖逾時。請再試一次。"
+            "value" : "Délai de capture d'écran dépassé. Veuillez réessayer."
           }
         },
         "ja" : {
@@ -28629,28 +28629,22 @@
             "value" : "스크린샷 시간이 초과됐어요. 다시 시도해 주세요."
           }
         },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Délai de capture d'écran dépassé. Veuillez réessayer."
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Zeitüberschreitung beim Bildschirmfoto. Bitte versuche es erneut."
-          }
-        },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "De schermafbeelding duurde te lang. Probeer het opnieuw."
           }
         },
-        "es" : {
+        "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Se agotó el tiempo de espera de la captura de pantalla. Inténtalo de nuevo."
+            "value" : "截屏超时。请重试。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "截圖逾時。請再試一次。"
           }
         }
       }
@@ -59904,6 +59898,30 @@
         }
       }
     },
+    "settings.advanced.miniPlayer.offOption" : {
+      "comment" : "Mini Player display option - Hide the player while media continues playing",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Off"
+          }
+        }
+      }
+    },
+    "settings.advanced.miniPlayer.title" : {
+      "comment" : "Advanced settings - Menu for turning Mini Player off or choosing its display mode",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Mini Player"
+          }
+        }
+      }
+    },
     "settings.advanced.openTabIndicators.description" : {
       "comment" : "Advanced settings - Explains which tabs and bookmarks display the open-state dot",
       "extractionState" : "extracted_with_value",
@@ -60620,6 +60638,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "還原上次的工作階段"
+          }
+        }
+      }
+    },
+    "settings.advanced.sidebarMedia.hint" : {
+      "comment" : "Advanced settings - Description of Mini Player controls in the sidebar for media playing in background tabs",
+      "extractionState" : "extracted_with_value",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Control media playing in background tabs from the sidebar."
           }
         }
       }
@@ -72926,22 +72956,28 @@
       "comment" : "Sidebar media presentation option - Keep transport controls compact without pointer or keyboard expansion",
       "extractionState" : "manual",
       "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Immer kompakt"
+          }
+        },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Always compact"
           }
         },
-        "zh-Hans" : {
+        "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "始终紧凑"
+            "value" : "Siempre compacto"
           }
         },
-        "zh-Hant" : {
+        "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "一律精簡"
+            "value" : "Toujours compact"
           }
         },
         "ja" : {
@@ -72956,28 +72992,22 @@
             "value" : "항상 축소"
           }
         },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Toujours compact"
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Immer kompakt"
-          }
-        },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Altijd compact"
           }
         },
-        "es" : {
+        "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Siempre compacto"
+            "value" : "始终紧凑"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "一律精簡"
           }
         }
       }
@@ -72986,22 +73016,28 @@
       "comment" : "Sidebar media presentation option - Show the full player whenever background media is available",
       "extractionState" : "manual",
       "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Immer erweitert"
+          }
+        },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Always expanded"
           }
         },
-        "zh-Hans" : {
+        "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "始终展开"
+            "value" : "Siempre expandido"
           }
         },
-        "zh-Hant" : {
+        "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "一律展開"
+            "value" : "Toujours développé"
           }
         },
         "ja" : {
@@ -73016,52 +73052,52 @@
             "value" : "항상 확장"
           }
         },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Toujours développé"
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Immer erweitert"
-          }
-        },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Altijd uitgeklapt"
           }
         },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Siempre expandido"
-          }
-        }
-      }
-    },
-    "settings.general.sidebarMedia.dynamicOption" : {
-      "comment" : "Sidebar media presentation option - Expand after a brief pointer hover, or immediately using keyboard focus or VoiceOver",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Dynamic (expand on hover)"
-          }
-        },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "动态（悬停时展开）"
+            "value" : "始终展开"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "動態（指標停留時展開）"
+            "value" : "一律展開"
+          }
+        }
+      }
+    },
+    "settings.general.sidebarMedia.dynamicOption" : {
+      "comment" : "Mini Player display option - Expand after a brief pointer hover, or immediately using keyboard focus or VoiceOver",
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dynamisch (erweitern, wenn der Zeiger darüber liegt)"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Auto"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dinámico (se expande al pasar el puntero)"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dynamique (développer au survol)"
           }
         },
         "ja" : {
@@ -73076,52 +73112,52 @@
             "value" : "동적(포인터를 올리면 확장)"
           }
         },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Dynamique (développer au survol)"
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Dynamisch (erweitern, wenn der Zeiger darüber liegt)"
-          }
-        },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Dynamisch (uitklappen bij aanwijzen)"
           }
         },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Dinámico (se expande al pasar el puntero)"
-          }
-        }
-      }
-    },
-    "settings.general.sidebarMedia.enabledTitle" : {
-      "comment" : "General settings - Toggle for controls for media playing in background tabs",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Show sidebar media player"
-          }
-        },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "显示侧边栏媒体播放器"
+            "value" : "动态（悬停时展开）"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "顯示側邊欄媒體播放器"
+            "value" : "動態（指標停留時展開）"
+          }
+        }
+      }
+    },
+    "settings.general.sidebarMedia.enabledTitle" : {
+      "comment" : "Advanced settings - Toggle for showing Mini Player controls for media playing in background tabs",
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Medienplayer in der Seitenleiste anzeigen"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show Mini Player"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mostrar el reproductor multimedia de la barra lateral"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Afficher le lecteur multimédia de la barre latérale"
           }
         },
         "ja" : {
@@ -73136,52 +73172,52 @@
             "value" : "사이드바 미디어 플레이어 표시"
           }
         },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Afficher le lecteur multimédia de la barre latérale"
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Medienplayer in der Seitenleiste anzeigen"
-          }
-        },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Toon mediaspeler in zijbalk"
           }
         },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Mostrar el reproductor multimedia de la barra lateral"
-          }
-        }
-      }
-    },
-    "settings.general.sidebarMedia.hint" : {
-      "comment" : "General settings - Explanation of independent enable and presentation preferences, including accessible expansion in Dynamic mode",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Turning the player off leaves media playing. Dynamic expands after a brief hover; keyboard focus and VoiceOver can reveal its details immediately."
-          }
-        },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "关闭播放器后，媒体仍会继续播放。「动态」模式会在短暂悬停后展开；通过键盘焦点和旁白可立即显示其详细信息。"
+            "value" : "显示侧边栏媒体播放器"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "關閉播放器後，媒體仍會繼續播放。「動態」模式會在指標短暫停留後展開；使用鍵盤焦點或「旁白」則可立即顯示詳細資訊。"
+            "value" : "顯示側邊欄媒體播放器"
+          }
+        }
+      }
+    },
+    "settings.general.sidebarMedia.hint" : {
+      "comment" : "Advanced settings - Description of Mini Player controls in the sidebar for media playing in background tabs",
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wenn du den Player ausschaltest, läuft die Medienwiedergabe weiter. „Dynamisch“ erweitert den Player, wenn der Zeiger kurz darüber liegt; per Tastaturfokus und VoiceOver lassen sich die Details sofort einblenden."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Control media playing in background tabs from the sidebar."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Si desactivas el reproductor, el contenido multimedia sigue reproduciéndose. Dinámico se expande tras pasar brevemente el puntero; el foco del teclado y VoiceOver pueden mostrar sus detalles de inmediato."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Désactiver le lecteur n'interrompt pas la lecture. En mode Dynamique, le lecteur se développe après un bref survol ; le focus clavier et VoiceOver peuvent afficher ses détails immédiatement."
           }
         },
         "ja" : {
@@ -73196,52 +73232,52 @@
             "value" : "플레이어를 꺼도 미디어는 계속 재생돼요. 동적 모드에서는 포인터를 잠시 올리면 확장되고, 키보드 포커스와 VoiceOver로는 바로 세부사항을 볼 수 있어요."
           }
         },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Désactiver le lecteur n'interrompt pas la lecture. En mode Dynamique, le lecteur se développe après un bref survol ; le focus clavier et VoiceOver peuvent afficher ses détails immédiatement."
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Wenn du den Player ausschaltest, läuft die Medienwiedergabe weiter. „Dynamisch“ erweitert den Player, wenn der Zeiger kurz darüber liegt; per Tastaturfokus und VoiceOver lassen sich die Details sofort einblenden."
-          }
-        },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Als je de speler uitschakelt, blijft media gewoon afspelen. Dynamisch klapt uit na kort aanwijzen; met toetsenbordfocus en VoiceOver kun je de details meteen tonen."
           }
         },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Si desactivas el reproductor, el contenido multimedia sigue reproduciéndose. Dinámico se expande tras pasar brevemente el puntero; el foco del teclado y VoiceOver pueden mostrar sus detalles de inmediato."
-          }
-        }
-      }
-    },
-    "settings.general.sidebarMedia.presentationTitle" : {
-      "comment" : "General settings - Independent menu for the sidebar media player presentation mode",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Player display"
-          }
-        },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "播放器显示"
+            "value" : "关闭播放器后，媒体仍会继续播放。「动态」模式会在短暂悬停后展开；通过键盘焦点和旁白可立即显示其详细信息。"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "播放器顯示方式"
+            "value" : "關閉播放器後，媒體仍會繼續播放。「動態」模式會在指標短暫停留後展開；使用鍵盤焦點或「旁白」則可立即顯示詳細資訊。"
+          }
+        }
+      }
+    },
+    "settings.general.sidebarMedia.presentationTitle" : {
+      "comment" : "Advanced settings - Menu for choosing how Mini Player expands or stays compact",
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Player-Darstellung"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mini Player display mode"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Presentación del reproductor"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Affichage du lecteur"
           }
         },
         "ja" : {
@@ -73256,52 +73292,52 @@
             "value" : "플레이어 표시"
           }
         },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Affichage du lecteur"
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Player-Darstellung"
-          }
-        },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Spelerweergave"
           }
         },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Presentación del reproductor"
-          }
-        }
-      }
-    },
-    "settings.general.sidebarMedia.sectionTitle" : {
-      "comment" : "General settings - Section title for sidebar media player preferences",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Sidebar media"
-          }
-        },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "侧边栏媒体"
+            "value" : "播放器显示"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "側邊欄媒體"
+            "value" : "播放器顯示方式"
+          }
+        }
+      }
+    },
+    "settings.general.sidebarMedia.sectionTitle" : {
+      "comment" : "General settings - Section title for Mini Player preferences",
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Medien in der Seitenleiste"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mini Player"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Multimedia en la barra lateral"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Média de la barre latérale"
           }
         },
         "ja" : {
@@ -73316,28 +73352,22 @@
             "value" : "사이드바 미디어"
           }
         },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Média de la barre latérale"
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Medien in der Seitenleiste"
-          }
-        },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Media in zijbalk"
           }
         },
-        "es" : {
+        "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Multimedia en la barra lateral"
+            "value" : "侧边栏媒体"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "側邊欄媒體"
           }
         }
       }
@@ -93384,22 +93414,28 @@
     "sidebar.media.dismiss" : {
       "comment" : "Sidebar media player - Hide this media source without changing playback",
       "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Medienplayer ausblenden"
+          }
+        },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Dismiss media player"
           }
         },
-        "zh-Hans" : {
+        "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "隐藏媒体播放器"
+            "value" : "Ocultar reproductor multimedia"
           }
         },
-        "zh-Hant" : {
+        "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "隱藏媒體播放器"
+            "value" : "Masquer le lecteur multimédia"
           }
         },
         "ja" : {
@@ -93414,28 +93450,22 @@
             "value" : "미디어 플레이어 숨기기"
           }
         },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Masquer le lecteur multimédia"
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Medienplayer ausblenden"
-          }
-        },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Verberg mediaspeler"
           }
         },
-        "es" : {
+        "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Ocultar reproductor multimedia"
+            "value" : "隐藏媒体播放器"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "隱藏媒體播放器"
           }
         }
       }
@@ -93443,22 +93473,28 @@
     "sidebar.media.enterPictureInPicture" : {
       "comment" : "Sidebar media player - Pop the playing video into a floating picture-in-picture window",
       "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bild-in-Bild starten"
+          }
+        },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Open picture in picture"
           }
         },
-        "zh-Hans" : {
+        "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "进入画中画"
+            "value" : "Abrir imagen dentro de imagen"
           }
         },
-        "zh-Hant" : {
+        "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "開啟子母畫面"
+            "value" : "Activer le mode Image dans l'image"
           }
         },
         "ja" : {
@@ -93473,28 +93509,22 @@
             "value" : "화면 속 화면 열기"
           }
         },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Activer le mode Image dans l'image"
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Bild-in-Bild starten"
-          }
-        },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Open beeld in beeld"
           }
         },
-        "es" : {
+        "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Abrir imagen dentro de imagen"
+            "value" : "进入画中画"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "開啟子母畫面"
           }
         }
       }
@@ -93502,22 +93532,28 @@
     "sidebar.media.exitPictureInPicture" : {
       "comment" : "Sidebar media player - Return a picture-in-picture video to its page",
       "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bild-in-Bild beenden"
+          }
+        },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Close picture in picture"
           }
         },
-        "zh-Hans" : {
+        "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "关闭画中画"
+            "value" : "Cerrar imagen dentro de imagen"
           }
         },
-        "zh-Hant" : {
+        "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "關閉子母畫面"
+            "value" : "Quitter le mode Image dans l'image"
           }
         },
         "ja" : {
@@ -93532,28 +93568,22 @@
             "value" : "화면 속 화면 닫기"
           }
         },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Quitter le mode Image dans l'image"
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Bild-in-Bild beenden"
-          }
-        },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Sluit beeld in beeld"
           }
         },
-        "es" : {
+        "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Cerrar imagen dentro de imagen"
+            "value" : "关闭画中画"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "關閉子母畫面"
           }
         }
       }
@@ -93562,22 +93592,28 @@
       "comment" : "Sidebar media player - Seek forward ten seconds",
       "extractionState" : "stale",
       "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "10 Sekunden vorspringen"
+          }
+        },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Forward 10 seconds"
           }
         },
-        "zh-Hans" : {
+        "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "快进 10 秒"
+            "value" : "Avanzar 10 segundos"
           }
         },
-        "zh-Hant" : {
+        "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "往前跳 10 秒"
+            "value" : "Avancer de 10 secondes"
           }
         },
         "ja" : {
@@ -93592,28 +93628,22 @@
             "value" : "10초 앞으로 건너뛰기"
           }
         },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Avancer de 10 secondes"
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "10 Sekunden vorspringen"
-          }
-        },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "10 seconden vooruit"
           }
         },
-        "es" : {
+        "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Avanzar 10 segundos"
+            "value" : "快进 10 秒"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "往前跳 10 秒"
           }
         }
       }
@@ -93622,22 +93652,28 @@
       "comment" : "Sidebar media player - Status when playback has no finite duration",
       "extractionState" : "stale",
       "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Live oder Dauer nicht verfügbar"
+          }
+        },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Live or duration unavailable"
           }
         },
-        "zh-Hans" : {
+        "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "直播或时长不可用"
+            "value" : "En directo o duración no disponible"
           }
         },
-        "zh-Hant" : {
+        "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "直播或無法取得時間長度"
+            "value" : "En direct ou durée indisponible"
           }
         },
         "ja" : {
@@ -93652,28 +93688,22 @@
             "value" : "라이브이거나 재생 시간을 알 수 없음"
           }
         },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "En direct ou durée indisponible"
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Live oder Dauer nicht verfügbar"
-          }
-        },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Live of duur niet beschikbaar"
           }
         },
-        "es" : {
+        "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "En directo o duración no disponible"
+            "value" : "直播或时长不可用"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "直播或無法取得時間長度"
           }
         }
       }
@@ -93681,22 +93711,28 @@
     "sidebar.media.mute" : {
       "comment" : "Sidebar media player - Mute the tab that owns the media",
       "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tab stummschalten"
+          }
+        },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Mute tab"
           }
         },
-        "zh-Hans" : {
+        "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "将标签页静音"
+            "value" : "Silenciar pestaña"
           }
         },
-        "zh-Hant" : {
+        "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "將分頁靜音"
+            "value" : "Couper le son de l'onglet"
           }
         },
         "ja" : {
@@ -93711,28 +93747,22 @@
             "value" : "탭 음소거"
           }
         },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Couper le son de l'onglet"
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Tab stummschalten"
-          }
-        },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Schakel geluid van tabblad uit"
           }
         },
-        "es" : {
+        "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Silenciar pestaña"
+            "value" : "将标签页静音"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "將分頁靜音"
           }
         }
       }
@@ -93740,22 +93770,28 @@
     "sidebar.media.mutedStatus" : {
       "comment" : "Sidebar media player - Accessible status when the source tab is muted",
       "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Stummgeschaltet"
+          }
+        },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Muted"
           }
         },
-        "zh-Hans" : {
+        "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "已静音"
+            "value" : "Silenciada"
           }
         },
-        "zh-Hant" : {
+        "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "已靜音"
+            "value" : "Son coupé"
           }
         },
         "ja" : {
@@ -93770,28 +93806,22 @@
             "value" : "음소거됨"
           }
         },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Son coupé"
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Stummgeschaltet"
-          }
-        },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Geluid uit"
           }
         },
-        "es" : {
+        "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Silenciada"
+            "value" : "已静音"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已靜音"
           }
         }
       }
@@ -93800,22 +93830,28 @@
       "comment" : "Sidebar media accessibility action - Cycle to the next background media tab without changing playback or tab focus",
       "extractionState" : "manual",
       "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nächste Medienquelle"
+          }
+        },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Next media source"
           }
         },
-        "zh-Hans" : {
+        "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "下一个媒体来源"
+            "value" : "Siguiente fuente multimedia"
           }
         },
-        "zh-Hant" : {
+        "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "下一個媒體來源"
+            "value" : "Source multimédia suivante"
           }
         },
         "ja" : {
@@ -93830,28 +93866,22 @@
             "value" : "다음 미디어 소스"
           }
         },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Source multimédia suivante"
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Nächste Medienquelle"
-          }
-        },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Volgende mediabron"
           }
         },
-        "es" : {
+        "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Siguiente fuente multimedia"
+            "value" : "下一个媒体来源"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "下一個媒體來源"
           }
         }
       }
@@ -93859,22 +93889,28 @@
     "sidebar.media.nextTrack" : {
       "comment" : "Sidebar media player - Play the next track in the page queue",
       "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nächster Titel"
+          }
+        },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Next track"
           }
         },
-        "zh-Hans" : {
+        "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "下一曲"
+            "value" : "Pista siguiente"
           }
         },
-        "zh-Hant" : {
+        "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "下一首"
+            "value" : "Piste suivante"
           }
         },
         "ja" : {
@@ -93889,28 +93925,22 @@
             "value" : "다음 트랙"
           }
         },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Piste suivante"
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Nächster Titel"
-          }
-        },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Volgend nummer"
           }
         },
-        "es" : {
+        "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Pista siguiente"
+            "value" : "下一曲"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "下一首"
           }
         }
       }
@@ -93918,22 +93948,28 @@
     "sidebar.media.openTab" : {
       "comment" : "Sidebar media player - Switch to the tab that owns the media",
       "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tab mit Wiedergabe anzeigen"
+          }
+        },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Show playing tab"
           }
         },
-        "zh-Hans" : {
+        "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "显示正在播放的标签页"
+            "value" : "Mostrar la pestaña en reproducción"
           }
         },
-        "zh-Hant" : {
+        "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "顯示播放中的分頁"
+            "value" : "Afficher l'onglet en cours de lecture"
           }
         },
         "ja" : {
@@ -93948,28 +93984,22 @@
             "value" : "재생 중인 탭 보기"
           }
         },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Afficher l'onglet en cours de lecture"
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Tab mit Wiedergabe anzeigen"
-          }
-        },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Toon afspelend tabblad"
           }
         },
-        "es" : {
+        "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Mostrar la pestaña en reproducción"
+            "value" : "显示正在播放的标签页"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "顯示播放中的分頁"
           }
         }
       }
@@ -93977,22 +94007,28 @@
     "sidebar.media.pause" : {
       "comment" : "Sidebar media player - Pause the current page media",
       "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pause"
+          }
+        },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Pause"
           }
         },
-        "zh-Hans" : {
+        "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "暂停"
+            "value" : "Pausa"
           }
         },
-        "zh-Hant" : {
+        "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "暫停"
+            "value" : "Pause"
           }
         },
         "ja" : {
@@ -94007,28 +94043,22 @@
             "value" : "일시 정지"
           }
         },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Pause"
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Pause"
-          }
-        },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Pauzeer"
           }
         },
-        "es" : {
+        "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Pausa"
+            "value" : "暂停"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "暫停"
           }
         }
       }
@@ -94036,22 +94066,28 @@
     "sidebar.media.play" : {
       "comment" : "Sidebar media player - Resume the current page media",
       "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wiedergeben"
+          }
+        },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Play"
           }
         },
-        "zh-Hans" : {
+        "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "播放"
+            "value" : "Reproducir"
           }
         },
-        "zh-Hant" : {
+        "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "播放"
+            "value" : "Lecture"
           }
         },
         "ja" : {
@@ -94066,28 +94102,22 @@
             "value" : "재생"
           }
         },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Lecture"
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Wiedergeben"
-          }
-        },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Speel af"
           }
         },
-        "es" : {
+        "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Reproducir"
+            "value" : "播放"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "播放"
           }
         }
       }
@@ -94095,22 +94125,28 @@
     "sidebar.media.previousTrack" : {
       "comment" : "Sidebar media player - Play the previous track in the page queue",
       "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vorheriger Titel"
+          }
+        },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Previous track"
           }
         },
-        "zh-Hans" : {
+        "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "上一曲"
+            "value" : "Pista anterior"
           }
         },
-        "zh-Hant" : {
+        "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "上一首"
+            "value" : "Piste précédente"
           }
         },
         "ja" : {
@@ -94125,28 +94161,22 @@
             "value" : "이전 트랙"
           }
         },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Piste précédente"
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Vorheriger Titel"
-          }
-        },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Vorig nummer"
           }
         },
-        "es" : {
+        "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Pista anterior"
+            "value" : "上一曲"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "上一首"
           }
         }
       }
@@ -94154,22 +94184,28 @@
     "sidebar.media.progress" : {
       "comment" : "Sidebar media player - Accessible label for the seek timeline",
       "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wiedergabeposition"
+          }
+        },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Playback position"
           }
         },
-        "zh-Hans" : {
+        "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "播放位置"
+            "value" : "Posición de reproducción"
           }
         },
-        "zh-Hant" : {
+        "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "播放位置"
+            "value" : "Position de lecture"
           }
         },
         "ja" : {
@@ -94184,28 +94220,22 @@
             "value" : "재생 위치"
           }
         },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Position de lecture"
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Wiedergabeposition"
-          }
-        },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Afspeelpositie"
           }
         },
-        "es" : {
+        "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Posición de reproducción"
+            "value" : "播放位置"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "播放位置"
           }
         }
       }
@@ -94213,22 +94243,28 @@
     "sidebar.media.progressValue" : {
       "comment" : "Sidebar media player - Accessible playback position; first time is elapsed, second time is total duration",
       "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ von %2$@"
+          }
+        },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "%1$@ of %2$@"
           }
         },
-        "zh-Hans" : {
+        "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%1$@，共 %2$@"
+            "value" : "%1$@ de %2$@"
           }
         },
-        "zh-Hant" : {
+        "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%1$@，共 %2$@"
+            "value" : "%1$@ sur %2$@"
           }
         },
         "ja" : {
@@ -94243,28 +94279,22 @@
             "value" : "%2$@ 중 %1$@"
           }
         },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%1$@ sur %2$@"
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%1$@ von %2$@"
-          }
-        },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "%1$@ van %2$@"
           }
         },
-        "es" : {
+        "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%1$@ de %2$@"
+            "value" : "%1$@，共 %2$@"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@，共 %2$@"
           }
         }
       }
@@ -94273,22 +94303,28 @@
       "comment" : "Sidebar media player - Seek backward ten seconds",
       "extractionState" : "stale",
       "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "10 Sekunden zurückspringen"
+          }
+        },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Back 10 seconds"
           }
         },
-        "zh-Hans" : {
+        "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "快退 10 秒"
+            "value" : "Retroceder 10 segundos"
           }
         },
-        "zh-Hant" : {
+        "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "往回跳 10 秒"
+            "value" : "Reculer de 10 secondes"
           }
         },
         "ja" : {
@@ -94303,28 +94339,22 @@
             "value" : "10초 뒤로 건너뛰기"
           }
         },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Reculer de 10 secondes"
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "10 Sekunden zurückspringen"
-          }
-        },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "10 seconden terug"
           }
         },
-        "es" : {
+        "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Retroceder 10 segundos"
+            "value" : "快退 10 秒"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "往回跳 10 秒"
           }
         }
       }
@@ -94333,22 +94363,28 @@
       "comment" : "Sidebar media player - VoiceOver action to reveal metadata and seeking controls without pointer hover",
       "extractionState" : "manual",
       "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mediendetails einblenden"
+          }
+        },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Show media details"
           }
         },
-        "zh-Hans" : {
+        "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "显示媒体详细信息"
+            "value" : "Mostrar detalles del contenido multimedia"
           }
         },
-        "zh-Hant" : {
+        "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "顯示媒體詳細資訊"
+            "value" : "Afficher les détails du média"
           }
         },
         "ja" : {
@@ -94363,28 +94399,22 @@
             "value" : "미디어 세부사항 보기"
           }
         },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Afficher les détails du média"
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Mediendetails einblenden"
-          }
-        },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Toon mediadetails"
           }
         },
-        "es" : {
+        "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Mostrar detalles del contenido multimedia"
+            "value" : "显示媒体详细信息"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "顯示媒體詳細資訊"
           }
         }
       }
@@ -94392,22 +94422,28 @@
     "sidebar.media.unmute" : {
       "comment" : "Sidebar media player - Unmute the tab that owns the media",
       "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Stummschaltung des Tabs aufheben"
+          }
+        },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Unmute tab"
           }
         },
-        "zh-Hans" : {
+        "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "取消标签页静音"
+            "value" : "Activar sonido de la pestaña"
           }
         },
-        "zh-Hant" : {
+        "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "取消分頁靜音"
+            "value" : "Réactiver le son de l'onglet"
           }
         },
         "ja" : {
@@ -94422,28 +94458,22 @@
             "value" : "탭 음소거 해제"
           }
         },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Réactiver le son de l'onglet"
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Stummschaltung des Tabs aufheben"
-          }
-        },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Schakel geluid van tabblad in"
           }
         },
-        "es" : {
+        "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Activar sonido de la pestaña"
+            "value" : "取消标签页静音"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "取消分頁靜音"
           }
         }
       }
@@ -94451,22 +94481,28 @@
     "sidebar.media.unmutedStatus" : {
       "comment" : "Sidebar media player - Accessible status when the source tab is not muted",
       "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nicht stummgeschaltet"
+          }
+        },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Unmuted"
           }
         },
-        "zh-Hans" : {
+        "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "未静音"
+            "value" : "Con sonido"
           }
         },
-        "zh-Hant" : {
+        "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "未靜音"
+            "value" : "Son activé"
           }
         },
         "ja" : {
@@ -94481,28 +94517,22 @@
             "value" : "음소거 해제됨"
           }
         },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Son activé"
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Nicht stummgeschaltet"
-          }
-        },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Geluid aan"
           }
         },
-        "es" : {
+        "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Con sonido"
+            "value" : "未静音"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "未靜音"
           }
         }
       }
@@ -94510,7 +94540,43 @@
     "sidebar.media.untitled" : {
       "comment" : "Sidebar media player - Fallback title when the page and media session have no title",
       "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Medien"
+          }
+        },
         "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Media"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Multimedia"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Média"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "メディア"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "미디어"
+          }
+        },
+        "nl" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Media"
@@ -94527,64 +94593,34 @@
             "state" : "translated",
             "value" : "媒體"
           }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "メディア"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "미디어"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Média"
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Medien"
-          }
-        },
-        "nl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Media"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Multimedia"
-          }
         }
       }
     },
     "sidebar.media.volumeButton" : {
       "comment" : "Sidebar media player - Open volume slider; Option-click toggles tab mute",
       "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lautstärke (⌥-Klick: Stummschaltung ein/aus)"
+          }
+        },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Volume (⌥-click to toggle mute)"
           }
         },
-        "zh-Hans" : {
+        "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "音量（按住 ⌥ 键点按可切换静音）"
+            "value" : "Volumen (⌥-clic para silenciar o activar el sonido)"
           }
         },
-        "zh-Hant" : {
+        "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "音量（⌥-按一下可切換靜音）"
+            "value" : "Volume (⌥-clic pour couper ou réactiver le son)"
           }
         },
         "ja" : {
@@ -94599,28 +94635,22 @@
             "value" : "음량 (⌥-클릭으로 음소거 전환)"
           }
         },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Volume (⌥-clic pour couper ou réactiver le son)"
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Lautstärke (⌥-Klick: Stummschaltung ein/aus)"
-          }
-        },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Volume (⌥-klik om geluid in of uit te schakelen)"
           }
         },
-        "es" : {
+        "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Volumen (⌥-clic para silenciar o activar el sonido)"
+            "value" : "音量（按住 ⌥ 键点按可切换静音）"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "音量（⌥-按一下可切換靜音）"
           }
         }
       }
@@ -94628,22 +94658,28 @@
     "sidebar.media.volumeSlider" : {
       "comment" : "Sidebar media player - Adjust the tab playback volume from zero to one hundred percent",
       "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wiedergabelautstärke"
+          }
+        },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Playback volume"
           }
         },
-        "zh-Hans" : {
+        "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "播放音量"
+            "value" : "Volumen de reproducción"
           }
         },
-        "zh-Hant" : {
+        "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "播放音量"
+            "value" : "Volume de lecture"
           }
         },
         "ja" : {
@@ -94658,28 +94694,22 @@
             "value" : "재생 음량"
           }
         },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Volume de lecture"
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Wiedergabelautstärke"
-          }
-        },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Afspeelvolume"
           }
         },
-        "es" : {
+        "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Volumen de reproducción"
+            "value" : "播放音量"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "播放音量"
           }
         }
       }
@@ -109358,22 +109388,28 @@
     "sync.status.detailsCollapsed" : {
       "comment" : "Sync settings - VoiceOver value of the Details disclosure while per-context status is hidden",
       "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Eingeklappt"
+          }
+        },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Collapsed"
           }
         },
-        "zh-Hans" : {
+        "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "已折叠"
+            "value" : "Contraído"
           }
         },
-        "zh-Hant" : {
+        "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "已收合"
+            "value" : "Réduit"
           }
         },
         "ja" : {
@@ -109388,28 +109424,22 @@
             "value" : "접힘"
           }
         },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Réduit"
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Eingeklappt"
-          }
-        },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Ingeklapt"
           }
         },
-        "es" : {
+        "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Contraído"
+            "value" : "已折叠"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已收合"
           }
         }
       }
@@ -109417,22 +109447,28 @@
     "sync.status.detailsExpanded" : {
       "comment" : "Sync settings - VoiceOver value of the Details disclosure while it shows per-context status",
       "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Erweitert"
+          }
+        },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Expanded"
           }
         },
-        "zh-Hans" : {
+        "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "已展开"
+            "value" : "Expandido"
           }
         },
-        "zh-Hant" : {
+        "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "已展開"
+            "value" : "Développé"
           }
         },
         "ja" : {
@@ -109447,28 +109483,22 @@
             "value" : "펼쳐짐"
           }
         },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Développé"
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Erweitert"
-          }
-        },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Uitgeklapt"
           }
         },
-        "es" : {
+        "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Expandido"
+            "value" : "已展开"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已展開"
           }
         }
       }
@@ -109535,22 +109565,28 @@
     "sync.status.kind.bookmarks" : {
       "comment" : "Sync settings - per-kind status row for synced bookmarks and folders",
       "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lesezeichen"
+          }
+        },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Bookmarks"
           }
         },
-        "zh-Hans" : {
+        "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "书签"
+            "value" : "Marcadores"
           }
         },
-        "zh-Hant" : {
+        "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "書籤"
+            "value" : "Signets"
           }
         },
         "ja" : {
@@ -109565,28 +109601,22 @@
             "value" : "북마크"
           }
         },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Signets"
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Lesezeichen"
-          }
-        },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Bladwijzers"
           }
         },
-        "es" : {
+        "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Marcadores"
+            "value" : "书签"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "書籤"
           }
         }
       }
@@ -109594,22 +109624,28 @@
     "sync.status.kind.pinnedTabs" : {
       "comment" : "Sync settings - per-kind status row for synced pinned tabs",
       "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Angeheftete Tabs"
+          }
+        },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Pinned tabs"
           }
         },
-        "zh-Hans" : {
+        "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "固定标签页"
+            "value" : "Pestañas fijadas"
           }
         },
-        "zh-Hant" : {
+        "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "釘選分頁"
+            "value" : "Onglets épinglés"
           }
         },
         "ja" : {
@@ -109624,28 +109660,22 @@
             "value" : "고정된 탭"
           }
         },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Onglets épinglés"
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Angeheftete Tabs"
-          }
-        },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Vastgezette tabbladen"
           }
         },
-        "es" : {
+        "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Pestañas fijadas"
+            "value" : "固定标签页"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "釘選分頁"
           }
         }
       }
@@ -109653,22 +109683,28 @@
     "sync.status.kind.settings" : {
       "comment" : "Sync settings - per-kind status row for synced app settings",
       "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Einstellungen"
+          }
+        },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Settings"
           }
         },
-        "zh-Hans" : {
+        "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "设置"
+            "value" : "Configuración"
           }
         },
-        "zh-Hant" : {
+        "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "設定"
+            "value" : "Réglages"
           }
         },
         "ja" : {
@@ -109683,28 +109719,22 @@
             "value" : "설정"
           }
         },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Réglages"
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Einstellungen"
-          }
-        },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Instellingen"
           }
         },
-        "es" : {
+        "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Configuración"
+            "value" : "设置"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "設定"
           }
         }
       }
@@ -109712,7 +109742,43 @@
     "sync.status.kind.spaces" : {
       "comment" : "Sync settings - per-kind status row for synced Spaces",
       "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Spaces"
+          }
+        },
         "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Spaces"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Espacios"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Espaces"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "スペース"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "스페이스"
+          }
+        },
+        "nl" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Spaces"
@@ -109729,64 +109795,34 @@
             "state" : "translated",
             "value" : "空間"
           }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "スペース"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "스페이스"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Espaces"
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Spaces"
-          }
-        },
-        "nl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Spaces"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Espacios"
-          }
         }
       }
     },
     "sync.status.kind.urlRules" : {
       "comment" : "Sync settings - per-kind status row for synced URL rules, the rules that open matching URLs in a chosen Space",
       "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "URL-Regeln"
+          }
+        },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "URL rules"
           }
         },
-        "zh-Hans" : {
+        "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "网址规则"
+            "value" : "Reglas de URL"
           }
         },
-        "zh-Hant" : {
+        "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "網址規則"
+            "value" : "Règles d'URL"
           }
         },
         "ja" : {
@@ -109801,28 +109837,22 @@
             "value" : "URL 규칙"
           }
         },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Règles d'URL"
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "URL-Regeln"
-          }
-        },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "URL-regels"
           }
         },
-        "es" : {
+        "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Reglas de URL"
+            "value" : "网址规则"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "網址規則"
           }
         }
       }
@@ -109852,24 +109882,6 @@
     "sync.status.kindHeld" : {
       "comment" : "Sync settings - how many synced items of one kind of content are held on this Mac and not applied yet, for example because they could not be read; %lld is the number",
       "localizations" : {
-        "en" : {
-          "variations" : {
-            "plural" : {
-              "one" : {
-                "stringUnit" : {
-                  "state" : "translated",
-                  "value" : "Held %lld"
-                }
-              },
-              "other" : {
-                "stringUnit" : {
-                  "state" : "translated",
-                  "value" : "Held %lld"
-                }
-              }
-            }
-          }
-        },
         "de" : {
           "variations" : {
             "plural" : {
@@ -109883,6 +109895,24 @@
                 "stringUnit" : {
                   "state" : "translated",
                   "value" : "%lld zurückgehalten"
+                }
+              }
+            }
+          }
+        },
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Held %lld"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Held %lld"
                 }
               }
             }
@@ -109971,22 +110001,28 @@
     "sync.status.kindNoActivity" : {
       "comment" : "Sync settings - shown for one kind of content, such as Bookmarks, when no sync since the app started has sent or received changes of that kind",
       "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Keine aktuellen Änderungen"
+          }
+        },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "No recent changes"
           }
         },
-        "zh-Hans" : {
+        "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "最近没有更改"
+            "value" : "Sin cambios recientes"
           }
         },
-        "zh-Hant" : {
+        "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "最近沒有變更"
+            "value" : "Aucune modification récente"
           }
         },
         "ja" : {
@@ -110001,28 +110037,22 @@
             "value" : "최근 변경 사항 없음"
           }
         },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Aucune modification récente"
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Keine aktuellen Änderungen"
-          }
-        },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Geen recente wijzigingen"
           }
         },
-        "es" : {
+        "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Sin cambios recientes"
+            "value" : "最近没有更改"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "最近沒有變更"
           }
         }
       }
@@ -110030,24 +110060,6 @@
     "sync.status.kindPending" : {
       "comment" : "Sync settings - how many local changes of one kind of content wait to be sent to the account; %lld is the number",
       "localizations" : {
-        "en" : {
-          "variations" : {
-            "plural" : {
-              "one" : {
-                "stringUnit" : {
-                  "state" : "translated",
-                  "value" : "Waiting to send %lld"
-                }
-              },
-              "other" : {
-                "stringUnit" : {
-                  "state" : "translated",
-                  "value" : "Waiting to send %lld"
-                }
-              }
-            }
-          }
-        },
         "de" : {
           "variations" : {
             "plural" : {
@@ -110061,6 +110073,24 @@
                 "stringUnit" : {
                   "state" : "translated",
                   "value" : "%lld warten auf das Senden"
+                }
+              }
+            }
+          }
+        },
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Waiting to send %lld"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Waiting to send %lld"
                 }
               }
             }
@@ -110149,24 +110179,6 @@
     "sync.status.kindReceived" : {
       "comment" : "Sync settings - how many changes of one kind of content, such as Bookmarks, this Mac received from the account in its most recent sync with changes; %lld is the number",
       "localizations" : {
-        "en" : {
-          "variations" : {
-            "plural" : {
-              "one" : {
-                "stringUnit" : {
-                  "state" : "translated",
-                  "value" : "Received %lld"
-                }
-              },
-              "other" : {
-                "stringUnit" : {
-                  "state" : "translated",
-                  "value" : "Received %lld"
-                }
-              }
-            }
-          }
-        },
         "de" : {
           "variations" : {
             "plural" : {
@@ -110180,6 +110192,24 @@
                 "stringUnit" : {
                   "state" : "translated",
                   "value" : "%lld empfangen"
+                }
+              }
+            }
+          }
+        },
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Received %lld"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Received %lld"
                 }
               }
             }
@@ -110268,24 +110298,6 @@
     "sync.status.kindSent" : {
       "comment" : "Sync settings - how many changes of one kind of content, such as Bookmarks, this Mac sent to the account in its most recent sync with changes; %lld is the number",
       "localizations" : {
-        "en" : {
-          "variations" : {
-            "plural" : {
-              "one" : {
-                "stringUnit" : {
-                  "state" : "translated",
-                  "value" : "Sent %lld"
-                }
-              },
-              "other" : {
-                "stringUnit" : {
-                  "state" : "translated",
-                  "value" : "Sent %lld"
-                }
-              }
-            }
-          }
-        },
         "de" : {
           "variations" : {
             "plural" : {
@@ -110299,6 +110311,24 @@
                 "stringUnit" : {
                   "state" : "translated",
                   "value" : "%lld gesendet"
+                }
+              }
+            }
+          }
+        },
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Sent %lld"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Sent %lld"
                 }
               }
             }
@@ -110387,22 +110417,28 @@
     "sync.status.lastProblem" : {
       "comment" : "Sync settings - the most recent sync problem on this Mac; %1$@ is the kind of problem, such as No connection, %2$@ is how long ago it happened, such as 5 minutes ago",
       "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Letztes Problem: %1$@ (%2$@)"
+          }
+        },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Last problem: %1$@ (%2$@)"
           }
         },
-        "zh-Hans" : {
+        "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "上次问题：%1$@（%2$@）"
+            "value" : "Último problema: %1$@ (%2$@)"
           }
         },
-        "zh-Hant" : {
+        "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "上次的問題：%1$@（%2$@）"
+            "value" : "Dernier problème : %1$@ (%2$@)"
           }
         },
         "ja" : {
@@ -110417,28 +110453,22 @@
             "value" : "최근 문제: %1$@ (%2$@)"
           }
         },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Dernier problème : %1$@ (%2$@)"
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Letztes Problem: %1$@ (%2$@)"
-          }
-        },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Laatste probleem: %1$@ (%2$@)"
           }
         },
-        "es" : {
+        "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Último problema: %1$@ (%2$@)"
+            "value" : "上次问题：%1$@（%2$@）"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "上次的問題：%1$@（%2$@）"
           }
         }
       }
@@ -110682,22 +110712,28 @@
     "sync.status.pause.failure.offline" : {
       "comment" : "Sync settings - line under Sync paused when setting up a browser profile for sync failed because this Mac could not reach the sync service",
       "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Keine Verbindung. Die Synchronisierung wird fortgesetzt, sobald dieser Mac wieder online ist."
+          }
+        },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "No connection. Sync continues when this Mac is back online."
           }
         },
-        "zh-Hans" : {
+        "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "无网络连接。这台 Mac 恢复联网后将继续同步。"
+            "value" : "Sin conexión. La sincronización continuará cuando este Mac vuelva a estar en línea."
           }
         },
-        "zh-Hant" : {
+        "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "沒有網路連線。這部 Mac 恢復連線後會繼續同步。"
+            "value" : "Aucune connexion. La synchronisation reprendra lorsque ce Mac sera de nouveau en ligne."
           }
         },
         "ja" : {
@@ -110712,28 +110748,22 @@
             "value" : "연결이 없어요. 이 Mac이 다시 온라인 상태가 되면 동기화가 계속돼요."
           }
         },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Aucune connexion. La synchronisation reprendra lorsque ce Mac sera de nouveau en ligne."
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Keine Verbindung. Die Synchronisierung wird fortgesetzt, sobald dieser Mac wieder online ist."
-          }
-        },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Geen verbinding. De synchronisatie gaat verder zodra deze Mac weer online is."
           }
         },
-        "es" : {
+        "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Sin conexión. La sincronización continuará cuando este Mac vuelva a estar en línea."
+            "value" : "无网络连接。这台 Mac 恢复联网后将继续同步。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "沒有網路連線。這部 Mac 恢復連線後會繼續同步。"
           }
         }
       }
@@ -110741,22 +110771,28 @@
     "sync.status.pause.failure.other" : {
       "comment" : "Sync settings - line under Sync paused when setting up a browser profile for sync failed for another reason",
       "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Beim Einrichten des Profils ist etwas schiefgelaufen."
+          }
+        },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Something went wrong while setting up the profile."
           }
         },
-        "zh-Hans" : {
+        "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "设置个人资料时出了点问题。"
+            "value" : "Se produjo un error al configurar el Perfil."
           }
         },
-        "zh-Hant" : {
+        "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "設定此設定檔時發生問題。"
+            "value" : "Une erreur s'est produite lors de la configuration du profil."
           }
         },
         "ja" : {
@@ -110771,28 +110807,22 @@
             "value" : "프로필을 설정하는 중에 문제가 발생했어요."
           }
         },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Une erreur s'est produite lors de la configuration du profil."
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Beim Einrichten des Profils ist etwas schiefgelaufen."
-          }
-        },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Er is iets misgegaan bij het instellen van het profiel."
           }
         },
-        "es" : {
+        "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Se produjo un error al configurar el Perfil."
+            "value" : "设置个人资料时出了点问题。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "設定此設定檔時發生問題。"
           }
         }
       }
@@ -110800,22 +110830,28 @@
     "sync.status.pause.failure.serverError" : {
       "comment" : "Sync settings - line under Sync paused when setting up a browser profile for sync failed because of an error on the sync service",
       "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Der Synchronisierungsdienst hat einen Fehler zurückgegeben."
+          }
+        },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "The sync service returned an error."
           }
         },
-        "zh-Hans" : {
+        "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "同步服务返回了错误。"
+            "value" : "El servicio de sincronización devolvió un error."
           }
         },
-        "zh-Hant" : {
+        "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "同步服務回傳了錯誤。"
+            "value" : "Le service de synchronisation a renvoyé une erreur."
           }
         },
         "ja" : {
@@ -110830,28 +110866,22 @@
             "value" : "동기화 서비스에서 오류가 반환됐어요."
           }
         },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Le service de synchronisation a renvoyé une erreur."
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Der Synchronisierungsdienst hat einen Fehler zurückgegeben."
-          }
-        },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "De synchronisatieservice heeft een fout teruggegeven."
           }
         },
-        "es" : {
+        "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "El servicio de sincronización devolvió un error."
+            "value" : "同步服务返回了错误。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "同步服務回傳了錯誤。"
           }
         }
       }
@@ -110859,22 +110889,28 @@
     "sync.status.pause.failure.signInExpired" : {
       "comment" : "Sync settings - line under Sync paused when setting up a browser profile for sync failed because the account sign-in is no longer valid",
       "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Deine Anmeldung muss erneuert werden."
+          }
+        },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Your sign-in needs to be renewed."
           }
         },
-        "zh-Hans" : {
+        "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "你需要重新登录。"
+            "value" : "Es necesario renovar tu inicio de sesión."
           }
         },
-        "zh-Hant" : {
+        "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "你需要重新登入。"
+            "value" : "Vous devez vous reconnecter."
           }
         },
         "ja" : {
@@ -110889,87 +110925,22 @@
             "value" : "다시 로그인해야 해요."
           }
         },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Vous devez vous reconnecter."
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Deine Anmeldung muss erneuert werden."
-          }
-        },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Je moet opnieuw inloggen."
           }
         },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Es necesario renovar tu inicio de sesión."
-          }
-        }
-      }
-    },
-    "sync.status.pause.profileUnnamed" : {
-      "comment" : "Sync settings - line under Sync paused when the browser profile that is not set up for sync has no name to show",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "A profile is not set up for sync yet"
-          }
-        },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "有一个个人资料尚未设置同步"
+            "value" : "你需要重新登录。"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "有一個設定檔尚未設定同步"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "同期がまだ設定されていないプロファイルがあります"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "아직 동기화가 설정되지 않은 프로필이 있어요"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Un profil n'est pas encore configuré pour la synchronisation"
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Ein Profil ist noch nicht für die Synchronisierung eingerichtet"
-          }
-        },
-        "nl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Een profiel is nog niet ingesteld voor synchronisatie"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Un Perfil aún no está configurado para la sincronización"
+            "value" : "你需要重新登入。"
           }
         }
       }
@@ -110977,24 +110948,6 @@
     "sync.status.pause.profilesCount" : {
       "comment" : "Sync settings - line under Sync paused when more than three browser profiles on this Mac are not set up for sync; %lld is the number of profiles",
       "localizations" : {
-        "en" : {
-          "variations" : {
-            "plural" : {
-              "one" : {
-                "stringUnit" : {
-                  "state" : "translated",
-                  "value" : "%lld profile is not set up for sync yet"
-                }
-              },
-              "other" : {
-                "stringUnit" : {
-                  "state" : "translated",
-                  "value" : "%lld profiles are not set up for sync yet"
-                }
-              }
-            }
-          }
-        },
         "de" : {
           "variations" : {
             "plural" : {
@@ -111008,6 +110961,24 @@
                 "stringUnit" : {
                   "state" : "translated",
                   "value" : "%lld Profile sind noch nicht für die Synchronisierung eingerichtet"
+                }
+              }
+            }
+          }
+        },
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld profile is not set up for sync yet"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld profiles are not set up for sync yet"
                 }
               }
             }
@@ -111096,22 +111067,28 @@
     "sync.status.pause.profilesNamed" : {
       "comment" : "Sync settings - line under Sync paused naming the browser profiles on this Mac that are not set up for sync; %@ is a list of one to three profile names",
       "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Noch nicht für die Synchronisierung eingerichtet: %@"
+          }
+        },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Not set up for sync yet: %@"
           }
         },
-        "zh-Hans" : {
+        "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "尚未设置同步：%@"
+            "value" : "Aún no configurados para la sincronización: %@"
           }
         },
-        "zh-Hant" : {
+        "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "尚未設定同步：%@"
+            "value" : "Pas encore configurés pour la synchronisation : %@"
           }
         },
         "ja" : {
@@ -111126,28 +111103,81 @@
             "value" : "아직 동기화가 설정되지 않음: %@"
           }
         },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Pas encore configurés pour la synchronisation : %@"
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Noch nicht für die Synchronisierung eingerichtet: %@"
-          }
-        },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Nog niet ingesteld voor synchronisatie: %@"
           }
         },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "尚未设置同步：%@"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "尚未設定同步：%@"
+          }
+        }
+      }
+    },
+    "sync.status.pause.profileUnnamed" : {
+      "comment" : "Sync settings - line under Sync paused when the browser profile that is not set up for sync has no name to show",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ein Profil ist noch nicht für die Synchronisierung eingerichtet"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A profile is not set up for sync yet"
+          }
+        },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Aún no configurados para la sincronización: %@"
+            "value" : "Un Perfil aún no está configurado para la sincronización"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Un profil n'est pas encore configuré pour la synchronisation"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "同期がまだ設定されていないプロファイルがあります"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "아직 동기화가 설정되지 않은 프로필이 있어요"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Een profiel is nog niet ingesteld voor synchronisatie"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "有一个个人资料尚未设置同步"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "有一個設定檔尚未設定同步"
           }
         }
       }
@@ -111155,22 +111185,28 @@
     "sync.status.pause.reason.needsAttention" : {
       "comment" : "Sync settings - line under Sync paused after the sync service refused to set up a browser profile; the user can press Retry",
       "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Erfordert Aufmerksamkeit: Ein Profil konnte nicht für die Synchronisierung eingerichtet werden."
+          }
+        },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Needs attention: a profile couldn’t be set up for sync."
           }
         },
-        "zh-Hans" : {
+        "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "需要注意：有个人资料无法设置同步。"
+            "value" : "Requiere atención: no se pudo configurar un Perfil para la sincronización."
           }
         },
-        "zh-Hant" : {
+        "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "需要注意：無法為設定檔設定同步。"
+            "value" : "Attention requise : un profil n'a pas pu être configuré pour la synchronisation."
           }
         },
         "ja" : {
@@ -111185,28 +111221,22 @@
             "value" : "주의 필요: 프로필을 동기화용으로 설정하지 못했어요."
           }
         },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Attention requise : un profil n'a pas pu être configuré pour la synchronisation."
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Erfordert Aufmerksamkeit: Ein Profil konnte nicht für die Synchronisierung eingerichtet werden."
-          }
-        },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Vereist aandacht: een profiel kan niet worden ingesteld voor synchronisatie."
           }
         },
-        "es" : {
+        "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Requiere atención: no se pudo configurar un Perfil para la sincronización."
+            "value" : "需要注意：有个人资料无法设置同步。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "需要注意：無法為設定檔設定同步。"
           }
         }
       }
@@ -111214,22 +111244,28 @@
     "sync.status.pause.reason.registering" : {
       "comment" : "Sync settings - line under Sync paused while this Mac sets up a new browser profile for sync; nothing has failed",
       "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Profil wird für die Synchronisierung eingerichtet…"
+          }
+        },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Setting up a profile for sync…"
           }
         },
-        "zh-Hans" : {
+        "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "正在为个人资料设置同步…"
+            "value" : "Configurando un Perfil para la sincronización…"
           }
         },
-        "zh-Hant" : {
+        "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "正在為設定檔設定同步…"
+            "value" : "Configuration d'un profil pour la synchronisation…"
           }
         },
         "ja" : {
@@ -111244,28 +111280,22 @@
             "value" : "프로필을 동기화용으로 설정하는 중…"
           }
         },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Configuration d'un profil pour la synchronisation…"
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Profil wird für die Synchronisierung eingerichtet…"
-          }
-        },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Profiel wordt ingesteld voor synchronisatie…"
           }
         },
-        "es" : {
+        "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Configurando un Perfil para la sincronización…"
+            "value" : "正在为个人资料设置同步…"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在為設定檔設定同步…"
           }
         }
       }
@@ -111273,22 +111303,28 @@
     "sync.status.pause.reason.retrying" : {
       "comment" : "Sync settings - line under Sync paused after setting up a browser profile for sync failed in a way that is retried on its own",
       "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ein Profil konnte noch nicht für die Synchronisierung eingerichtet werden. Es wird automatisch erneut versucht."
+          }
+        },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Couldn’t set up a profile for sync yet. Trying again automatically."
           }
         },
-        "zh-Hans" : {
+        "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "暂时无法为个人资料设置同步。正在自动重试。"
+            "value" : "Aún no se pudo configurar un Perfil para la sincronización. Se volverá a intentar automáticamente."
           }
         },
-        "zh-Hant" : {
+        "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "目前無法為設定檔設定同步。將自動再試一次。"
+            "value" : "Impossible de configurer un profil pour la synchronisation pour le moment. Nouvelle tentative automatique."
           }
         },
         "ja" : {
@@ -111303,28 +111339,22 @@
             "value" : "아직 프로필을 동기화용으로 설정하지 못했어요. 자동으로 다시 시도해요."
           }
         },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Impossible de configurer un profil pour la synchronisation pour le moment. Nouvelle tentative automatique."
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Ein Profil konnte noch nicht für die Synchronisierung eingerichtet werden. Es wird automatisch erneut versucht."
-          }
-        },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Kan nog geen profiel instellen voor synchronisatie. Er wordt automatisch opnieuw geprobeerd."
           }
         },
-        "es" : {
+        "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Aún no se pudo configurar un Perfil para la sincronización. Se volverá a intentar automáticamente."
+            "value" : "暂时无法为个人资料设置同步。正在自动重试。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "目前無法為設定檔設定同步。將自動再試一次。"
           }
         }
       }
@@ -111332,22 +111362,28 @@
     "sync.status.pause.retry" : {
       "comment" : "Sync settings - button in place of Sync Now while sync is paused; it tries again at once to set up the browser profiles that are not set up for sync",
       "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Erneut versuchen"
+          }
+        },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Retry"
           }
         },
-        "zh-Hans" : {
+        "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "重试"
+            "value" : "Reintentar"
           }
         },
-        "zh-Hant" : {
+        "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "重試"
+            "value" : "Réessayer"
           }
         },
         "ja" : {
@@ -111362,28 +111398,22 @@
             "value" : "다시 시도"
           }
         },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Réessayer"
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Erneut versuchen"
-          }
-        },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Opnieuw proberen"
           }
         },
-        "es" : {
+        "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Reintentar"
+            "value" : "重试"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "重試"
           }
         }
       }
@@ -111391,22 +111421,28 @@
     "sync.status.pause.retryAccessibility" : {
       "comment" : "Sync settings - VoiceOver label of the Retry button shown while sync is paused until every browser profile on this Mac is set up for sync",
       "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Einrichtung der Profile für die Synchronisierung erneut versuchen"
+          }
+        },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Retry setting up profiles for sync"
           }
         },
-        "zh-Hans" : {
+        "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "重试为个人资料设置同步"
+            "value" : "Reintentar la configuración de los Perfiles para la sincronización"
           }
         },
-        "zh-Hant" : {
+        "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "重試為設定檔設定同步"
+            "value" : "Réessayer de configurer les profils pour la synchronisation"
           }
         },
         "ja" : {
@@ -111421,87 +111457,22 @@
             "value" : "프로필 동기화 설정 다시 시도하기"
           }
         },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Réessayer de configurer les profils pour la synchronisation"
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Einrichtung der Profile für die Synchronisierung erneut versuchen"
-          }
-        },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Probeer profielen opnieuw in te stellen voor synchronisatie"
           }
         },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Reintentar la configuración de los Perfiles para la sincronización"
-          }
-        }
-      }
-    },
-    "sync.status.pauseEnded" : {
-      "comment" : "Sync settings - VoiceOver announcement when sync, paused until every browser profile on this Mac was set up for sync, continues",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Sync resumed"
-          }
-        },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "同步已恢复"
+            "value" : "重试为个人资料设置同步"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "同步已恢復"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "同期を再開しました"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "동기화가 다시 시작됐어요"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Synchronisation reprise"
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Synchronisierung fortgesetzt"
-          }
-        },
-        "nl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Synchronisatie hervat"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Sincronización reanudada"
+            "value" : "重試為設定檔設定同步"
           }
         }
       }
@@ -111509,22 +111480,28 @@
     "sync.status.paused" : {
       "comment" : "Sync settings - sync status while all sync waits until every browser profile on this Mac is set up for sync",
       "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Synchronisierung pausiert"
+          }
+        },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Sync paused"
           }
         },
-        "zh-Hans" : {
+        "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "同步已暂停"
+            "value" : "Sincronización en pausa"
           }
         },
-        "zh-Hant" : {
+        "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "同步已暫停"
+            "value" : "Synchronisation en pause"
           }
         },
         "ja" : {
@@ -111539,28 +111516,81 @@
             "value" : "동기화 일시 중지됨"
           }
         },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Synchronisation en pause"
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Synchronisierung pausiert"
-          }
-        },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Synchronisatie gepauzeerd"
           }
         },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "同步已暂停"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "同步已暫停"
+          }
+        }
+      }
+    },
+    "sync.status.pauseEnded" : {
+      "comment" : "Sync settings - VoiceOver announcement when sync, paused until every browser profile on this Mac was set up for sync, continues",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Synchronisierung fortgesetzt"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sync resumed"
+          }
+        },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Sincronización en pausa"
+            "value" : "Sincronización reanudada"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Synchronisation reprise"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "同期を再開しました"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "동기화가 다시 시작됐어요"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Synchronisatie hervat"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "同步已恢复"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "同步已恢復"
           }
         }
       }
@@ -111688,22 +111718,28 @@
     "sync.status.problem.offline" : {
       "comment" : "Sync settings - last sync problem: this Mac could not reach the sync service",
       "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Keine Verbindung"
+          }
+        },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "No connection"
           }
         },
-        "zh-Hans" : {
+        "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "无网络连接"
+            "value" : "Sin conexión"
           }
         },
-        "zh-Hant" : {
+        "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "沒有網路連線"
+            "value" : "Aucune connexion"
           }
         },
         "ja" : {
@@ -111718,28 +111754,22 @@
             "value" : "연결 없음"
           }
         },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Aucune connexion"
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Keine Verbindung"
-          }
-        },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Geen verbinding"
           }
         },
-        "es" : {
+        "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Sin conexión"
+            "value" : "无网络连接"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "沒有網路連線"
           }
         }
       }
@@ -111747,22 +111777,28 @@
     "sync.status.problem.readFailed" : {
       "comment" : "Sync settings - last sync problem: this Mac could not read its own local data of one kind, such as Bookmarks, to sync it",
       "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Daten auf diesem Mac konnten nicht gelesen werden"
+          }
+        },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Couldn’t read data on this Mac"
           }
         },
-        "zh-Hans" : {
+        "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "无法读取这台 Mac 上的数据"
+            "value" : "No se pudieron leer los datos en este Mac"
           }
         },
-        "zh-Hant" : {
+        "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "無法讀取這部 Mac 上的資料"
+            "value" : "Impossible de lire les données sur ce Mac"
           }
         },
         "ja" : {
@@ -111777,28 +111813,22 @@
             "value" : "이 Mac의 데이터를 읽을 수 없음"
           }
         },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Impossible de lire les données sur ce Mac"
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Daten auf diesem Mac konnten nicht gelesen werden"
-          }
-        },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Kan gegevens op deze Mac niet lezen"
           }
         },
-        "es" : {
+        "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "No se pudieron leer los datos en este Mac"
+            "value" : "无法读取这台 Mac 上的数据"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "無法讀取這部 Mac 上的資料"
           }
         }
       }
@@ -111806,22 +111836,28 @@
     "sync.status.problem.rejected" : {
       "comment" : "Sync settings - last sync problem: the sync service did not accept changes sent from this Mac",
       "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Server hat Änderungen abgelehnt"
+          }
+        },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Server rejected changes"
           }
         },
-        "zh-Hans" : {
+        "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "服务器拒绝了更改"
+            "value" : "El servidor rechazó los cambios"
           }
         },
-        "zh-Hant" : {
+        "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "伺服器拒絕了變更"
+            "value" : "Modifications refusées par le serveur"
           }
         },
         "ja" : {
@@ -111836,28 +111872,22 @@
             "value" : "서버가 변경 사항을 거부함"
           }
         },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Modifications refusées par le serveur"
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Server hat Änderungen abgelehnt"
-          }
-        },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Server heeft wijzigingen geweigerd"
           }
         },
-        "es" : {
+        "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "El servidor rechazó los cambios"
+            "value" : "服务器拒绝了更改"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "伺服器拒絕了變更"
           }
         }
       }
@@ -111865,22 +111895,28 @@
     "sync.status.problem.resetRequired" : {
       "comment" : "Sync settings - last sync problem: sync must be set up again before it can continue",
       "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Synchronisierung muss zurückgesetzt werden"
+          }
+        },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Sync needs to be reset"
           }
         },
-        "zh-Hans" : {
+        "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "需要重新设置同步"
+            "value" : "Es necesario restablecer la sincronización"
           }
         },
-        "zh-Hant" : {
+        "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "同步需要重新設定"
+            "value" : "La synchronisation doit être réinitialisée"
           }
         },
         "ja" : {
@@ -111895,28 +111931,22 @@
             "value" : "동기화를 다시 설정해야 함"
           }
         },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "La synchronisation doit être réinitialisée"
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Synchronisierung muss zurückgesetzt werden"
-          }
-        },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Synchronisatie moet opnieuw worden ingesteld"
           }
         },
-        "es" : {
+        "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Es necesario restablecer la sincronización"
+            "value" : "需要重新设置同步"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "同步需要重新設定"
           }
         }
       }
@@ -111924,22 +111954,28 @@
     "sync.status.problem.saveFailed" : {
       "comment" : "Sync settings - last sync problem: this Mac could not store its sync progress",
       "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Synchronisierungsstand konnte auf diesem Mac nicht gespeichert werden"
+          }
+        },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Couldn’t save sync state on this Mac"
           }
         },
-        "zh-Hans" : {
+        "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "无法在这台 Mac 上保存同步状态"
+            "value" : "No se pudo guardar el estado de sincronización en este Mac"
           }
         },
-        "zh-Hant" : {
+        "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "無法在這部 Mac 上儲存同步狀態"
+            "value" : "Impossible d'enregistrer l'état de la synchronisation sur ce Mac"
           }
         },
         "ja" : {
@@ -111954,28 +111990,22 @@
             "value" : "이 Mac에 동기화 상태를 저장할 수 없음"
           }
         },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Impossible d'enregistrer l'état de la synchronisation sur ce Mac"
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Synchronisierungsstand konnte auf diesem Mac nicht gespeichert werden"
-          }
-        },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Kan de synchronisatievoortgang op deze Mac niet bewaren"
           }
         },
-        "es" : {
+        "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "No se pudo guardar el estado de sincronización en este Mac"
+            "value" : "无法在这台 Mac 上保存同步状态"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "無法在這部 Mac 上儲存同步狀態"
           }
         }
       }
@@ -111983,22 +112013,28 @@
     "sync.status.problem.serverError" : {
       "comment" : "Sync settings - last sync problem: the sync service returned an error",
       "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Serverfehler"
+          }
+        },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Server error"
           }
         },
-        "zh-Hans" : {
+        "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "服务器错误"
+            "value" : "Error del servidor"
           }
         },
-        "zh-Hant" : {
+        "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "伺服器錯誤"
+            "value" : "Erreur du serveur"
           }
         },
         "ja" : {
@@ -112013,28 +112049,22 @@
             "value" : "서버 오류"
           }
         },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Erreur du serveur"
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Serverfehler"
-          }
-        },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Serverfout"
           }
         },
-        "es" : {
+        "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Error del servidor"
+            "value" : "服务器错误"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "伺服器錯誤"
           }
         }
       }
@@ -112042,22 +112072,28 @@
     "sync.status.problem.signInExpired" : {
       "comment" : "Sync settings - last sync problem: the account sign-in is no longer valid",
       "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Anmeldung abgelaufen"
+          }
+        },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Sign-in expired"
           }
         },
-        "zh-Hans" : {
+        "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "登录已过期"
+            "value" : "Inicio de sesión caducado"
           }
         },
-        "zh-Hant" : {
+        "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "登入已過期"
+            "value" : "Session expirée"
           }
         },
         "ja" : {
@@ -112072,28 +112108,22 @@
             "value" : "로그인 만료됨"
           }
         },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Session expirée"
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Anmeldung abgelaufen"
-          }
-        },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Inlogsessie verlopen"
           }
         },
-        "es" : {
+        "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Inicio de sesión caducado"
+            "value" : "登录已过期"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "登入已過期"
           }
         }
       }
@@ -112101,22 +112131,28 @@
     "sync.status.problem.unreadable" : {
       "comment" : "Sync settings - last sync problem: some data from the account could not be read on this Mac",
       "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Einige synchronisierte Daten konnten nicht gelesen werden"
+          }
+        },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Some synced data couldn’t be read"
           }
         },
-        "zh-Hans" : {
+        "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "部分同步数据无法读取"
+            "value" : "No se pudieron leer algunos datos sincronizados"
           }
         },
-        "zh-Hant" : {
+        "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "部分同步資料無法讀取"
+            "value" : "Certaines données synchronisées n'ont pas pu être lues"
           }
         },
         "ja" : {
@@ -112131,28 +112167,22 @@
             "value" : "일부 동기화된 데이터를 읽을 수 없음"
           }
         },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Certaines données synchronisées n'ont pas pu être lues"
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Einige synchronisierte Daten konnten nicht gelesen werden"
-          }
-        },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Sommige gesynchroniseerde gegevens kunnen niet worden gelezen"
           }
         },
-        "es" : {
+        "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "No se pudieron leer algunos datos sincronizados"
+            "value" : "部分同步数据无法读取"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "部分同步資料無法讀取"
           }
         }
       }
@@ -112160,22 +112190,28 @@
     "sync.status.problem.waitingForProfilePairing" : {
       "comment" : "Sync settings - last sync problem: some synced items wait until a browser profile on this Mac is paired with the account",
       "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Warten auf die Kopplung eines Profils"
+          }
+        },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Waiting for a profile to be paired"
           }
         },
-        "zh-Hans" : {
+        "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "正在等待个人资料配对"
+            "value" : "Esperando a que se empareje un Perfil"
           }
         },
-        "zh-Hant" : {
+        "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "正在等待設定檔配對"
+            "value" : "En attente du jumelage d'un profil"
           }
         },
         "ja" : {
@@ -112190,28 +112226,22 @@
             "value" : "프로필 페어링 대기 중"
           }
         },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "En attente du jumelage d'un profil"
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Warten auf die Kopplung eines Profils"
-          }
-        },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Wachten tot een profiel is gekoppeld"
           }
         },
-        "es" : {
+        "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Esperando a que se empareje un Perfil"
+            "value" : "正在等待个人资料配对"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在等待設定檔配對"
           }
         }
       }
@@ -112279,22 +112309,28 @@
     "sync.status.profiles" : {
       "comment" : "Sync settings - group row in Details above the sync status of each browser profile on this Mac",
       "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Profile"
+          }
+        },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Profiles"
           }
         },
-        "zh-Hans" : {
+        "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "个人资料"
+            "value" : "Perfiles"
           }
         },
-        "zh-Hant" : {
+        "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "設定檔"
+            "value" : "Profils"
           }
         },
         "ja" : {
@@ -112309,28 +112345,22 @@
             "value" : "프로필"
           }
         },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Profils"
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Profile"
-          }
-        },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Profielen"
           }
         },
-        "es" : {
+        "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Perfiles"
+            "value" : "个人资料"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "設定檔"
           }
         }
       }
@@ -112397,22 +112427,28 @@
     "sync.status.syncNow" : {
       "comment" : "Sync settings - button that asks this Mac to sync all content now",
       "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Jetzt synchronisieren"
+          }
+        },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Sync Now"
           }
         },
-        "zh-Hans" : {
+        "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "立即同步"
+            "value" : "Sincronizar ahora"
           }
         },
-        "zh-Hant" : {
+        "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "立即同步"
+            "value" : "Synchroniser maintenant"
           }
         },
         "ja" : {
@@ -112427,28 +112463,22 @@
             "value" : "지금 동기화"
           }
         },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Synchroniser maintenant"
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Jetzt synchronisieren"
-          }
-        },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Synchroniseer nu"
           }
         },
-        "es" : {
+        "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Sincronizar ahora"
+            "value" : "立即同步"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "立即同步"
           }
         }
       }
@@ -112456,22 +112486,28 @@
     "sync.status.syncNowDone" : {
       "comment" : "Sync settings - VoiceOver announcement when a sync the user started with Sync Now has finished",
       "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Synchronisierung abgeschlossen"
+          }
+        },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Sync finished"
           }
         },
-        "zh-Hans" : {
+        "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "同步已完成"
+            "value" : "Sincronización finalizada"
           }
         },
-        "zh-Hant" : {
+        "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "同步完成"
+            "value" : "Synchronisation terminée"
           }
         },
         "ja" : {
@@ -112486,28 +112522,22 @@
             "value" : "동기화가 완료됐어요"
           }
         },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Synchronisation terminée"
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Synchronisierung abgeschlossen"
-          }
-        },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Synchronisatie voltooid"
           }
         },
-        "es" : {
+        "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Sincronización finalizada"
+            "value" : "同步已完成"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "同步完成"
           }
         }
       }
@@ -112515,22 +112545,28 @@
     "sync.status.syncNowFailed" : {
       "comment" : "Sync settings - shown under the sync status when this Mac refused to start the sync the user requested with Sync Now",
       "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Synchronisierung konnte nicht gestartet werden. Versuche es später erneut."
+          }
+        },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Couldn’t start sync. Try again later."
           }
         },
-        "zh-Hans" : {
+        "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "无法开始同步。请稍后再试。"
+            "value" : "No se pudo iniciar la sincronización. Inténtalo de nuevo más tarde."
           }
         },
-        "zh-Hant" : {
+        "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "無法開始同步。請稍後再試。"
+            "value" : "Impossible de démarrer la synchronisation. Réessayez plus tard."
           }
         },
         "ja" : {
@@ -112545,28 +112581,22 @@
             "value" : "동기화를 시작하지 못했어요. 나중에 다시 시도해 주세요."
           }
         },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Impossible de démarrer la synchronisation. Réessayez plus tard."
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Synchronisierung konnte nicht gestartet werden. Versuche es später erneut."
-          }
-        },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Kan synchronisatie niet starten. Probeer het later opnieuw."
           }
         },
-        "es" : {
+        "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "No se pudo iniciar la sincronización. Inténtalo de nuevo más tarde."
+            "value" : "无法开始同步。请稍后再试。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "無法開始同步。請稍後再試。"
           }
         }
       }
@@ -112574,22 +112604,28 @@
     "sync.status.syncNowIncomplete" : {
       "comment" : "Sync settings - shown under the sync status, and announced by VoiceOver, when a sync the user started with Sync Now ended without finishing and no specific problem is known",
       "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Synchronisierung nicht abgeschlossen"
+          }
+        },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Sync did not finish"
           }
         },
-        "zh-Hans" : {
+        "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "同步未完成"
+            "value" : "La sincronización no finalizó"
           }
         },
-        "zh-Hant" : {
+        "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "同步未完成"
+            "value" : "La synchronisation ne s'est pas terminée"
           }
         },
         "ja" : {
@@ -112604,28 +112640,22 @@
             "value" : "동기화가 완료되지 않았어요"
           }
         },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "La synchronisation ne s'est pas terminée"
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Synchronisierung nicht abgeschlossen"
-          }
-        },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Synchronisatie is niet voltooid"
           }
         },
-        "es" : {
+        "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "La sincronización no finalizó"
+            "value" : "同步未完成"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "同步未完成"
           }
         }
       }
@@ -112633,22 +112663,28 @@
     "sync.status.syncNowInProgress" : {
       "comment" : "Sync settings - VoiceOver label of the progress indicator beside Sync Now while a sync runs or a requested sync waits",
       "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Synchronisierung läuft"
+          }
+        },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Sync in progress"
           }
         },
-        "zh-Hans" : {
+        "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "正在同步"
+            "value" : "Sincronización en curso"
           }
         },
-        "zh-Hant" : {
+        "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "同步進行中"
+            "value" : "Synchronisation en cours"
           }
         },
         "ja" : {
@@ -112663,28 +112699,22 @@
             "value" : "동기화 진행 중"
           }
         },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Synchronisation en cours"
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Synchronisierung läuft"
-          }
-        },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Synchronisatie bezig"
           }
         },
-        "es" : {
+        "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Sincronización en curso"
+            "value" : "正在同步"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "同步進行中"
           }
         }
       }
@@ -112692,22 +112722,28 @@
     "sync.status.syncNowQueued" : {
       "comment" : "Sync settings - tooltip and VoiceOver hint of Sync Now when the requested sync waits for a sync already running",
       "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Warten auf die aktuelle Synchronisierung…"
+          }
+        },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Waiting for current sync…"
           }
         },
-        "zh-Hans" : {
+        "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "正在等待当前同步完成…"
+            "value" : "Esperando la sincronización actual…"
           }
         },
-        "zh-Hant" : {
+        "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "正在等待目前的同步…"
+            "value" : "En attente de la synchronisation en cours…"
           }
         },
         "ja" : {
@@ -112722,28 +112758,22 @@
             "value" : "현재 동기화를 기다리는 중…"
           }
         },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "En attente de la synchronisation en cours…"
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Warten auf die aktuelle Synchronisierung…"
-          }
-        },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Wachten op huidige synchronisatie…"
           }
         },
-        "es" : {
+        "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Esperando la sincronización actual…"
+            "value" : "正在等待当前同步完成…"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在等待目前的同步…"
           }
         }
       }
@@ -112751,22 +112781,28 @@
     "sync.status.syncNowStartingShortly" : {
       "comment" : "Sync settings - tooltip and VoiceOver hint of Sync Now when the requested sync waits because a sync ran moments ago; it starts on its own within a minute",
       "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Synchronisierung beginnt in Kürze…"
+          }
+        },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Sync will start shortly…"
           }
         },
-        "zh-Hans" : {
+        "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "同步即将开始…"
+            "value" : "La sincronización comenzará en breve…"
           }
         },
-        "zh-Hant" : {
+        "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "同步即將開始…"
+            "value" : "La synchronisation démarrera sous peu…"
           }
         },
         "ja" : {
@@ -112781,28 +112817,22 @@
             "value" : "곧 동기화가 시작돼요…"
           }
         },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "La synchronisation démarrera sous peu…"
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Synchronisierung beginnt in Kürze…"
-          }
-        },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Synchronisatie start binnenkort…"
           }
         },
-        "es" : {
+        "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "La sincronización comenzará en breve…"
+            "value" : "同步即将开始…"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "同步即將開始…"
           }
         }
       }
@@ -112810,22 +112840,28 @@
     "sync.status.syncNowWaitingProfiles" : {
       "comment" : "Sync settings - tooltip and VoiceOver hint of Sync Now when the requested sync waits until every browser profile reports its sync status",
       "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Warten, bis alle Profile verfügbar sind"
+          }
+        },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Waiting for all profiles to be available"
           }
         },
-        "zh-Hans" : {
+        "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "正在等待所有个人资料可用"
+            "value" : "Esperando a que todos los Perfiles estén disponibles"
           }
         },
-        "zh-Hant" : {
+        "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "正在等待所有設定檔就緒"
+            "value" : "En attente de la disponibilité de tous les profils"
           }
         },
         "ja" : {
@@ -112840,28 +112876,22 @@
             "value" : "모든 프로필을 사용할 수 있을 때까지 기다리는 중"
           }
         },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "En attente de la disponibilité de tous les profils"
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Warten, bis alle Profile verfügbar sind"
-          }
-        },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Wachten tot alle profielen beschikbaar zijn"
           }
         },
-        "es" : {
+        "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Esperando a que todos los Perfiles estén disponibles"
+            "value" : "正在等待所有个人资料可用"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在等待所有設定檔就緒"
           }
         }
       }
@@ -112928,22 +112958,28 @@
     "sync.status.waitingForProfileList" : {
       "comment" : "Sync settings - problem line under the sync status while this Mac has not yet read its list of browser profiles; sync starts once it has, and it keeps trying on its own",
       "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Warten auf das Laden der Profile"
+          }
+        },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Waiting for profiles to load"
           }
         },
-        "zh-Hans" : {
+        "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "正在等待个人资料加载"
+            "value" : "Esperando a que se carguen los Perfiles"
           }
         },
-        "zh-Hant" : {
+        "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "正在等待載入設定檔"
+            "value" : "En attente du chargement des profils"
           }
         },
         "ja" : {
@@ -112958,28 +112994,22 @@
             "value" : "프로필을 불러올 때까지 기다리는 중"
           }
         },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "En attente du chargement des profils"
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Warten auf das Laden der Profile"
-          }
-        },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Wachten tot profielen zijn geladen"
           }
         },
-        "es" : {
+        "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Esperando a que se carguen los Perfiles"
+            "value" : "正在等待个人资料加载"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在等待載入設定檔"
           }
         }
       }

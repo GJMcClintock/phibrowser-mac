@@ -688,11 +688,25 @@ struct SidebarMediaHarness {
         tab.controls.emit(value)
         await tick()
         precondition(controller.isDismissed, "Presentation/token refresh must preserve source dismissal")
-        f.state.focusingTab = tab
-        await tick()
         f.state.focusingTab = f.tabs[1]
         await tick()
-        precondition(controller.isDismissed, "Tab switching must preserve dismissal")
+        precondition(controller.isDismissed, "An unrelated refresh must not undo dismissal")
+        f.state.focusingTab = tab
+        await tick()
+        precondition(!controller.isDismissed && controller.isSourceVisible)
+        f.state.focusingTab = f.tabs[1]
+        await tick()
+        precondition(!controller.isDismissed && !controller.isSourceVisible && controller.item?.tabId == 1,
+                     "Returning the same session to the background must restore the player")
+        controller.dismissCurrent(for: require(controller.item), from: .docked)
+        precondition(controller.isDismissed)
+        controller.setActive(false, on: .docked)
+        controller.setActive(true, on: .docked)
+        await tick()
+        precondition(!controller.isDismissed && controller.item?.tabId == 1,
+                     "A new sidebar presentation must restore the same session")
+        controller.dismissCurrent(for: require(controller.item), from: .docked)
+        precondition(controller.isDismissed)
         value = snapshot("Replacement track", token: "track-token", source: "new-track")
         tab.controls.emit(value)
         await tick()

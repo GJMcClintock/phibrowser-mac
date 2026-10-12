@@ -59,7 +59,7 @@ enum AutoPictureInPictureMode: String, CaseIterable, Identifiable {
     }
 }
 
-/// Presentation preference stays independent of the player enable switch.
+/// The stored presentation preference is retained while the player is disabled.
 enum SidebarMediaPresentationMode: String, CaseIterable, Identifiable {
     case alwaysExpanded
     case alwaysCompact
@@ -74,7 +74,7 @@ enum SidebarMediaPresentationMode: String, CaseIterable, Identifiable {
         case .alwaysCompact:
             return NSLocalizedString("settings.general.sidebarMedia.alwaysCompactOption", value: "Always compact", comment: "Sidebar media presentation option - Keep transport controls compact without pointer or keyboard expansion")
         case .dynamic:
-            return NSLocalizedString("settings.general.sidebarMedia.dynamicOption", value: "Dynamic (expand on hover)", comment: "Sidebar media presentation option - Expand after a brief pointer hover, or immediately using keyboard focus or VoiceOver")
+            return NSLocalizedString("settings.general.sidebarMedia.dynamicOption", value: "Auto", comment: "Mini Player display option - Expand after a brief pointer hover, or immediately using keyboard focus or VoiceOver")
         }
     }
 }

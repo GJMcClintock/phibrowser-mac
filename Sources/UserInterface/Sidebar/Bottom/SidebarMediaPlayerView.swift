@@ -300,8 +300,7 @@ struct SidebarMediaPlayerView: View {
         // card, preserving the user's sidebar palette and saturation setting.
         let sidebar = ThemedColor.windowOverlayBackground.resolve(
             theme: theme, appearance: appearance)
-        // Expansion overlays tab rows, so an opaque surface keeps their text
-        // from bleeding through the player's title and timeline.
+        // Keep a stable opaque surface in both compact and expanded layouts.
         let alpha: CGFloat = 1
         // An achromatic Pure sidebar has no hue to saturate; keep it neutral.
         let saturation = sidebar.hsbSaturationComponent > 0.01
@@ -559,8 +558,7 @@ struct SidebarMediaPlayerView: View {
                                             : enterPictureInPictureLabel)
                         .accessibilityIdentifier("sidebarMedia.pictureInPicture")
                     }
-                    if controller.presentationMode != .dynamic {
-                      Button(action: { controller.dismissCurrent(for: item, from: surface) }) {
+                    Button(action: { controller.dismissCurrent(for: item, from: surface) }) {
                         Image(systemName: "chevron.down")
                             .font(.system(size: 10, weight: .semibold))
                             .frame(width: 22, height: 22)
@@ -571,7 +569,6 @@ struct SidebarMediaPlayerView: View {
                     .help(dismissLabel)
                     .accessibilityLabel(dismissLabel)
                     .accessibilityIdentifier("sidebarMedia.dismiss")
-                    }
                 }
                 if let artist = item.playback.artist {
                     Text(artist)
