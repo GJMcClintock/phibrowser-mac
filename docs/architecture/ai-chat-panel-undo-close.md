@@ -20,6 +20,12 @@ The conversation is read off the panel tab's URL. Chromium hands it over as
 tab exists, the conversation it came back with stands in for it, and moves with
 the tab when the tab's identifier changes (pinning it, binding it to a bookmark).
 
+A panel is bound to its page tab's identifier. A page tab that is neither pinned
+nor bound to a bookmark gets a one-shot marker when it opens a Peek, and still
+carries it when undo close brings the tab back. The marker is not an
+identifier, so the tab keeps its panel and its record through the Peek and
+after.
+
 In a split the record stays with the pane that holds the shared panel
 (`chatIdentifier(for:)`). Expanding mirrors to both panes before the panel
 exists, so the other pane's record is cleared when the panel appears. When a

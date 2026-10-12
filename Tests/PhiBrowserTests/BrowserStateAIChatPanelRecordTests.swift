@@ -692,4 +692,52 @@ final class BrowserStateAIChatPanelRecordTests: XCTestCase {
         let query = URLComponents(string: request.url)?.queryItems ?? []
         XCTAssertNil(query.first(where: { $0.name == "conv_id" }))
     }
+
+    // MARK: - Peek: the opener's pairing marker
+
+    /// Stamps `tab` as `presentPeek` stamps a normal opener: a one-shot marker
+    /// for the Peek's restore binding, which the Peek's end strips again.
+    private func stampPeekOpenerMarker(on tab: Tab) {
+        tab.guidInLocalDB = BrowserState.peekOpenerGuidPrefix + UUID().uuidString
+    }
+
+    func testCollapsingAndExpandingDuringAPeekKeepTheConversation() throws {
+        let bridge = FakeAIChatPanelBridge()
+        let state = try makeState(bridge: bridge)
+        let tab = seed(state, guids: [1])[0]
+        tab.aiChatCollapsed = false
+        addPanel(to: tab, in: state, url: conversationURL(conversationX, tabId: 1))
+        stampPeekOpenerMarker(on: tab)
+
+        tab.aiChatCollapsed = true
+        tab.aiChatCollapsed = false
+
+        XCTAssertEqual(bridge.records(forTabId: 1),
+                       [record(expanded: true, nil), record(expanded: true, conversationX),
+                        record(expanded: false, conversationX), record(expanded: true, conversationX)])
+    }
+
+    func testAPanelCreatedDuringAPeekStaysWithItsTab() throws {
+        let bridge = FakeAIChatPanelBridge()
+        let state = try makeState(bridge: bridge)
+        state.aiChatTabCreationGateOverrideForTesting = true
+        let tab = seed(state, guids: [1])[0]
+        stampPeekOpenerMarker(on: tab)
+
+        expand(tab, in: state)
+
+        let request = try XCTUnwrap(bridge.panelRequests.first)
+        XCTAssertEqual(request.customGuid, BrowserState.aiChatId(for: "1"))
+        // Chromium files the panel tab under the identifier it was asked for.
+        let chat = Tab(guid: 100, url: newChatURL(tabId: 1), isActive: false, index: 0)
+        chat.guidInLocalDB = request.customGuid
+        state.handleNewTabFromChromium(chat)
+        // The Peek ends.
+        tab.guidInLocalDB = nil
+        XCTAssertTrue(state.aiChatTabs[state.chatIdentifier(for: tab)] === chat)
+
+        state.closeTab(1)
+
+        XCTAssertTrue(state.aiChatTabs.isEmpty)
+    }
 }

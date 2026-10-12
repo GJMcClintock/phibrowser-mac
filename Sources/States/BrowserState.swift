@@ -538,8 +538,12 @@ class BrowserState {
     }
     
     /// Returns the identifier used to associate AI Chat tabs with a browser tab.
+    /// A Peek opener's one-shot pairing marker is not the tab's identity, so a
+    /// tab carrying one keeps its tab id; the Peek restore binding reads and
+    /// writes `guidInLocalDB` itself.
     func getTabIdentifier(for tab: Tab) -> String {
-        if let guidInDB = tab.guidInLocalDB, !guidInDB.isEmpty {
+        if let guidInDB = tab.guidInLocalDB, !guidInDB.isEmpty,
+           !Self.isPeekOpenerGuid(guidInDB) {
             return guidInDB
         }
         return String(tab.guid)
