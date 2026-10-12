@@ -153,6 +153,9 @@ import SwiftUI
     /// helper's request queued, so the loader loads the mapped ones first, at once.
     @MainActor
     func requestSyncNow() async -> SyncHelper.Report? {
+        // The helper rejects locked accounts before enumerating participants. Recover
+        // here even if the native engine (and therefore its helper) has not started.
+        syncKeyController?.kickSilentUnlockIfLocked()
         guard let helper = syncHelper else { return nil }
         syncProfileLoader?.loadNow()
         _ = await helper.requestSyncNow()

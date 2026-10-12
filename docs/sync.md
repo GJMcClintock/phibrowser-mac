@@ -250,9 +250,17 @@ account key unlocked, the Profile-list sink runs this repair instead of
 `silentUnlockAndResolve()`, so no device-envelope lookup runs during the episode;
 on a device with no episode the sink is unchanged. `silentUnlockAndResolve()` is
 single-flight (callers during a pass coalesce into one follow-up pass) and clears
-the key cache on a failed lookup only while the account key is not held; once it
-is held, a thrown error or a 401 keeps the cache and runs a mapping pass, and only
-a 404 for this device's envelope clears it. The sink's
+the key cache on a failed lookup only while the account key is not held; a thrown
+failure in that state (the key service unreachable at launch) also arms its own
+retry, 5 seconds doubling to 60, until a pass gets any answer, so recovery does
+not depend on another login refresh or Profile-list change. A coordinator Sync
+Now request while the key is missing runs that retry at once,
+before the helper checks eligibility (even when no helper exists yet). The locked
+pane exposes Retry on its failed-load card, not Sync Now; a successful pane unlock
+resolves mappings on its bound shared controller before requesting sync, without
+waiting for the pending launch retry. Once the key is held, a thrown error or a
+401 keeps the cache and runs a mapping pass, and only a 404 for this device's
+envelope clears it. The sink's
 choice is made by the reconciliation right after the episode transition for its
 list is committed: a sink that runs inside another reconciliation (the resume
 lets the Profile loader refresh the list) has its inputs queued, and its choice
@@ -307,16 +315,16 @@ Observation reads the cached user Profile list once and never calls
 `ProfileManager.refresh()`. The existing Profile-list subscription synchronously
 invalidates outstanding observations when membership changes.
 
-Only startup, membership changes, an explicit pane reload, failed status, or
-known stale success evidence (five minutes) may request a coordinated round.
-All requests share a minimum interval of 60 seconds; explicit reloads coalesce
-with an active round. A Sync now request skips the interval while the native
+Only startup, membership changes, failed status, or known stale success evidence
+(five minutes) may request a coordinated round; opening or reloading the Sync pane
+only observes (owner ruling 2026-10-12: a round per pane open flipped the status to
+Checking → Syncing every time the pane was shown). All requests share a minimum
+interval of 60 seconds; a request made while a round is active coalesces with it. A Sync now request skips the interval while the native
 participant (`Participant.isNative`) reports Offline and dispatches as soon as the
 participants are settled, so the tap fails within seconds
-instead of waiting behind the interval that the pane-open request and automatic
-retries keep pushing forward. Upgrading an already admitted ordinary round to Sync now
-also skips the interval, as described below. The pane-open request and automatic demand
-never skip it. A queued explicit reload preserves the observed phase and
+instead of waiting behind the interval that automatic retries keep pushing
+forward. Upgrading an already admitted ordinary round to Sync now also skips the
+interval, as described below. Automatic demand never skips it. A queued explicit reload preserves the observed phase and
 last common time until dispatch; it does not invalidate a completed barrier.
 Ordinary pending work, commit-only cycles, native remote
 applies, and late successful replies never request another round. The engines'
@@ -548,7 +556,12 @@ What the pane shows, as a contract:
   the helper's state, including the pause row. Only a first load that fails shows
   the "Couldn't load sync information" card with Retry. While that card shows,
   the pane watches the network path and reloads once, after 1 second, when the
-  connection comes back; a failure while already online waits for Retry.
+  connection comes back; a failure while already online waits for Retry. A load that
+  started locked and unlocks awaits the shared controller's mapping pass before
+  refreshing sync status (a reload of an already unlocked pane, or a new Settings
+  window over a controller that already holds resolved keys, runs no pass); a pane
+  superseded or rebound during that pass does not publish the old result. Opening or
+  reloading the pane never requests a round; only Sync now does.
 - **Last problem.** When this Mac's native sync has recorded a problem, the status
   row adds one line: a localized category (for example No connection, Sign-in
   expired, Server error) and a relative time. The next fully successful round
