@@ -108,8 +108,9 @@ final class TrafficLightPositioner: NSObject {
     /// runs late enough to be after whatever moved them and early enough to be
     /// in the same presented frame, so the intermediate placement is corrected
     /// before it is ever drawn. `apply()` returns without writing a frame when
-    /// the placement already holds, which is what makes running it this often
-    /// affordable.
+    /// the placement already holds, and reuses the buttons it last found
+    /// rather than searching the window for them, which is what makes running
+    /// it this often affordable.
     ///
     /// Core Animation commits on run-loop exit as well as before waiting, and
     /// the loop can exit without ever waiting — a click run through a nested
@@ -226,9 +227,8 @@ final class TrafficLightPositioner: NSObject {
     private func applyOnce() {
         guard let window,
               !window.styleMask.contains(.fullScreen) else { return }
-        let buttons = Self.buttonTypes.compactMap {
-            window.standardWindowButton($0)
-        }
+        let buttons = cachedTrafficLightButtons(in: window)
+            ?? Self.buttonTypes.compactMap { window.standardWindowButton($0) }
         guard buttons.count == Self.buttonTypes.count,
               let closeButton = buttons.first,
               let closeButtonSuperview = closeButton.superview,
@@ -308,6 +308,26 @@ final class TrafficLightPositioner: NSObject {
             button.updateTrackingAreas()
         }
         titlebarContainer.updateTrackingAreas()
+    }
+
+    /// The buttons `observeFrameChanges` last recorded, while they still sit
+    /// where they were found; nil once AppKit has replaced any of them.
+    ///
+    /// `standardWindowButton` searches the window's whole view tree, and
+    /// `apply()` runs on every run-loop pass of every window. Every check here
+    /// is a property read, so only a pass after AppKit rebuilt the titlebar
+    /// pays for the search.
+    private func cachedTrafficLightButtons(in window: NSWindow) -> [NSButton]? {
+        guard observedTrafficLightButtons.count == Self.buttonTypes.count,
+              let titlebarContainer = observedTitlebarContainer,
+              observedTrafficLightButtons.allSatisfy({
+                  $0.window === window && $0.superview != nil
+              }),
+              observedTrafficLightButtons[0].superview?.superview
+                === titlebarContainer else {
+            return nil
+        }
+        return observedTrafficLightButtons
     }
 
     @objc private func windowLayoutDidChange(_ notification: Notification) {
