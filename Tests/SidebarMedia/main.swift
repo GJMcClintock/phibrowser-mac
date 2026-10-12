@@ -10,6 +10,16 @@ import CoreGraphics
 import struct SwiftUI.AnyView
 import struct SwiftUI.Text
 
+@MainActor
+final class PostHogSDK {
+    static let shared = PostHogSDK()
+    var events: [(name: String, properties: [String: Any])] = []
+
+    func capture(_ event: String, properties: [String: Any]) {
+        events.append((event, properties))
+    }
+}
+
 enum SidebarMediaPresentationMode: String, CaseIterable {
     case alwaysExpanded, alwaysCompact, dynamic
 }
@@ -1121,6 +1131,7 @@ struct SidebarMediaHarness {
             for (physicalLeft, destination) in [(true, 141), (true, 142), (false, 141), (false, 140)] {
                 let rawDelta: CGFloat = (physicalLeft ? 50 : -50) * (inverted ? -1 : 1)
                 let publicationsBefore = publications
+                let eventsBefore = PostHogSDK.shared.events.count
                 timestamp += 1
                 precondition(send(deltaX: 0, deltaY: 0, phase: .began,
                     momentum: [], timestamp: timestamp, inverted: inverted))
@@ -1142,6 +1153,12 @@ struct SidebarMediaHarness {
                              "Physical left-left-right-right must follow A→B→C→B→A")
                 precondition(publications == publicationsBefore + 1,
                              "A physical swipe published more than one source transition")
+                let event = require(PostHogSDK.shared.events.last)
+                precondition(PostHogSDK.shared.events.count == eventsBefore + 1,
+                             "Duplicate releases and momentum must not duplicate swipe analytics")
+                precondition(event.name == "mini_player_action"
+                             && event.properties.count == 1
+                             && event.properties["action"] as? String == "switch_source")
                 precondition(oldRemoval.horizontalOffset == (physicalLeft ? -193 : 193)
                              && oldInsertion.horizontalOffset == (physicalLeft ? 193 : -193),
                              "Existing transitions must read the latest direction")

@@ -5,7 +5,15 @@
 
 import AppKit
 import Combine
+import PostHog
 import SwiftUI
+
+@MainActor
+private enum SidebarMediaAnalytics {
+    static func capture(_ action: String) {
+        PostHogSDK.shared.capture("mini_player_action", properties: ["action": action])
+    }
+}
 
 /// Owns horizontal wheel gestures before they reach sidebar Space navigation.
 /// A claimed gesture remains local to this window if the pointer leaves the card.
@@ -137,6 +145,7 @@ final class SidebarMediaHostingView: ThemedHostingView {
             if !cancelled, !isMediaSwipeCancelled, distance != 0,
                SpaceSwipeTracker.shouldComplete(distance: distance, velocity: velocity, width: min(bounds.width, 114)),
                let item = swipeItem {
+                SidebarMediaAnalytics.capture("switch_source")
                 mediaController?.cycleSource(for: item, direction: distance < 0 ? .next : .previous,
                                              from: mediaSurface)
             }
@@ -383,6 +392,7 @@ struct SidebarMediaPlayerView: View {
                               abs(value.translation.width) >= 40,
                               abs(value.translation.width) > abs(value.translation.height),
                               !timelineFrame.contains(value.startLocation), !volumeFrame.contains(value.startLocation) else { return }
+                        SidebarMediaAnalytics.capture("switch_source")
                         controller.cycleSource(for: source,
                                                direction: value.translation.width < 0 ? .next : .previous,
                                                from: surface)
@@ -460,7 +470,10 @@ struct SidebarMediaPlayerView: View {
     /// not move or change identity when pointer hover reveals the details.
     private func transportRow(_ item: SidebarMediaController.Item) -> some View {
         HStack(spacing: 4) {
-            Button(action: { controller.showTab(for: item, from: surface) }) {
+            Button(action: {
+                SidebarMediaAnalytics.capture("show_tab")
+                controller.showTab(for: item, from: surface)
+            }) {
                 siteIcon(item).frame(width: 24, height: 24)
             }
             .buttonStyle(SidebarMediaButtonStyle())
@@ -481,12 +494,14 @@ struct SidebarMediaPlayerView: View {
             HStack(spacing: 2) {
                 controlButton("backward.end.fill", label: previousTrackLabel,
                               enabled: item.playback.canPreviousTrack) {
+                    SidebarMediaAnalytics.capture("previous_track")
                     controller.perform(.previousTrack, for: item, from: surface)
                 }
                 .accessibilityIdentifier("sidebarMedia.previousTrack")
                 playPauseButton(item)
                 controlButton("forward.end.fill", label: nextTrackLabel,
                               enabled: item.playback.canNextTrack) {
+                    SidebarMediaAnalytics.capture("next_track")
                     controller.perform(.nextTrack, for: item, from: surface)
                 }
                 .accessibilityIdentifier("sidebarMedia.nextTrack")
@@ -495,8 +510,10 @@ struct SidebarMediaPlayerView: View {
             controlButton(item.isTabMuted ? "speaker.slash.fill" : "speaker.wave.2.fill",
                           label: volumeLabel,
                           enabled: true, action: {
+                              let optionPressed = NSEvent.modifierFlags.contains(.option)
+                              SidebarMediaAnalytics.capture(optionPressed ? "toggle_mute" : "toggle_volume")
                               controller.volumeButtonClicked(for: item, from: surface,
-                                  optionPressed: NSEvent.modifierFlags.contains(.option))
+                                  optionPressed: optionPressed)
                           })
                 .frame(width: 24)
                 .accessibilityIdentifier("sidebarMedia.volumeButton")
@@ -510,8 +527,14 @@ struct SidebarMediaPlayerView: View {
         HStack(spacing: 6) {
             Slider(value: Binding(
                 get: { item.playback.volume ?? 1 },
-                set: { controller.setVolume($0, for: volumeTarget ?? item, from: surface) }
+                set: {
+                    if volumeTarget == nil { SidebarMediaAnalytics.capture("adjust_volume") }
+                    controller.setVolume($0, for: volumeTarget ?? item, from: surface)
+                }
             ), in: 0...1, onEditingChanged: { editing in
+                if !editing, volumeTarget != nil {
+                    SidebarMediaAnalytics.capture("adjust_volume")
+                }
                 volumeTarget = editing ? item : nil
             })
             .themedTint(.themeColor)
@@ -538,6 +561,7 @@ struct SidebarMediaPlayerView: View {
                         .accessibilityIdentifier("sidebarMedia.title")
                     if item.playback.canPictureInPicture {
                         Button {
+                            SidebarMediaAnalytics.capture("picture_in_picture")
                             controller.perform(.pictureInPicture, for: item, from: surface)
                         } label: {
                             Image(item.playback.isPictureInPicture
@@ -558,7 +582,10 @@ struct SidebarMediaPlayerView: View {
                                             : enterPictureInPictureLabel)
                         .accessibilityIdentifier("sidebarMedia.pictureInPicture")
                     }
-                    Button(action: { controller.dismissCurrent(for: item, from: surface) }) {
+                    Button(action: {
+                        SidebarMediaAnalytics.capture("dismiss")
+                        controller.dismissCurrent(for: item, from: surface)
+                    }) {
                         Image(systemName: "chevron.down")
                             .font(.system(size: 10, weight: .semibold))
                             .frame(width: 22, height: 22)
@@ -643,7 +670,7 @@ struct SidebarMediaPlayerView: View {
                     }
                     scrubValue = duration * min(max(value.location.x
                                                      / max(geometry.size.width, 1), 0), 1)
-                    controller.perform(.seek(scrubValue), for: item, from: surface)
+                    seek(scrubValue, for: item)
                     scrubTarget = nil
                     scrubCancelled = false
                     scrubbing = false
@@ -660,8 +687,8 @@ struct SidebarMediaPlayerView: View {
         .onMoveCommand { direction in
             guard item.playback.canSeek else { return }
             switch direction {
-            case .left: controller.perform(.seek(currentTime - 5), for: item, from: surface)
-            case .right: controller.perform(.seek(currentTime + 5), for: item, from: surface)
+            case .left: seek(currentTime - 5, for: item)
+            case .right: seek(currentTime + 5, for: item)
             default: break
             }
         }
@@ -674,8 +701,8 @@ struct SidebarMediaPlayerView: View {
         .accessibilityAdjustableAction { direction in
             guard item.playback.canSeek else { return }
             switch direction {
-            case .increment: controller.perform(.seek(currentTime + 5), for: item, from: surface)
-            case .decrement: controller.perform(.seek(currentTime - 5), for: item, from: surface)
+            case .increment: seek(currentTime + 5, for: item)
+            case .decrement: seek(currentTime - 5, for: item)
             @unknown default: break
             }
         }
@@ -698,6 +725,7 @@ struct SidebarMediaPlayerView: View {
     @ViewBuilder
     private func playPauseButton(_ item: SidebarMediaController.Item) -> some View {
         let button = Button {
+            SidebarMediaAnalytics.capture(item.playback.isPlaying ? "pause" : "play")
             controller.perform(.playPause, for: item, from: surface)
         } label: {
             Image(systemName: item.playback.isPlaying ? "pause.fill" : "play.fill")
@@ -714,16 +742,25 @@ struct SidebarMediaPlayerView: View {
         .accessibilityIdentifier("sidebarMedia.playPause")
         button.accessibilityActions {
             if controller.backgroundSourceCount > 1 {
-                Button(nextSourceLabel) { controller.cycleSource(for: item, from: surface) }
+                Button(nextSourceLabel) {
+                    SidebarMediaAnalytics.capture("switch_source")
+                    controller.cycleSource(for: item, from: surface)
+                }
             }
             if controller.presentationMode == .dynamic {
                 Button(showDetailsLabel) {
                     guard controller.matchesCurrentSource(item) else { return }
+                    SidebarMediaAnalytics.capture("show_details")
                     keyboardExpanded = true
                     setExpanded(true)
                 }
             }
         }
+    }
+
+    private func seek(_ time: Double, for item: SidebarMediaController.Item) {
+        SidebarMediaAnalytics.capture("seek")
+        controller.perform(.seek(time), for: item, from: surface)
     }
 
     private func controlButton(_ symbol: String, label: String, enabled: Bool,
