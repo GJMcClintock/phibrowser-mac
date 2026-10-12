@@ -89,14 +89,24 @@ controller no appearance callbacks; the page controller sets the chat up when
 that expansion finishes. Without it the pane stays empty until the tab is shown
 again.
 
-Current limitations: windows and tab groups restored as a whole get no special
-handling yet; session restore never carries records. A
-conversation still waiting for its panel tab is
-not dropped when the tab closes or leaves the window, so a pinned or bookmarked
-tab closed before its panel was expanded opens its panel on that conversation
-the next time it is opened from the sidebar and expanded. When a whole split
-moves to another window, the record can end up
-on the pane that did not hold the panel, and that window does not clear it.
+A window brought back as a whole delivers its tabs one by one through the same
+new-tab path, so its ungrouped tabs come back as described above. While the
+window comes back, the tab strip briefly makes the first inserted tab current,
+so when that tab carries an expanded record it gets its panel tab at once, even
+if another tab is selected.
+
+Current limitations: a tab group closed earlier in the same run does not bring
+its panels back, whether the whole group or the grouped tabs of a window. Until
+the next launch the closed group is still a saved group, and Chromium opens its
+tabs again by URL without reading the closed entry. Session restore never
+carries records. A conversation still waiting for
+its panel tab is not dropped when the tab closes or leaves the window, so a
+pinned or bookmarked tab closed before its panel was expanded opens its panel
+on that conversation the next time it is opened from the sidebar and expanded.
+When a whole split moves to another window, the record can end up on the pane
+that did not hold the panel, and that window does not clear it. When the pane
+holding the panel closes while its panel tab is still being created, the record
+stays with the closing pane instead of moving to the other one.
 
 ## Source and checks
 
@@ -110,6 +120,10 @@ on the pane that did not hold the panel, and that window does not clear it.
 Check expanding and collapsing, switching conversations, closing the tab, and
 undo close from Cmd+Shift+T, the History menu and Search Tabs on a signed-in
 build, and undo close with the AI switch off, then again once it is back on.
+Undo close a window holding an expanded, a collapsed and a panel-less tab with
+a later tab selected: each comes back as it was, expanded background tabs other
+than the first get their panel tabs only when first shown, and the collapsed one
+only when expanded.
 In a split, check closing the pane that holds the panel and then undo close
 (one panel only), and closing the whole split and then undo close twice. With a
 split formed from two tabs that both had a panel, check closing the pane whose
