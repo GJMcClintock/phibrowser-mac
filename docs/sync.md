@@ -1608,12 +1608,18 @@ The engine must preserve these persistence, retry and account-isolation rules.
 - **The pin scope row follows the key; the key is written first** (B-3 stage
   1, design 3.1, 3.2, 3.5, 3.6).
   - Settings, after its confirmation alert and a fresh browser-migration
-    check, writes `PhiPinnedTabScope` and then awaits the follower's first
-    attempt (`PhiChromiumCoordinator.followPinnedTabScopeNow(store:preferredSpaceId:)`,
-    passing its selected Space as the preferred owner when no Space is active).
-    Applied shows the new scope. With a mounted follower, failed or deferred
-    keeps it selected with a "finishes in the background" note and re-enables
-    the picker. Without one, the result is `.failedNoRetry`: Settings puts the
+    check, hands its selected Space to the mounted follower
+    (`preparePinnedTabScopeFollow`, before the key moves, so an attempt a
+    trigger starts first takes it too; one-shot), writes `PhiPinnedTabScope`
+    and then awaits the follower's first attempt
+    (`PhiChromiumCoordinator.followPinnedTabScopeNow(store:preferredSpaceId:)`;
+    the Space is the preferred owner when no Space is active).
+    Applied shows the new scope. With a mounted follower, failed keeps it
+    selected with a "finishes in the background" note and re-enables the
+    picker; deferred (follower retired or key cleared) reloads the picker from
+    the key and row. Without one, a failed attempt is `.failedNoRetry`: unless a
+    follower has mounted for the store meanwhile (then the picker reloads and
+    nothing is restored, review round 2 R2), Settings puts the
     key's previous value back if the key still holds the new scope, restores
     the picker and shows the "Pinned Tab Scope Wasn't Changed" alert through
     `RunLoop.main.perform` (amended 2026-10-10, review round 1 F1). The key write

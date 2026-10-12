@@ -11,7 +11,8 @@ import Foundation
 /// `LocalStore.changePinnedTabScope`. This object runs that migration until the two agree.
 ///
 /// - Triggers: `trigger()` on a key change (local write or settings landing), on mount, at the start
-///   of every pin round, and from its own retry timer; `followNow(preferredSpaceId:)` for Settings.
+///   of every pin round, and from its own retry timer; `followNow(preferredSpaceId:)` for Settings,
+///   which names its Space through `setPreferredSpaceHint(_:)` before it writes the key.
 /// - One job at a time. A trigger during a job sets a "run again" flag; the job reads the key again
 ///   after every suspension, so no target is carried across one.
 /// - It never writes the key or its sidecars (design principle 3).
@@ -73,7 +74,8 @@ final class PinScopeFollower {
     private(set) var failure: SyncPinScopeMigrationFailure?
 
     private var runAgain = false
-    /// The Space the last `followNow(preferredSpaceId:)` named; the next attempt to start takes it.
+    /// The Space Settings last named (`setPreferredSpaceHint(_:)` or `followNow(preferredSpaceId:)`);
+    /// the next attempt to start takes it.
     private var preferredSpaceHint: String?
     /// Attempts started so far; `followNow()` waits for the first one after its call.
     private var attemptSerial: UInt64 = 0
@@ -113,13 +115,21 @@ final class PinScopeFollower {
         start()
     }
 
+    /// Settings, before it writes the key: the Space the next attempt to start prefers. Set ahead of
+    /// the key, so a trigger-started attempt that runs before `followNow()` (a round's trigger, the
+    /// retry timer) takes it as well. One-shot like `followNow`'s.
+    func setPreferredSpaceHint(_ spaceId: String?) {
+        guard !isRetired else { return }
+        preferredSpaceHint = spaceId
+    }
+
     /// Settings: run now, past any retry wait, and return the outcome of the first attempt that
-    /// starts after this call. `preferredSpaceId` goes to that attempt's migration, which still
-    /// prefers the active Space when there is one.
+    /// starts after this call. A non-nil `preferredSpaceId` goes to that attempt's migration, which
+    /// still prefers the active Space when there is one; nil keeps a hint set earlier.
     func followNow(preferredSpaceId: String? = nil) async -> AttemptResult {
         guard !isRetired else { return .deferred }
         let after = attemptSerial
-        preferredSpaceHint = preferredSpaceId
+        if let preferredSpaceId { preferredSpaceHint = preferredSpaceId }
         return await withCheckedContinuation { continuation in
             waiters.append((after: after, resume: { continuation.resume(returning: $0) }))
             if isRunning {

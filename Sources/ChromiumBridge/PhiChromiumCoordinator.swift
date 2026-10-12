@@ -1002,7 +1002,7 @@ import SwiftUI
     /// builds one without retries for a store no mounted follower covers (`followPinnedTabScopeNow`).
     ///
     /// The migration passes both preferred arguments, read when it starts: the active Space, else the
-    /// Space Settings named through `followNow(preferredSpaceId:)` for that attempt (its selected Space).
+    /// Space Settings named for that attempt (its selected Space; `preparePinnedTabScopeFollow`).
     /// `sourceCollections` puts the preferred collection first; `mergeCandidates` takes its title, URL and
     /// order as `candidate.source`. With neither, merge order is device-dependent: no owner is preferred,
     /// so `PinnedTabOwner.sortKey` breaks ties using local profile/Space IDs, and a mount-time follow
@@ -1035,15 +1035,25 @@ import SwiftUI
             storeIdentity: ObjectIdentifier(store))
     }
 
+    /// Settings, just before it writes the key: hands its selected Space to the mounted follower for
+    /// `store`, so whichever attempt runs first for the new key prefers it, including one a trigger
+    /// starts before `followPinnedTabScopeNow` (B-3 stage 1, design 3.2).
+    @MainActor
+    func preparePinnedTabScopeFollow(store: LocalStore, preferredSpaceId: String?) {
+        guard let follower = pinScopeFollower, follower.storeIdentity == ObjectIdentifier(store) else { return }
+        follower.setPreferredSpaceHint(preferredSpaceId)
+    }
+
     /// Settings, after it has written the key (B-3 stage 1, design 3.1): the outcome of the first
     /// follow attempt for `store`. The mounted follower when it covers `store`, which retries a
-    /// failure on its own. Otherwise (guest mode, no sync mount, or an engine not built this session)
-    /// a one-attempt follower: nothing retries it, so anything but `.applied` is `.failedNoRetry` and
-    /// Settings takes its key write back (design 3.1 as amended 2026-10-10).
+    /// failure on its own; its hint came from `preparePinnedTabScopeFollow`. Otherwise (guest mode, no sync mount, or an engine not built this session)
+    /// a one-attempt follower: nothing retries it, so a failed attempt is `.failedNoRetry` and Settings
+    /// takes its key write back (design 3.1 as amended 2026-10-10); `.deferred` means the key was
+    /// cleared under it.
     @MainActor
     func followPinnedTabScopeNow(store: LocalStore, preferredSpaceId: String?) async -> PinScopeFollower.AttemptResult {
         if let follower = pinScopeFollower, follower.storeIdentity == ObjectIdentifier(store) {
-            return await follower.followNow(preferredSpaceId: preferredSpaceId)
+            return await follower.followNow()
         }
         let follower = makePinScopeFollower(store: store, retries: false)
         let result = await follower.followNow(preferredSpaceId: preferredSpaceId)
@@ -1051,9 +1061,17 @@ import SwiftUI
         switch result {
         case .applied: return .applied
         case .failed(let kind), .failedNoRetry(let kind): return .failedNoRetry(kind)
-        // No attempt ran: the key Settings has just written did not read back as a scope.
-        case .deferred: return .failedNoRetry(.writeFailed)
+        // No attempt ran: the key was cleared under it (an account-switch reset), so there is no
+        // change left to undo or report.
+        case .deferred: return .deferred
         }
+    }
+
+    /// Whether a mounted follower covers `store`: Settings' unmounted path checks it before taking its
+    /// key write back, in case one mounted during the attempt.
+    @MainActor
+    func hasPinScopeFollower(store: LocalStore) -> Bool {
+        pinScopeFollower?.storeIdentity == ObjectIdentifier(store)
     }
 
     /// Whether the mounted follower for `store` still has work: a job running or row != key (B-3

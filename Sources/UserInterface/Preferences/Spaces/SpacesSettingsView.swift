@@ -560,11 +560,14 @@ struct SpacesSettingsView: View {
         // An ordinary settings edit: the debounced defaults trigger stamps and publishes it like any
         // other synced setting. A crash before the row follows leaves the key ahead, and the next
         // mount's follower completes the change.
+        // The selected Space goes to the follower before the key moves: an attempt a trigger starts
+        // ahead of followPinnedTabScopeNow takes it too.
+        let preferredSpaceId = selectedSpaceId
+        PhiChromiumCoordinator.shared.preparePinnedTabScopeFollow(store: store, preferredSpaceId: preferredSpaceId)
         let previousKey = UserDefaults.standard.string(forKey: PinnedTabScopeMirror.key)
         UserDefaults.standard.set(newScope.rawValue, forKey: PinnedTabScopeMirror.key)
         isChangingPinnedTabScope = true
         pinnedTabScopeCompletesInBackground = false
-        let preferredSpaceId = selectedSpaceId
         Task { @MainActor in
             let result = await PhiChromiumCoordinator.shared.followPinnedTabScopeNow(
                 store: store, preferredSpaceId: preferredSpaceId)
@@ -572,10 +575,20 @@ struct SpacesSettingsView: View {
             switch result {
             case .applied:
                 pinnedTabScopeCompletesInBackground = false
-            case .failed, .deferred:
+            case .failed:
                 // The mounted follower keeps the new scope and retries, so the picker keeps it too.
                 pinnedTabScopeCompletesInBackground = true
+            case .deferred:
+                // No attempt ran: the follower retired or the key was cleared (account switch). Nothing
+                // failed; show whatever the store and key say now.
+                loadPinnedTabScope()
             case .failedNoRetry(let kind):
+                // A follower mounted for this store during the attempt owns the change now: the key may
+                // already be an account value, which a restore would republish over. Show its state.
+                if PhiChromiumCoordinator.shared.hasPinScopeFollower(store: store) {
+                    loadPinnedTabScope()
+                    break
+                }
                 // Nothing will finish this change (no mounted follower): take the key write back, unless
                 // the key has moved on since, and report it as before the key-first order.
                 if UserDefaults.standard.string(forKey: PinnedTabScopeMirror.key) == newScope.rawValue {

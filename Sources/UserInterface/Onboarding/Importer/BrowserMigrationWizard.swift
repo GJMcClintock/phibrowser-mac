@@ -326,9 +326,21 @@ final class BrowserMigrationWizardModel: ObservableObject {
         /// A pinned-tab scope change is being applied (B-3 stage 1, design 3.6).
         case pinnedTabScopeChanging
     }
-    /// Set when Start reached the runner and it refused; cleared by the next
-    /// Start or pick.
+    /// Set when Start reached the runner and it refused; cleared by a pick, and
+    /// re-evaluated on the next Start and whenever the preview appears, so it
+    /// does not outlive the job it names.
     @Published private(set) var startRefusal: StartRefusal?
+
+    /// Drops a refusal whose cause has ended.
+    func refreshStartRefusal() {
+        switch startRefusal {
+        case .migrationRunning? where !BrowserMigrationRunner.shared.isRunning,
+             .pinnedTabScopeChanging? where !BrowserDataActivity.pinScopeMigrationIsPending:
+            startRefusal = nil
+        default:
+            break
+        }
+    }
 
     private var source: BrowserMigrationSource?
     private var selection = BrowserMigrationSelection()
@@ -420,6 +432,7 @@ final class BrowserMigrationWizardModel: ObservableObject {
     /// Starts the previewed run, asking first when a second Migration would
     /// leave the account with two copies of the same thing.
     func start() {
+        refreshStartRefusal()
         if warnsAboutRerun {
             isConfirmingRerun = true
             return
@@ -736,6 +749,7 @@ struct BrowserMigrationWizardView: View {
             pickBody
         case .preview:
             previewBody
+                .onAppear { model.refreshStartRefusal() }
         case .run:
             runBody
         }

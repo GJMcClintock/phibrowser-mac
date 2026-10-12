@@ -410,7 +410,22 @@ struct PinScopeFollowerTests {
         await drain()
         precondition(owed.value == .applied)
         precondition(world.migrateHints == ["space-selected", nil, nil, "space-later"], "\(world.migrateHints)")
-        print("PASS follower preferred Space: followNow's Space goes to the attempt it is owed and to no other")
+        // Review round 2 R1: Settings hands its Space over before it writes the key, so an attempt a
+        // trigger starts ahead of followNow (a round, the retry timer) takes it; still one-shot.
+        let early = World()
+        let earlyFollower = makeFollower(early)
+        earlyFollower.setPreferredSpaceHint("space-first")
+        early.key = .space
+        earlyFollower.trigger()
+        await drain()
+        let earlyResult = await earlyFollower.followNow()
+        precondition(earlyResult == .applied && early.migrateHints == ["space-first"],
+                     "a trigger-started attempt ahead of followNow takes the hint: \(early.migrateHints)")
+        early.key = .app
+        earlyFollower.trigger()
+        await drain()
+        precondition(early.migrateHints == ["space-first", nil], "the hint is one-shot: \(early.migrateHints)")
+        print("PASS follower preferred Space: the Space Settings names goes to the first attempt after it (followNow's or a trigger's ahead of it) and to no other")
     }
 
     @MainActor
