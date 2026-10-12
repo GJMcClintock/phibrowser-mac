@@ -93293,7 +93293,7 @@
     },
     "sidebar.feedbackButton.title" : {
       "comment" : "Feedback - Sidebar feedback button title",
-      "extractionState" : "extracted_with_value",
+      "extractionState" : "stale",
       "localizations" : {
         "de" : {
           "stringUnit" : {
