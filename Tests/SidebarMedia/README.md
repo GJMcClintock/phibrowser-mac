@@ -75,3 +75,10 @@ legacy snapshots without the new fields, dispatch without seek/duration, live
 capability removal and stale request rejection. PiP cases verify card suppression,
 continued observation, paused restoration, and restoration of a selected paused
 source after another playing tab temporarily occupies the card.
+
+Volume is queried once when its row opens. The row shows a loading indicator
+until the reply arrives; progress polling only uses the cached value. Setting
+volume writes the selected media element and publishes the applied value without
+another read. Reopening refreshes page-side changes. Source replacement closes
+the old row, and older Frameworks without the read selector expose no volume
+control. The native harness covers this request lifecycle and capability guard.

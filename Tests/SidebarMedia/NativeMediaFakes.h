@@ -15,6 +15,12 @@ NS_ASSUME_NONNULL_BEGIN
 @property(nonatomic) BOOL rotateTokenOnStart;
 @property(nonatomic) BOOL lacksMuteSelector;
 @property(nonatomic) BOOL delaysMuteState;
+@property(nonatomic, readonly) NSUInteger volumeReadCount;
+@property(nonatomic, copy, nullable) NSNumber *pageVolume;
+@property(nonatomic, copy, nullable) NSNumber *appliedVolumeOverride;
+@property(nonatomic) BOOL delaysVolumeRead;
+@property(nonatomic) BOOL lacksVolumeSelector;
+- (void)completeVolumeRead;
 - (void)emit:(nullable NSDictionary<NSString *, id> *)value;
 - (void)emitStopped:(nullable NSDictionary<NSString *, id> *)value;
 @end

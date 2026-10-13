@@ -127,6 +127,7 @@ struct SidebarMediaHarness {
             nativeActionIntentAndCapabilities()
             nativeTrackActions()
             await volumeInteractionAndValidation()
+            await volumeIsReadOnlyWhenOpened()
             await mutingKeepsSelectedSource()
             await silentSourcesDoNotReenterAfterVisit()
             await silentBackgroundSourcesAreNotAdmitted()
@@ -672,6 +673,7 @@ struct SidebarMediaHarness {
         value["volume"] = 0.8
         value["canSetVolume"] = true
         f.tabs[0].controls.emit(value)
+        f.tabs[0].controls.pageVolume = 0.8
         let controller = f.controller, item = require(controller.item)
         controller.volumeButtonClicked(for: item, from: .docked, optionPressed: false)
         precondition(controller.isVolumeExpanded && !f.tabs[0].isAudioMuted,
@@ -705,6 +707,80 @@ struct SidebarMediaHarness {
         let afterChange = f.tabs[0].controls.actions.count
         controller.setVolume(0, for: stale, from: .docked)
         precondition(f.tabs[0].controls.actions.count == afterChange)
+    }
+
+    @MainActor
+    static func volumeIsReadOnlyWhenOpened() async {
+        let f = Fixture([925, 926]); defer { f.stop() }
+        await tick()
+        let controls = f.tabs[0].controls, controller = f.controller
+        controls.pageVolume = 0.3
+        precondition(controls.volumeReadCount == 0 && controller.item?.playback.volume == nil)
+        controller.volumeButtonClicked(for: require(controller.item), from: .floating, optionPressed: false)
+        precondition(controls.volumeReadCount == 0, "An inactive surface must not query volume")
+        controls.delaysVolumeRead = true
+        controller.volumeButtonClicked(for: require(controller.item), from: .docked, optionPressed: false)
+        precondition(controller.isVolumeExpanded && controls.volumeReadCount == 1)
+        precondition(controller.item?.playback.volume == nil
+                     && controller.item?.playback.isLoadingVolume == true
+                     && controller.item?.playback.canSetVolume == false)
+        let actions = controls.actions.count
+        controller.setVolume(0.7, for: require(controller.item), from: .docked)
+        precondition(controls.actions.count == actions, "Writing must wait for the initial volume read")
+        controls.completeVolumeRead()
+        precondition(controller.item?.playback.volume == 0.3
+                     && controller.item?.playback.isLoadingVolume == false)
+        controls.pageVolume = 0.6
+        await tick(1150)
+        precondition(controls.volumeReadCount == 1 && controller.item?.playback.volume == 0.3,
+                     "Progress polling must use the cached volume without querying the page")
+        controls.appliedVolumeOverride = 0.45
+        controller.setVolume(0.5, for: require(controller.item), from: .docked)
+        precondition(controller.item?.playback.volume == 0.45 && controls.volumeReadCount == 1,
+                     "The setter reply must supply the applied value without an extra read")
+        controller.volumeButtonClicked(for: require(controller.item), from: .docked, optionPressed: false)
+        precondition(!controller.isVolumeExpanded && controls.volumeReadCount == 1)
+        controls.delaysVolumeRead = false
+        controls.pageVolume = 0.6
+        controller.volumeButtonClicked(for: require(controller.item), from: .docked, optionPressed: false)
+        precondition(controller.item?.playback.volume == 0.6 && controls.volumeReadCount == 2,
+                     "Reopening must read the current page volume once")
+        f.mode(.alwaysExpanded)
+        f.state.focusingTab = f.tabs[0]
+        await tick()
+        precondition(controller.isSourceVisible && !controller.isVolumeExpanded,
+                     "Visiting the source must close the volume row")
+        controls.pageVolume = 0.7
+        f.state.focusingTab = f.tabs[1]
+        await tick()
+        precondition(!controller.isSourceVisible && controller.isExpanded
+                     && !controller.isVolumeExpanded && controls.volumeReadCount == 2,
+                     "Returning must not redisplay a stale volume slider or query in the background")
+        controller.volumeButtonClicked(for: require(controller.item), from: .docked, optionPressed: false)
+        precondition(controller.isVolumeExpanded && controller.item?.playback.volume == 0.7
+                     && controls.volumeReadCount == 3,
+                     "Opening after a source visit must read the updated volume exactly once")
+        controls.emit(snapshot("New source", token: "new-volume-token", source: "new-volume-source"))
+        precondition(!controller.isVolumeExpanded && controller.item?.playback.volume == nil,
+                     "A replaced source must close the old volume row")
+        controls.pageVolume = nil
+        controller.volumeButtonClicked(for: require(controller.item), from: .docked, optionPressed: false)
+        precondition(!controller.isVolumeExpanded && controller.item?.playback.volume == nil,
+                     "An unsupported volume reply must not leave an empty row open")
+
+        let legacy = FakeWrapper()
+        legacy.fakeControls.lacksVolumeSelector = true
+        var state = snapshot()
+        state["volume"] = 0.8
+        state["canSetVolume"] = true
+        legacy.fakeControls.snapshotValue = state
+        let subscription = require(NativeMediaAdapter.Subscription(wrapper: legacy, fallbackTitle: "") { _ in })
+        let playback = require(subscription.snapshot(fallbackTitle: ""))
+        precondition(playback.volume == nil && !playback.canSetVolume,
+                     "An older Framework must not present browser gain as element volume")
+        precondition(!subscription.readVolume(expected: playback))
+        precondition(!subscription.setVolume(0.5, expected: playback) && legacy.fakeControls.actions.isEmpty)
+        subscription.close()
     }
 
     @MainActor

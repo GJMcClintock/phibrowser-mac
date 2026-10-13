@@ -709,11 +709,14 @@ final class SidebarMediaController: ObservableObject {
                         playback: NativeMediaAdapter.Playback, preservePresentation: Bool = false) {
         guard let key = sourceKey(for: tab) else { return }
         let previousSource = item.map(SourceIdentity.init)
-        if item?.key != key || item?.wrapperId != wrapperId { isVolumeExpanded = false }
         item = Item(key: key, wrapperId: wrapperId, pageURL: pageURL,
                     documentEpoch: documentEpoch,
                     playback: playback,
                     faviconData: tab.liveFaviconData ?? tab.cachedFaviconData)
+        if previousSource != item.map(SourceIdentity.init)
+            || (!playback.isLoadingVolume && playback.volume == nil) {
+            isVolumeExpanded = false
+        }
         // Published delivery can synchronously deactivate the surface. Do not
         // resume presentation or a timer after that consumer has torn us down.
         guard isActive else {
@@ -796,6 +799,7 @@ final class SidebarMediaController: ObservableObject {
         if isSourceVisible {
             cancelHoverExpansion(clearHover: true)
             isExpanded = false
+            isVolumeExpanded = false
         } else {
             applyPresentationMode()
         }
@@ -944,6 +948,12 @@ final class SidebarMediaController: ObservableObject {
             toggleMute(for: expectedItem, from: surface)
         } else {
             isVolumeExpanded.toggle()
+            if isVolumeExpanded {
+                if mediaSubscriptions[expectedItem.key]?.readVolume(expected: expectedItem.playback) != true {
+                    isVolumeExpanded = false
+                }
+                if let tab = observedTabs[expectedItem.key]?.tab { inspect(tab) }
+            }
         }
     }
 

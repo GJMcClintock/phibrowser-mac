@@ -2239,10 +2239,14 @@ typedef NS_ENUM(NSInteger, PhiMediaControlAction) {
 - (BOOL)performAction:(PhiMediaControlAction)action
        expectedToken:(NSString*)expectedToken
              seconds:(double)seconds;
-/// Sets this tab's native user gain, independent of page volume and ducking.
-/// Finite values clamp to [0, 1]; invalid/stale requests return NO.
+/// Reads the sole player's element volume once and publishes it asynchronously.
+/// Snapshots only return the cached volume; they never query the renderer.
+- (BOOL)readVolumeWithExpectedToken:(NSString*)expectedToken
+    NS_SWIFT_NAME(readVolume(expectedToken:));
+/// Sets the element volume and publishes the applied value asynchronously.
+/// Finite values clamp to [0, 1]; unsupported/stale requests return NO.
 - (BOOL)setVolume:(double)volume expectedToken:(NSString*)expectedToken;
-/// Mutes the session's single player without changing tab mute or user gain.
+/// Mutes the session's single player without changing tab mute or element volume.
 /// Unsupported and stale requests return NO.
 - (BOOL)setMuted:(BOOL)muted expectedToken:(NSString*)expectedToken;
 @end

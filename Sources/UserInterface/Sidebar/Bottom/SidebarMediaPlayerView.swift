@@ -543,22 +543,28 @@ struct SidebarMediaPlayerView: View {
 
     private func volumeRow(_ item: SidebarMediaController.Item) -> some View {
         HStack(spacing: 6) {
-            Slider(value: Binding(
-                get: { item.playback.volume ?? 1 },
-                set: {
-                    if volumeTarget == nil { SidebarMediaAnalytics.capture("adjust_volume") }
-                    controller.setVolume($0, for: volumeTarget ?? item, from: surface)
-                }
-            ), in: 0...1, onEditingChanged: { editing in
-                if !editing, volumeTarget != nil {
-                    SidebarMediaAnalytics.capture("adjust_volume")
-                }
-                volumeTarget = editing ? item : nil
-            })
-            .themedTint(.themeColor)
-            .disabled(item.playback.isMuted || !item.playback.canSetVolume || controller.isChangingTrack)
-            .accessibilityLabel(volumeSliderLabel)
-            .accessibilityIdentifier("sidebarMedia.volumeSlider")
+            if let volume = item.playback.volume {
+                Slider(value: Binding(
+                    get: { item.playback.volume ?? volume },
+                    set: {
+                        if volumeTarget == nil { SidebarMediaAnalytics.capture("adjust_volume") }
+                        controller.setVolume($0, for: volumeTarget ?? item, from: surface)
+                    }
+                ), in: 0...1, onEditingChanged: { editing in
+                    if !editing, volumeTarget != nil {
+                        SidebarMediaAnalytics.capture("adjust_volume")
+                    }
+                    volumeTarget = editing ? item : nil
+                })
+                .themedTint(.themeColor)
+                .disabled(item.playback.isMuted || !item.playback.canSetVolume || controller.isChangingTrack)
+                .accessibilityLabel(volumeSliderLabel)
+                .accessibilityIdentifier("sidebarMedia.volumeSlider")
+            } else if item.playback.isLoadingVolume {
+                ProgressView().controlSize(.small).frame(maxWidth: .infinity)
+            } else {
+                Spacer()
+            }
         }
         .padding(.horizontal, 10)
         .background(GeometryReader { geometry in
