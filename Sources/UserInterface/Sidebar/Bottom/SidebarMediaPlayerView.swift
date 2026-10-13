@@ -236,6 +236,7 @@ private struct SidebarMediaVolumeFrameKey: PreferenceKey {
 
 /// Shared feedback for transport, source, PiP and dismissal buttons.
 private struct SidebarMediaButtonStyle: ButtonStyle {
+    var isSelected = false
     @Environment(\.phiTheme) private var theme
     @Environment(\.phiAppearance) private var appearance
     @Environment(\.isEnabled) private var isEnabled
@@ -248,7 +249,7 @@ private struct SidebarMediaButtonStyle: ButtonStyle {
             .background {
                 RoundedRectangle(cornerRadius: 5)
                     .fill(ThemedColor.textPrimary.swiftUIColor(theme: theme, appearance: appearance)
-                        .opacity(isEnabled ? (configuration.isPressed ? 0.18 : (isHovering ? 0.1 : 0)) : 0))
+                        .opacity(isEnabled ? (configuration.isPressed || isSelected ? 0.18 : (isHovering ? 0.1 : 0)) : 0))
             }
             .opacity(isEnabled ? 1 : 0.4)
             .scaleEffect(isEnabled && configuration.isPressed && !reduceMotion ? 0.94 : 1)
@@ -426,6 +427,11 @@ struct SidebarMediaPlayerView: View {
                     }
                 }
                 .onExitCommand { collapse() }
+                .onChange(of: controller.isVolumeExpanded) { _, expanded in
+                    hoverExitWorkItem?.cancel()
+                    hoverExitWorkItem = nil
+                    if !expanded && !isHovering { scheduleHoverCollapse() }
+                }
                 .onChange(of: controller.presentationMode) { _, _ in
                     hoverExitWorkItem?.cancel()
                     hoverExitWorkItem = nil
@@ -509,14 +515,16 @@ struct SidebarMediaPlayerView: View {
             Spacer(minLength: 0)
             controlButton(item.playback.isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill",
                           label: volumeLabel,
-                          enabled: true, action: {
+                          enabled: true, isSelected: controller.isVolumeExpanded, action: {
                               let optionPressed = NSEvent.modifierFlags.contains(.option)
-                              SidebarMediaAnalytics.capture(optionPressed ? "toggle_mute" : "toggle_volume")
+                              SidebarMediaAnalytics.capture(optionPressed || item.playback.isMuted
+                                  ? "toggle_mute" : "toggle_volume")
                               controller.volumeButtonClicked(for: item, from: surface,
                                   optionPressed: optionPressed)
                           })
                 .frame(width: 24)
                 .accessibilityIdentifier("sidebarMedia.volumeButton")
+                .accessibilityAddTraits(controller.isVolumeExpanded ? .isSelected : [])
                 .accessibilityValue(item.playback.isMuted ? mutedStatusLabel : unmutedStatusLabel)
         }
         .padding(.horizontal, 8)
@@ -538,7 +546,7 @@ struct SidebarMediaPlayerView: View {
                 volumeTarget = editing ? item : nil
             })
             .themedTint(.themeColor)
-            .disabled(!item.playback.canSetVolume || controller.isChangingTrack)
+            .disabled(item.playback.isMuted || !item.playback.canSetVolume || controller.isChangingTrack)
             .accessibilityLabel(volumeSliderLabel)
             .accessibilityIdentifier("sidebarMedia.volumeSlider")
         }
@@ -764,6 +772,7 @@ struct SidebarMediaPlayerView: View {
     }
 
     private func controlButton(_ symbol: String, label: String, enabled: Bool,
+                               isSelected: Bool = false,
                                action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: symbol)
@@ -771,7 +780,7 @@ struct SidebarMediaPlayerView: View {
                 .foregroundStyle(foreground)
                 .frame(width: 22, height: 22)
         }
-        .buttonStyle(SidebarMediaButtonStyle())
+        .buttonStyle(SidebarMediaButtonStyle(isSelected: isSelected))
         .focusEffectDisabled()
         .disabled(!enabled)
         .help(label)
@@ -787,12 +796,12 @@ struct SidebarMediaPlayerView: View {
     }
 
     private func scheduleHoverCollapse() {
-        guard controller.presentationMode == .dynamic else { return }
+        guard controller.presentationMode == .dynamic, !controller.isVolumeExpanded else { return }
         hoverExitWorkItem?.cancel()
         let task = DispatchWorkItem {
             hoverExitWorkItem = nil
             if controller.presentationMode == .dynamic,
-               !keyboardExpanded && scrubTarget == nil && !isHovering {
+               !keyboardExpanded && scrubTarget == nil && !isHovering && !controller.isVolumeExpanded {
                 setExpanded(false)
             }
         }

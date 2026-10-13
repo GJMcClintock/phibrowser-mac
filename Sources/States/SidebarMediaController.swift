@@ -809,7 +809,6 @@ final class SidebarMediaController: ObservableObject {
         guard activeSurface == surface else { return }
         cancelHoverExpansion()
         hoveredSurface = hovering ? surface : nil
-        if !hovering && isVolumeExpanded { isVolumeExpanded = false }
         guard hovering, presentationMode == .dynamic, hasEligibleSource,
               !isExpanded, let item else { return }
         let source = SourceIdentity(item)
@@ -899,7 +898,7 @@ final class SidebarMediaController: ObservableObject {
 
     func volumeButtonClicked(for expectedItem: Item, from surface: Surface, optionPressed: Bool) {
         guard hasEligibleSource, activeSurface == surface, matchesCurrentSource(expectedItem) else { return }
-        if optionPressed {
+        if optionPressed || item?.playback.isMuted == true {
             toggleMute(for: expectedItem, from: surface)
         } else {
             isVolumeExpanded.toggle()

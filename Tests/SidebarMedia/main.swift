@@ -137,7 +137,7 @@ struct SidebarMediaHarness {
         await visitOrderCyclingFocusAndSplit()
         await cycleRevalidationAndStaleCallbacks()
         await preferencesPresentationAndHover()
-        await volumeClosesOnHoverExit()
+        await volumeStaysOpenUntilToggled()
         await heightAnimationReversesAndCancels()
         await physicalTrackpadDirectionsAndSingleCommit()
         await gestureCancellation()
@@ -552,6 +552,18 @@ struct SidebarMediaHarness {
         controller.volumeButtonClicked(for: item, from: .docked, optionPressed: true)
         precondition(controller.isVolumeExpanded && controller.item?.playback.isMuted == true && !f.tabs[0].isAudioMuted,
                      "Option-click toggles mute without toggling the slider")
+        controller.volumeButtonClicked(for: require(controller.item), from: .docked, optionPressed: false)
+        precondition(controller.isVolumeExpanded && controller.item?.playback.isMuted == false,
+                     "Ordinary muted clicks must unmute without closing an open slider")
+        controller.volumeButtonClicked(for: require(controller.item), from: .docked, optionPressed: false)
+        precondition(!controller.isVolumeExpanded)
+        controller.volumeButtonClicked(for: require(controller.item), from: .docked, optionPressed: true)
+        controller.volumeButtonClicked(for: require(controller.item), from: .docked, optionPressed: false)
+        precondition(!controller.isVolumeExpanded && controller.item?.playback.isMuted == false,
+                     "Ordinary muted clicks must unmute without opening a closed slider")
+        controller.volumeButtonClicked(for: require(controller.item), from: .docked, optionPressed: false)
+        precondition(controller.isVolumeExpanded, "The next unmuted click must open the slider")
+        controller.volumeButtonClicked(for: require(controller.item), from: .docked, optionPressed: true)
         controller.setVolume(0.35, for: require(controller.item), from: .docked)
         precondition(controller.item?.playback.volume == 0.35 && controller.item?.playback.isMuted == true)
         let count = f.tabs[0].controls.actions.count
@@ -1186,7 +1198,7 @@ struct SidebarMediaHarness {
     }
 
     @MainActor
-    static func volumeClosesOnHoverExit() async {
+    static func volumeStaysOpenUntilToggled() async {
         let f = Fixture([50, 51]); defer { f.stop() }
         await tick()
         let controller = f.controller
@@ -1204,8 +1216,11 @@ struct SidebarMediaHarness {
                 controller.setHovering(false, on: otherSurface)
                 precondition(controller.isVolumeExpanded, "An inactive surface must not close the slider")
                 controller.setHovering(false, on: surface)
-                precondition(!controller.isVolumeExpanded, "Hover exit must close volume immediately in every mode")
-                precondition(controller.isExpanded == expanded, "Volume collapse must preserve the presentation mode")
+                precondition(controller.isVolumeExpanded, "Hover exit must preserve the open volume slider")
+                precondition(controller.isExpanded == expanded, "Hover exit must preserve the presentation mode")
+                controller.volumeButtonClicked(for: require(controller.item), from: surface,
+                                               optionPressed: false)
+                precondition(!controller.isVolumeExpanded, "A second volume click must close the slider")
             }
         }
     }
