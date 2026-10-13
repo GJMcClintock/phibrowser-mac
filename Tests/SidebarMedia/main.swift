@@ -102,6 +102,7 @@ struct SidebarMediaHarness {
     static func main() async {
         if CommandLine.arguments.contains("--space-presentation") {
             await spaceSwitchKeepsMediaPresentation()
+            await spaceSwitchBuffersNewBackgroundVideos()
             print("Space media presentation checks passed")
             return
         }
@@ -119,6 +120,7 @@ struct SidebarMediaHarness {
             await observationSurvivesPresentationExit()
             await windowSourcesAndPresentation()
             await spaceSwitchKeepsMediaPresentation()
+            await spaceSwitchBuffersNewBackgroundVideos()
             await crossSpaceReturnValidation()
             await backgroundFocusDoesNotReorderSources()
             nativeDecodeAndOldFramework()
@@ -177,7 +179,7 @@ struct SidebarMediaHarness {
         f.state.focusingTab = f.tabs[0]
         c.setSessions([f.state, b], presented: b)
         c.setActive(true, on: bSurface)
-        await tick()
+        await tick(350)
         precondition(c.backgroundSourceCount == 2 && !c.isSourceVisible,
                      "An inactive Space's focused media must remain a background source")
         precondition(c.item?.sessionID == ObjectIdentifier(f.state))
@@ -266,6 +268,81 @@ struct SidebarMediaHarness {
             await tick()
             precondition(outgoing.heights.last == 0 && incoming.heights.last == 0,
                          "Dismissal must still hide the card in every resident sidebar")
+        }
+    }
+
+    @MainActor
+    static func spaceSwitchBuffersNewBackgroundVideos() async {
+        for kind in [SidebarMediaController.Surface.Kind.docked, .floating] {
+            for deliversPiPEvent in [true, false] {
+                let f = Fixture([240, 241]); defer { f.stop() }
+                let c = f.controller, video = f.tabs[0]
+                let b = BrowserState(), blank = Tab(242)
+                b.tabs = [blank]; b.focusingTab = blank
+                f.state.focusingTab = video
+                c.setSessions([f.state, b], presented: f.state)
+                let aSurface = SidebarMediaController.Surface(session: f.state, kind: kind)
+                let bSurface = SidebarMediaController.Surface(session: b, kind: kind)
+                c.setActive(true, on: aSurface)
+                let probe = MediaPresentationProbe(controller: c, surface: bSurface)
+                await tick()
+                precondition(probe.heights.last == 0)
+
+                c.setSessions([f.state, b], presented: b)
+                c.setActive(true, on: bSurface)
+                await tick(80)
+                precondition(c.isRevalidating && c.backgroundSourceCount == 0)
+                precondition(probe.heights.allSatisfy { $0 == 0 },
+                             "A newly hidden video must not reserve card space while PiP is starting")
+                var pip = require(video.controls.snapshotValue)
+                pip["isPictureInPicture"] = true
+                if deliversPiPEvent { video.controls.emit(pip) }
+                else { video.controls.snapshotValue = pip }
+                await tick(300)
+                precondition(!c.isRevalidating && c.isSourceVisible)
+                precondition(probe.heights.allSatisfy { $0 == 0 },
+                             "PiP must prevent even a transient layout reservation, including a late observer event")
+
+                pip["isPictureInPicture"] = false
+                video.controls.emit(pip)
+                await tick()
+                precondition(probe.heights.last == 38, "Exiting PiP must restore the background card")
+
+                c.setSessions([f.state, b], presented: f.state)
+                c.setActive(true, on: aSurface)
+                await tick()
+                c.setSessions([f.state, b], presented: b)
+                c.setActive(true, on: bSurface)
+                await tick(80)
+                precondition(c.isRevalidating && probe.heights.last == 0)
+                await tick(300)
+                precondition(!c.isRevalidating && probe.heights.last == 38,
+                             "A video that does not enter PiP must become available after the buffer")
+
+                c.setSessions([f.state, b], presented: f.state)
+                c.setActive(true, on: aSurface)
+                c.setSessions([f.state, b], presented: b)
+                c.setActive(true, on: bSurface)
+                await tick(80)
+                c.setSessions([f.state, b], presented: f.state)
+                c.setActive(true, on: aSurface)
+                await tick(100)
+                c.setSessions([f.state, b], presented: b)
+                c.setActive(true, on: bSurface)
+                await tick(120)
+                precondition(c.isRevalidating && probe.heights.last == 0,
+                             "A cancelled buffer must not release a later Space switch's video")
+                await tick(200)
+                precondition(!c.isRevalidating && probe.heights.last == 38)
+
+                // Only PiP-capable videos need the grace period.
+                c.setSessions([f.state, b], presented: f.state)
+                pip["canEnterPictureInPicture"] = false
+                video.controls.emit(pip)
+                c.setSessions([f.state, b], presented: b)
+                await tick()
+                precondition(!c.isRevalidating && probe.heights.last == 38)
+            }
         }
     }
 
