@@ -604,4 +604,131 @@ final class SyncKeyControllerTests: XCTestCase {
         XCTAssertEqual(c.resolved.count, 2, "the follow-up pass saw the profile added mid-pass")
         XCTAssertEqual(api.profileEnvelopes.count, 2)
     }
+
+    // MARK: - R4: the registration wait follows the account's Profile entities
+
+    private func controllerWithRemote(view: @escaping @MainActor () -> AccountProfileEntityView?)
+    async throws -> (SyncKeyController, FakeAPI, String) {
+        let api = FakeAPI()
+        let provider = FakeDeviceKeyProvider()
+        let mgr = AccountKeyManager(api: api, deviceKeyProvider: provider)
+        _ = try await mgr.bootstrap()
+        let store = MemoryMappingStore()
+        let pkm = ProfileKeyManager(api: api, keyManager: mgr, mappingStore: store)
+        let other = try await pkm.registerLocalProfile(profileId: "temp", displayName: "Work")
+        store.removeMapping(forProfileId: "temp")
+        let controller = SyncKeyController(
+            manager: mgr, approvals: DeviceApprovalService(api: api, keyManager: mgr, deviceKeyProvider: provider),
+            profileKeys: pkm, localProfilesProvider: { [(profileId: "Default", displayName: "Default")] },
+            notifyChromium: {}, isPairingComplete: { true }, profileEntityView: view)
+        return (controller, api, other.uuid)
+    }
+
+    /// F2: a deleted account Profile's registry row stays forever. It must neither hold this
+    /// Mac's registration nor keep `needsPairing` true.
+    func testADeletedAccountProfileHoldsNeitherRegistrationNorPairing() async throws {
+        let (c, api, _) = try await controllerWithRemote(view: {
+            AccountProfileEntityView(liveNames: [:], deletedUuids: [])
+        })
+        await c.silentUnlockAndResolve()
+        XCTAssertNotNil(c.profileSyncInfo(forProfileId: "Default"), "registered as a new account Profile")
+        XCTAssertEqual(api.profileEnvelopes.count, 2)
+        XCTAssertFalse(c.needsPairing)
+    }
+
+    func testALiveAccountProfileStillHoldsRegistration() async throws {
+        var liveUuid = ""
+        let (c, api, uuid) = try await controllerWithRemote(view: {
+            AccountProfileEntityView(liveNames: [liveUuid: "Work"], deletedUuids: [])
+        })
+        liveUuid = uuid
+        await c.silentUnlockAndResolve()
+        XCTAssertNil(c.profileSyncInfo(forProfileId: "Default"), "auto-create may still claim it")
+        XCTAssertEqual(api.profileEnvelopes.count, 1)
+        XCTAssertTrue(c.needsPairing)
+    }
+
+    /// Before the first full replay auto-create claims nothing, so nothing may wait on it: the
+    /// pause that wait causes would keep the replay from running.
+    func testBeforeTheFirstReplayNothingIsClaimable() async throws {
+        let (c, api, _) = try await controllerWithRemote(view: { nil })
+        await c.silentUnlockAndResolve()
+        XCTAssertNotNil(c.profileSyncInfo(forProfileId: "Default"))
+        XCTAssertEqual(api.profileEnvelopes.count, 2)
+    }
+
+    // MARK: - Per-Profile key withdrawal (Profile deletion)
+
+    func testAWithdrawnProfileKeepsNoKeyAndIsNeverUnmapped() async throws {
+        let api = FakeAPI()
+        let provider = FakeDeviceKeyProvider()
+        _ = try await AccountKeyManager(api: api, deviceKeyProvider: provider).bootstrap()
+        var pings = 0
+        let (c, _) = makeController(api: api, provider: provider,
+                                    locals: [("Default", "Default"), ("Profile 1", "Work")],
+                                    pinged: { pings += 1 })
+        await c.silentUnlockAndResolve()
+        XCTAssertNotNil(c.profileSyncInfo(forProfileId: "Profile 1"))
+        let pingsBefore = pings
+
+        c.withdrawProfileKey(profileId: "Profile 1")
+        XCTAssertNil(c.profileSyncInfo(forProfileId: "Profile 1"))
+        XCTAssertGreaterThan(pings, pingsBefore, "Chromium re-pulls and stops that Profile's sync")
+
+        await c.resolveMappings()
+        XCTAssertNil(c.profileSyncInfo(forProfileId: "Profile 1"), "a pass does not hand the key back")
+        XCTAssertFalse(c.knownUnmappedProfileIds.contains("Profile 1"))
+        XCTAssertFalse(c.needsPairing)
+
+        c.restoreProfileKey(profileId: "Profile 1")
+        await c.resolveMappings()
+        XCTAssertNotNil(c.profileSyncInfo(forProfileId: "Profile 1"), "a failed deletion gives it back")
+    }
+
+    /// A pass that resolved a Profile before its deletion started must not put the key back when
+    /// it resumes after the deletion finished (`profileIdsBeingDeleted` is empty again by then).
+    func testAPassSuspendedAcrossAWholeDeletionDoesNotRestoreTheKey() async throws {
+        let api = FakeAPI()
+        let provider = FakeDeviceKeyProvider()
+        _ = try await AccountKeyManager(api: api, deviceKeyProvider: provider).bootstrap()
+        var locals = [(profileId: "Default", displayName: "Default"), (profileId: "Profile 1", displayName: "Work")]
+        let (c, _) = makeController(api: api, provider: provider, localsProvider: { locals })
+        await c.silentUnlockAndResolve()
+        XCTAssertNotNil(c.profileSyncInfo(forProfileId: "Profile 1"))
+
+        // The pass has resolved "Profile 1" and is suspended on the account listing.
+        api.beforeListProfilesOnce = {
+            await MainActor.run {
+                c.withdrawProfileKey(profileId: "Profile 1")
+                locals.removeAll { $0.profileId == "Profile 1" }
+                c.finishProfileKeyWithdrawal(profileId: "Profile 1")
+            }
+        }
+        await c.resolveMappings()
+        XCTAssertNil(c.profileSyncInfo(forProfileId: "Profile 1"), "the resumed pass did not merge it back")
+        XCTAssertNotNil(c.profileSyncInfo(forProfileId: "Default"))
+
+        await c.resolveMappings()
+        XCTAssertNil(c.profileSyncInfo(forProfileId: "Profile 1"), "nor does a later pass")
+    }
+
+    /// A deletion that fails while a pass is suspended gives the key back as before.
+    func testAWithdrawalRestoredDuringAPassResolvesAgain() async throws {
+        let api = FakeAPI()
+        let provider = FakeDeviceKeyProvider()
+        _ = try await AccountKeyManager(api: api, deviceKeyProvider: provider).bootstrap()
+        let (c, _) = makeController(api: api, provider: provider,
+                                    locals: [("Default", "Default"), ("Profile 1", "Work")])
+        await c.silentUnlockAndResolve()
+
+        api.beforeListProfilesOnce = {
+            await MainActor.run {
+                c.withdrawProfileKey(profileId: "Profile 1")
+                c.restoreProfileKey(profileId: "Profile 1")
+            }
+        }
+        await c.resolveMappings()
+        await c.resolveMappings()
+        XCTAssertNotNil(c.profileSyncInfo(forProfileId: "Profile 1"))
+    }
 }
