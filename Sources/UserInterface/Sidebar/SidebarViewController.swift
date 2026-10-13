@@ -302,7 +302,7 @@ class SidebarViewController: NSViewController, BrowserThemeContextProviding {
         mediaCancellables.removeAll()
         mediaController = controller
         guard isViewLoaded else { return }
-        mediaPlayerView.rootView = AnyView(SidebarMediaPlayerView(controller: controller, surface: mediaSurface))
+        mediaPlayerView.setThemedContent(SidebarMediaPlayerView(controller: controller, surface: mediaSurface))
         mediaPlayerView.mediaController = controller
         bindMediaPresentation()
         updateMediaActivation()
@@ -322,6 +322,7 @@ class SidebarViewController: NSViewController, BrowserThemeContextProviding {
             rootView: SidebarMediaPlayerView(controller: mediaController, surface: mediaSurface),
             themeSource: state.themeContext
         )
+        hosting.subtreeThemeSource = state.themeContext
         hosting.mediaController = mediaController
         hosting.mediaSurface = mediaSurface
         hosting.sizingOptions = []
@@ -1190,7 +1191,7 @@ class SidebarViewController: NSViewController, BrowserThemeContextProviding {
         updateFavoriteHeight(pinnedTabViewController.contentHeight, isDragging: state.isDraggingTab)
     }
 
-    private func updateMediaActivation(for layoutActive: Bool? = nil) {
+    func updateMediaActivation(for layoutActive: Bool? = nil) {
         observeMediaWindowVisibilityIfNeeded()
         let window = view.window
         let active = (layoutActive ?? isSidebarContentActive)
@@ -1296,17 +1297,18 @@ class SidebarViewController: NSViewController, BrowserThemeContextProviding {
         mediaController.$item
             .combineLatest(mediaController.$isExpanded, mediaController.$isRevalidating)
             .combineLatest(mediaController.$isSourceVisible.combineLatest(mediaController.$isDismissed))
-            .combineLatest(mediaController.$activeSurface, mediaController.$isVolumeExpanded)
-            .map { [mediaSurface] state, activeSurface, volumeExpanded in
+            .combineLatest(mediaController.$isEnabled, mediaController.$isVolumeExpanded)
+            .map { state, enabled, volumeExpanded in
                 let (presentation, visibility) = state
                 let (item, expanded, revalidating) = presentation
                 let (sourceVisible, dismissed) = visibility
-                return activeSurface != mediaSurface || item == nil || revalidating
+                return !enabled || item == nil || revalidating
                     || sourceVisible || dismissed
                     ? CGFloat(0) : (expanded ? 124 : 38) + (volumeExpanded ? 34 : 0)
             }
+            // Keep resident cards ready and collapse transient hide/show updates into one layout.
+            .debounce(for: .zero, scheduler: DispatchQueue.main)
             .removeDuplicates()
-            .receive(on: DispatchQueue.main)
             .sink { [weak self] height in self?.updateMediaPlayerHeight(height) }
             .store(in: &mediaCancellables)
     }

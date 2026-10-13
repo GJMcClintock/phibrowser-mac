@@ -8228,6 +8228,14 @@ final class SpaceWindowSlot: ObservableObject {
         guard let storedMediaController else { return }
         let states = windowsBySpaceId.keys.sorted().compactMap { windowsBySpaceId[$0]?.browserState }
         storedMediaController.setSessions(states, presented: visibleController?.browserState)
+        // Swipe previews can finish layout before the presented session changes.
+        guard let split = visibleController?.mainSplitViewController else { return }
+        if split.sidebarViewController.isViewLoaded {
+            split.sidebarViewController.updateMediaActivation()
+        }
+        if split.floatingSidebarContent.isViewLoaded {
+            split.floatingSidebarContent.updateMediaActivation()
+        }
     }
 
     @Published private(set) var activeSpaceId: String?

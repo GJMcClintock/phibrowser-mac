@@ -100,6 +100,11 @@ struct FakeSplitGroup {
 struct SidebarMediaHarness {
     @MainActor
     static func main() async {
+        if CommandLine.arguments.contains("--space-presentation") {
+            await spaceSwitchKeepsMediaPresentation()
+            print("Space media presentation checks passed")
+            return
+        }
         if CommandLine.arguments.contains("--window-source-order") {
             await backgroundFocusDoesNotReorderSources()
             print("Window media source-order checks passed")
@@ -113,6 +118,7 @@ struct SidebarMediaHarness {
         if !CommandLine.arguments.contains("--multi-source") {
             await observationSurvivesPresentationExit()
             await windowSourcesAndPresentation()
+            await spaceSwitchKeepsMediaPresentation()
             await crossSpaceReturnValidation()
             await backgroundFocusDoesNotReorderSources()
             nativeDecodeAndOldFramework()
@@ -217,6 +223,50 @@ struct SidebarMediaHarness {
         precondition(other.controller.backgroundSourceCount == 1 && other.controller.item?.sessionID == ObjectIdentifier(other.state))
         c.setSessions([f.state], presented: f.state)
         precondition(!replacementMedia.controls.isObserving)
+    }
+
+    @MainActor
+    static func spaceSwitchKeepsMediaPresentation() async {
+        for kind in [SidebarMediaController.Surface.Kind.docked, .floating] {
+            let f = Fixture([230, 231]); defer { f.stop() }
+            let b = BrowserState(), blank = Tab(232)
+            b.tabs = [blank]; b.focusingTab = blank
+            let c = f.controller
+            let aSurface = SidebarMediaController.Surface(session: f.state, kind: kind)
+            let bSurface = SidebarMediaController.Surface(session: b, kind: kind)
+            c.setSessions([f.state, b], presented: f.state)
+            c.setActive(true, on: aSurface)
+            let outgoing = MediaPresentationProbe(controller: c, surface: aSurface)
+            let incoming = MediaPresentationProbe(controller: c, surface: bSurface)
+            await tick()
+            precondition(outgoing.heights.last == 38 && incoming.heights.last == 38,
+                         "Resident sidebars must prepare the same window-wide media card before the switch")
+            let oldCount = outgoing.heights.count, newCount = incoming.heights.count
+            let selected = require(c.item)
+            c.setSessions([f.state, b], presented: b)
+            c.setActive(true, on: bSurface)
+            await tick()
+            precondition(c.matchesCurrentSource(selected) && c.activeSurface == bSurface)
+            precondition(outgoing.heights.count == oldCount && incoming.heights.count == newCount,
+                         "The same background source must not lose its layout reservation during a Space hand-over")
+            let actions = f.tabs[0].controls.actions.count
+            c.perform(.playPause, for: selected, from: aSurface)
+            precondition(f.tabs[0].controls.actions.count == actions,
+                         "Keeping the outgoing card visible must not authorize outgoing controls")
+            c.setSessions([f.state, b], presented: f.state)
+            c.setActive(true, on: aSurface)
+            f.state.focusingTab = f.tabs[0]
+            await tick()
+            precondition(outgoing.heights.last == 0 && incoming.heights.last == 0,
+                         "Visiting the source must still hide its card in every resident sidebar")
+            f.state.focusingTab = f.tabs[1]
+            await tick()
+            precondition(outgoing.heights.last == 38 && incoming.heights.last == 38)
+            c.dismissCurrent(from: aSurface)
+            await tick()
+            precondition(outgoing.heights.last == 0 && incoming.heights.last == 0,
+                         "Dismissal must still hide the card in every resident sidebar")
+        }
     }
 
     @MainActor

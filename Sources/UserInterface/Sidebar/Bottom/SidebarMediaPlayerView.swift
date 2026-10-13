@@ -323,7 +323,8 @@ struct SidebarMediaPlayerView: View {
 
     var body: some View {
         Group {
-            if let item = controller.item, controller.activeSurface == surface,
+            // Resident cards keep drawing while the active sidebar changes.
+            if let item = controller.item, controller.isEnabled,
                !controller.isRevalidating,
                !controller.isSourceVisible, !controller.isDismissed {
                 GeometryReader { geometry in
@@ -417,6 +418,8 @@ struct SidebarMediaPlayerView: View {
                                                             appearance: appearance)))
                 .accessibilityElement(children: .contain)
                 .accessibilityIdentifier("sidebarMedia.card")
+                .allowsHitTesting(controller.activeSurface == surface)
+                .accessibilityHidden(controller.activeSurface != surface)
                 .onHover { hovering in
                     isHovering = hovering
                     hoverExitWorkItem?.cancel()
@@ -453,23 +456,30 @@ struct SidebarMediaPlayerView: View {
                 .onChange(of: item.playback.currentTime) { _, newValue in
                     if !scrubbing, let newValue { scrubValue = newValue }
                 }
+                .onChange(of: controller.activeSurface) { _, activeSurface in
+                    if activeSurface != surface { resetInteraction() }
+                }
                 .onDisappear {
                     controller.setHovering(false, on: surface)
-                    hoverExitWorkItem?.cancel()
-                    hoverExitWorkItem = nil
-                    scrubTarget = nil
-                    volumeTarget = nil
-                    cardDragItem = nil
-                    scrubCancelled = false
-                    scrubbing = false
-                    isHovering = false
-                    keyboardExpanded = false
+                    resetInteraction()
                     controller.setExpanded(false, on: surface)
                 }
                 .padding(.horizontal, 8)
                 .padding(.vertical, 3)
             }
         }
+    }
+
+    private func resetInteraction() {
+        hoverExitWorkItem?.cancel()
+        hoverExitWorkItem = nil
+        scrubTarget = nil
+        volumeTarget = nil
+        cardDragItem = nil
+        scrubCancelled = false
+        scrubbing = false
+        isHovering = false
+        keyboardExpanded = false
     }
 
     /// Keep the transport in one view at the card's bottom so the buttons do
