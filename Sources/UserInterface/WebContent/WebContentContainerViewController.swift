@@ -812,14 +812,6 @@ class WebContentContainerViewController: NSViewController {
             }
             .store(in: &cancellables)
 
-        // Listen to layout mode changes
-        NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in
-                self?.updateLayoutForMode()
-            }
-            .store(in: &cancellables)
-
         // Listen to targetURL changes to update status bubble
         browserState?.$targetURL
             .receive(on: DispatchQueue.main)
@@ -859,9 +851,17 @@ class WebContentContainerViewController: NSViewController {
         }
     }
     
+    /// Relays out on a layout mode change only. `didChangeNotification` fires
+    /// for a write to any key and reaches every page container in every
+    /// window: when `ApplicationState` rewrote its Guest choice on each window
+    /// activation, one activation with ten windows ran this layout 82 times.
     private func setupConfigObserver() {
         NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)
             .receive(on: DispatchQueue.main)
+            .map { _ in PhiPreferences.GeneralSettings.loadLayoutMode() }
+            .prepend(PhiPreferences.GeneralSettings.loadLayoutMode())
+            .removeDuplicates()
+            .dropFirst()
             .sink { [weak self] _ in
                 self?.updateLayoutForMode()
             }
