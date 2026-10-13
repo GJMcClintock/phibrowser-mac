@@ -572,6 +572,15 @@ struct SpacesSettingsView: View {
             let result = await PhiChromiumCoordinator.shared.followPinnedTabScopeNow(
                 store: store, preferredSpaceId: preferredSpaceId)
             isChangingPinnedTabScope = false
+            // The data account changed during the attempt: the key is the next account's now (the
+            // switch cleared it, the mount seeded it), and `store` is the previous account's. Whatever
+            // the attempt reports is about a store no longer shown; a restore would publish the
+            // previous account's scope as this account's edit. Show what the current account says.
+            guard AccountController.shared.localDataAccount?.localStorage === store else {
+                pinnedTabScopeCompletesInBackground = false
+                loadPinnedTabScope()
+                return
+            }
             switch result {
             case .applied:
                 pinnedTabScopeCompletesInBackground = false

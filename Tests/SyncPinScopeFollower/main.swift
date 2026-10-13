@@ -110,6 +110,8 @@ struct PinScopeFollowerTests {
         await singleFlight()
         noKeyWrite()
         await followNowResults()
+        await failureEndsWhenKeyReturnsToRow()
+        await singleAttemptDoesNotRunAgain()
     }
 
     @MainActor
@@ -468,5 +470,56 @@ struct PinScopeFollowerTests {
             precondition(follower.failure == nil && !follower.isRunning)
         }
         print("PASS follower followNow: idle returns its first attempt's result, no key is .deferred, busy waits for the next attempt (not the running one)")
+    }
+
+    /// PR #191 review finding 3: after a failed attempt the account moves the key back to the row.
+    /// No migration is needed, and the failure must end as it would after a successful one.
+    @MainActor
+    static func failureEndsWhenKeyReturnsToRow() async {
+        let world = World()
+        world.key = .app
+        world.failWith = OtherError()
+        let follower = makeFollower(world)
+        follower.trigger()
+        await drain()
+        precondition(follower.failure?.attempts == 1 && world.liveTimers.count == 1 && world.published.last??.attempts == 1)
+        // Another device reverts the scope: the landing writes the key back to the row.
+        world.key = .profile
+        follower.trigger()
+        precondition(!follower.isRunning && world.migrateCalls == [.app], "row == key: no job")
+        precondition(follower.failure == nil, "failure ends when row == key without a migration")
+        precondition(world.published.last == .some(nil), "the status sink sees the failure cleared: \(world.published)")
+        precondition(world.liveTimers.isEmpty, "the armed retry is cancelled")
+        precondition(!follower.isPending)
+        // The backoff restarted: the next failure arms the first delay again, not the doubled one.
+        world.key = .app
+        follower.trigger()
+        await drain()
+        precondition(follower.failure?.attempts == 1 && world.liveTimers.count == 1 && world.liveTimers[0].delay == 5,
+                     "backoff reset after the key returned to the row: \(world.liveTimers.map(\.delay))")
+        print("PASS follower failure ends when the key returns to the row: status cleared, retry cancelled, backoff reset, no migration")
+    }
+
+    /// PR #191 review finding 1: the unmounted path's follower runs one attempt. A key that moves while
+    /// its migration is suspended (an account switch rewriting the shared key) is not followed into the
+    /// store it was built for.
+    @MainActor
+    static func singleAttemptDoesNotRunAgain() async {
+        let world = World()
+        world.key = .app
+        world.hold = true
+        let follower = PinScopeFollower(effects: world.effects, singleAttempt: true)
+        let result = Box<PinScopeFollower.AttemptResult>()
+        Task { @MainActor in result.value = await follower.followNow() }
+        await drain()
+        precondition(world.migrateCalls == [.app] && world.heldCount == 1)
+        world.key = .space          // The next account's key, written during the wait.
+        follower.trigger()          // Any trigger during the run would set run-again on a mounted follower.
+        world.finish()
+        await drain()
+        precondition(result.value == .applied && !follower.isRunning)
+        precondition(world.migrateCalls == [.app], "single attempt: the moved key starts no second migration: \(world.migrateCalls)")
+        precondition(world.row == .app)
+        print("PASS follower single attempt: a key that moves during the attempt starts no second migration")
     }
 }

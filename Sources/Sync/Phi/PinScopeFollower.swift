@@ -66,6 +66,10 @@ final class PinScopeFollower {
     private let timing: Timing
     /// The store whose row this follower moves, so its owner can tell which store it covers.
     let storeIdentity: ObjectIdentifier?
+    /// One attempt per `followNow()`, no run-again: the unmounted path's follower, which is retired as
+    /// soon as that attempt reports. A key that moves during the attempt (an account switch rewriting
+    /// the shared key) is not taken as a new target for a store nothing mounted.
+    private let singleAttempt: Bool
 
     /// A job is running. The pin round's block predicate reads it through
     /// `PhiPinnedTabLocalAccess.scopeFollowerBusy()`.
@@ -86,10 +90,12 @@ final class PinScopeFollower {
     /// timer, so round-start triggers do not defeat the backoff; a different key runs at once.
     private var failedKey: PinnedTabScope?
 
-    init(effects: Effects, timing: Timing = Timing(), storeIdentity: ObjectIdentifier? = nil) {
+    init(effects: Effects, timing: Timing = Timing(), storeIdentity: ObjectIdentifier? = nil,
+         singleAttempt: Bool = false) {
         self.effects = effects
         self.timing = timing
         self.storeIdentity = storeIdentity
+        self.singleAttempt = singleAttempt
         self.nextRetryDelay = timing.firstRetryDelay
     }
 
@@ -111,7 +117,9 @@ final class PinScopeFollower {
         if isRunning { runAgain = true; return }
         guard let key = effects.desiredScope() else { return }
         if cancelRetry != nil, key == failedKey { return }
-        guard effects.rowScope() != key else { return }
+        // Row == key with no job needed: the account (or Settings) moved the key back to the row after
+        // a failed attempt, so the failure is over as surely as after a successful migration.
+        guard effects.rowScope() != key else { settle(); return }
         start()
     }
 
@@ -205,10 +213,17 @@ final class PinScopeFollower {
             // may not have merged it yet, so the row is not read back here. The key is: one that
             // moved during the migration is a new target.
             if effects.desiredScope() != key { runAgain = true }
-        } while runAgain && !isRetired
+        } while runAgain && !isRetired && !singleAttempt
     }
 
     private func succeed(attempt: UInt64) {
+        settle()
+        resolve(upTo: attempt, .applied)
+    }
+
+    /// Row == key: the retry and the failure state end, whether a migration established it or the key
+    /// came back to the row.
+    private func settle() {
         cancelRetry?()
         cancelRetry = nil
         failedKey = nil
@@ -217,7 +232,6 @@ final class PinScopeFollower {
             failure = nil
             effects.publishFailure(nil)
         }
-        resolve(upTo: attempt, .applied)
     }
 
     private func fail(_ kind: SyncPinScopeMigrationFailure.Kind, key: PinnedTabScope, attempt: UInt64) {

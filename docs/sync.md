@@ -1622,7 +1622,10 @@ The engine must preserve these persistence, retry and account-isolation rules.
     nothing is restored, review round 2 R2), Settings puts the
     key's previous value back if the key still holds the new scope, restores
     the picker and shows the "Pinned Tab Scope Wasn't Changed" alert through
-    `RunLoop.main.perform` (amended 2026-10-10, review round 1 F1). The key write
+    `RunLoop.main.perform` (amended 2026-10-10, review round 1 F1). The restore
+    runs only while `store` is still the data account's; after an account
+    switch during the attempt the key is the next account's and nothing is
+    restored (PR #191 review finding 2). The key write
     is an ordinary settings edit: the debounced defaults trigger and
     `SyncableSettings.snapshot` stamp and publish it; nothing scope-specific
     is stamped or compared. While the Profile mapping pause is closed the
@@ -1640,11 +1643,17 @@ The engine must preserve these persistence, retry and account-isolation rules.
     a suspension; it never writes the key or its sidecars. A failure retries
     after 5 s doubling to 300 s (the Profile mapping reconciler's schedule);
     a trigger for the same key waits for the timer, a different key runs at
-    once, including one that moved during the failing attempt. A retired
+    once, including one that moved during the failing attempt. A trigger that
+    finds row == key with no job to run also ends a failure in progress
+    (status cleared, timer cancelled, backoff reset): the account moved the key
+    back to the row (PR #191 review finding 3). A retired
     follower starts nothing and stops at its next check; a queued store job
     finishes on its own account's store. Without a mounted follower (Guest
     Mode, no sync mount, engine not built) Settings runs one attempt with no
-    retry and takes the key back on failure (above).
+    retry and takes the key back on failure (above); that follower is
+    `singleAttempt` and reads no key once `store` is no longer the data
+    account's, so a key moved by an account switch during the wait starts no
+    second migration into the previous account's store (review finding 1).
     `build-scripts/test-sync-pin-scope-follower.sh` drives the real follower
     over injected effects and a manual timer.
   - Status (amendment b): the consecutive failure count and the last kind

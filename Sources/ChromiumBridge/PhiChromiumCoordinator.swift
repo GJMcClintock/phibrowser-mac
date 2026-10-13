@@ -1011,7 +1011,11 @@ import SwiftUI
     private func makePinScopeFollower(store: LocalStore, retries: Bool) -> PinScopeFollower {
         PinScopeFollower(effects: .init(
             desiredScope: {
-                UserDefaults.standard.string(forKey: PinnedTabScopeMirror.key).flatMap(PinnedTabScope.init(rawValue:))
+                // The key is device-global; the unmounted follower reads it only for the data account's
+                // current store. After an account switch the key is the next account's and `store` is
+                // the previous one's: no key, no attempt.
+                if !retries, AccountController.shared.localDataAccount?.localStorage !== store { return nil }
+                return UserDefaults.standard.string(forKey: PinnedTabScopeMirror.key).flatMap(PinnedTabScope.init(rawValue:))
             },
             rowScope: { store.pinnedTabScopeIfReadable() },
             migrate: { scope, hintedSpaceId in
@@ -1032,7 +1036,10 @@ import SwiftUI
                 return Self.scheduleOnMain(after: delay, fire)
             },
             log: { AppLogInfo("[phi-sync] \($0)") }),
-            storeIdentity: ObjectIdentifier(store))
+            storeIdentity: ObjectIdentifier(store),
+            // One attempt, then retired by its caller: a key that moves while the migration runs (an
+            // account switch) must not send a second migration into a store nothing mounted.
+            singleAttempt: !retries)
     }
 
     /// Settings, just before it writes the key: hands its selected Space to the mounted follower for
@@ -1049,7 +1056,7 @@ import SwiftUI
     /// failure on its own; its hint came from `preparePinnedTabScopeFollow`. Otherwise (guest mode, no sync mount, or an engine not built this session)
     /// a one-attempt follower: nothing retries it, so a failed attempt is `.failedNoRetry` and Settings
     /// takes its key write back (design 3.1 as amended 2026-10-10); `.deferred` means the key was
-    /// cleared under it.
+    /// cleared under it or `store` is no longer the data account's (an account switch during the wait).
     @MainActor
     func followPinnedTabScopeNow(store: LocalStore, preferredSpaceId: String?) async -> PinScopeFollower.AttemptResult {
         if let follower = pinScopeFollower, follower.storeIdentity == ObjectIdentifier(store) {
