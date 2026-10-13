@@ -18,6 +18,8 @@ enum NativeMediaAdapter {
         let duration: Double?
         let isPlaying: Bool
         let isMuted: Bool
+        let isSourceSilent: Bool
+        let canSetMute: Bool
         let isTabMuted: Bool
         let canPlay: Bool
         let canPause: Bool
@@ -35,7 +37,7 @@ enum NativeMediaAdapter {
         }
     }
 
-    enum Action { case playPause, previousTrack, nextTrack, seek(Double), pictureInPicture }
+    enum Action { case playPause, previousTrack, nextTrack, seek(Double), pictureInPicture, mute(Bool) }
 
     @MainActor
     final class Subscription {
@@ -77,6 +79,10 @@ enum NativeMediaAdapter {
             let nativeAction: PhiMediaControlAction
             var seconds = 0.0
             switch action {
+            case .mute(let muted):
+                guard fresh.canSetMute,
+                      controls.responds(to: NSSelectorFromString("setMuted:expectedToken:")) else { return false }
+                return controls.setMuted(muted, expectedToken: expected.token)
             case .playPause:
                 guard expected.isPlaying ? fresh.canPause : fresh.canPlay else { return false }
                 nativeAction = expected.isPlaying ? .pause : .play
@@ -131,7 +137,9 @@ enum NativeMediaAdapter {
             return Playback(token: token, sourceToken: sourceToken,
                 title: title.flatMap { $0.isEmpty ? nil : $0 } ?? fallbackTitle,
                 artist: artist.flatMap { $0.isEmpty ? nil : $0 }, currentTime: position, duration: duration,
-                isPlaying: playing, isMuted: muted, isTabMuted: tabMuted,
+                isPlaying: playing, isMuted: muted,
+                isSourceSilent: value["sourceSilent"] as? Bool ?? false,
+                canSetMute: value["canSetMute"] as? Bool ?? false, isTabMuted: tabMuted,
                 canPlay: canPlay, canPause: canPause,
                 volume: volume, canSetVolume: value["canSetVolume"] as? Bool == true && volume != nil,
                 canPreviousTrack: value["canPreviousTrack"] as? Bool ?? false,

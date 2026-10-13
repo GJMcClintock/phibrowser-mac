@@ -2242,6 +2242,9 @@ typedef NS_ENUM(NSInteger, PhiMediaControlAction) {
 /// Sets this tab's native user gain, independent of page volume and ducking.
 /// Finite values clamp to [0, 1]; invalid/stale requests return NO.
 - (BOOL)setVolume:(double)volume expectedToken:(NSString*)expectedToken;
+/// Mutes the session's single player without changing tab mute or user gain.
+/// Unsupported and stale requests return NO.
+- (BOOL)setMuted:(BOOL)muted expectedToken:(NSString*)expectedToken;
 @end
 
 @protocol WebContentWrapper <NSObject>
@@ -2265,6 +2268,7 @@ typedef NS_ENUM(NSInteger, PhiMediaControlAction) {
     NSDictionary<NSString*, id>* securityInfo;
 @property(nonatomic, assign, readonly) BOOL isCurrentlyAudible;
 @property(nonatomic, assign, readonly) BOOL isAudioMuted;
+@property(nonatomic, assign, readonly) BOOL isMediaSessionMuted;
 @property(nonatomic, assign, readonly) BOOL isCapturingAudio;
 @property(nonatomic, assign, readonly) BOOL isCapturingVideo;
 @property(nonatomic, assign, readonly) BOOL isCapturingWindow;
@@ -2382,6 +2386,7 @@ typedef NS_ENUM(NSInteger, PhiMediaControlAction) {
 - (void)restoreFocus;
 - (void)updateSecurityState:(NSDictionary *)securityState;
 - (void)setAudioMuted:(BOOL)muted;
+- (void)toggleAudioMuted;
 - (void)muteAudio;
 - (void)unmuteAudio;
 @end

@@ -30,6 +30,65 @@ final class SidebarMediaUITests: XCTestCase {
     }
 
     @MainActor
+    func testMutingKeepsPlayerVisible() throws {
+        guard let fixtureURL = ProcessInfo.processInfo.environment["PHI_MEDIA_UI_FIXTURE_URL"],
+              fixtureURL.hasPrefix("http://127.0.0.1:8766/") else {
+            throw XCTSkip("Set PHI_MEDIA_UI_FIXTURE_URL to the local Range fixture")
+        }
+        let app = XCUIApplication()
+        app.launchArguments += [
+            "-uitest", "1", "-skip-onboarding", "-spacesFeatureEnabled", "NO",
+            "--force-renderer-accessibility",
+            "--user-data-dir=\(NSTemporaryDirectory())PhiMediaMuteUITest-\(ProcessInfo.processInfo.globallyUniqueString)",
+        ]
+        app.launch()
+        self.app = app
+        XCTAssertTrue(app.windows.firstMatch.waitForExistence(timeout: 120))
+        app.activate()
+        try ensureSidebarExpanded(in: app)
+        let originalPreferences = try setMediaPreferences(in: app, mode: nil)
+        defer { try? setMediaPreferences(in: app, mode: originalPreferences) }
+        try setMediaPreferences(in: app, mode: .alwaysExpanded)
+        let muteFixtureURL = fixtureURL + (fixtureURL.contains("?") ? "&" : "?") + "tracks=1"
+        try navigateToFixture(muteFixtureURL, in: app)
+        let start = app.buttons["Start playback"]
+        XCTAssertTrue(start.waitForExistence(timeout: 30))
+        start.click()
+        app.typeKey("t", modifierFlags: .command)
+        let volume = app.buttons["sidebarMedia.volumeButton"]
+        let transport = app.buttons["sidebarMedia.playPause"]
+        XCTAssertTrue(volume.waitForExistence(timeout: 20))
+        XCUIElement.perform(withKeyModifiers: .option) { volume.click() }
+        XCTAssertTrue(waitUntil(timeout: 5) { volume.value as? String == "Muted" })
+        for _ in 0..<3 {
+            Thread.sleep(forTimeInterval: 1.1)
+            XCTAssertTrue(volume.exists && volume.isHittable && transport.exists,
+                          "The muted card must remain visible across native polling updates")
+        }
+        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        screenshot.name = "Mini Player remains visible while muted"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+        transport.click()
+        XCTAssertTrue(waitUntil(timeout: 5) { transport.label == "Play" },
+                      "Pause must work while the media element remains muted")
+        transport.click()
+        XCTAssertTrue(waitUntil(timeout: 5) { transport.label == "Pause" })
+        let nextTrack = app.buttons["sidebarMedia.nextTrack"]
+        XCTAssertTrue(nextTrack.isEnabled)
+        nextTrack.click()
+        XCTAssertTrue(waitUntil(timeout: 5) {
+            self.elementText(app.staticTexts["sidebarMedia.title"]) == "UI Test Next Track"
+        })
+        XCTAssertTrue(waitUntil(timeout: 5) { volume.value as? String == "Muted" })
+        XCUIElement.perform(withKeyModifiers: .option) { volume.click() }
+        XCTAssertTrue(waitUntil(timeout: 5) { volume.value as? String == "Unmuted" })
+        transport.click()
+        XCTAssertTrue(waitUntil(timeout: 5) { transport.label == "Play" },
+                      "Playback controls must still work after unmuting")
+    }
+
+    @MainActor
     func testRepeatedHoverAndSeekAtMinimumSidebarWidth() throws {
         guard let fixtureURL = ProcessInfo.processInfo.environment["PHI_MEDIA_UI_FIXTURE_URL"],
               fixtureURL.hasPrefix("http://127.0.0.1:8766/") else {

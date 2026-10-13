@@ -507,7 +507,7 @@ struct SidebarMediaPlayerView: View {
                 .accessibilityIdentifier("sidebarMedia.nextTrack")
             }
             Spacer(minLength: 0)
-            controlButton(item.isTabMuted ? "speaker.slash.fill" : "speaker.wave.2.fill",
+            controlButton(item.playback.isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill",
                           label: volumeLabel,
                           enabled: true, action: {
                               let optionPressed = NSEvent.modifierFlags.contains(.option)
@@ -517,7 +517,7 @@ struct SidebarMediaPlayerView: View {
                           })
                 .frame(width: 24)
                 .accessibilityIdentifier("sidebarMedia.volumeButton")
-                .accessibilityValue(item.isTabMuted ? mutedStatusLabel : unmutedStatusLabel)
+                .accessibilityValue(item.playback.isMuted ? mutedStatusLabel : unmutedStatusLabel)
         }
         .padding(.horizontal, 8)
         .frame(height: 32)

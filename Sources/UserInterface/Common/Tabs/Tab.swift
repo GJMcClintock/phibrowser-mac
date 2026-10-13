@@ -74,6 +74,12 @@ class Tab: WebContentRepresentable {
     @Published private(set) var canGoForward: Bool = false
     @Published private(set) var isCurrentlyAudible: Bool = false
     @Published private(set) var isAudioMuted: Bool = false
+    @Published private(set) var isMediaSessionMuted: Bool = false
+    var isMuted: Bool { isAudioMuted || isMediaSessionMuted }
+    var audioMutePublisher: AnyPublisher<Bool, Never> {
+        $isAudioMuted.combineLatest($isMediaSessionMuted)
+            .map { $0 || $1 }.removeDuplicates().eraseToAnyPublisher()
+    }
     @Published private(set) var isCapturingAudio: Bool = false
     @Published private(set) var isCapturingVideo: Bool = false
     @Published private(set) var isCapturingWindow: Bool = false
@@ -349,6 +355,9 @@ class Tab: WebContentRepresentable {
         liveFaviconData = nil
         liveFaviconRevision = 0
         pageColor = nil
+        isCurrentlyAudible = false
+        isAudioMuted = false
+        isMediaSessionMuted = false
         hasWebContent = wrapper != nil
         isDiscarded = wrapper?.isDiscarded ?? false
         if let wrapper, wrapper.responds(to: Self.isUnloadedSelector) {
@@ -447,6 +456,12 @@ class Tab: WebContentRepresentable {
         wrapper.publisher(for: \.isCurrentlyAudible)
             .assign(to: \.isCurrentlyAudible, on: self)
             .store(in: &cancellables)
+
+        if wrapper.responds(to: NSSelectorFromString("isMediaSessionMuted")) {
+            wrapper.publisher(for: \.isMediaSessionMuted)
+                .assign(to: \.isMediaSessionMuted, on: self)
+                .store(in: &cancellables)
+        }
 
         wrapper.publisher(for: \.isAudioMuted)
             .assign(to: \.isAudioMuted, on: self)
@@ -786,6 +801,15 @@ class Tab: WebContentRepresentable {
     
     func stopLoading() {
         webContentWrapper?.stopLoading()
+    }
+
+    func toggleAudioMuted() {
+        guard let wrapper = webContentWrapper else { return }
+        if wrapper.responds(to: NSSelectorFromString("toggleAudioMuted")) {
+            wrapper.toggleAudioMuted()
+        } else {
+            wrapper.setAudioMuted(!isAudioMuted)
+        }
     }
 
     func setAudioMuted(_ muted: Bool) {

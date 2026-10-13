@@ -7,6 +7,7 @@ import Foundation
 @testable import Phi
 
 final class InactiveMediaControlsStub: NSObject, PhiMediaControls {
+    func setMuted(_ muted: Bool, expectedToken: String) -> Bool { false }
     func startObserving(_ observer: @escaping ([String: Any]?) -> Void) {
         observer(nil)
     }

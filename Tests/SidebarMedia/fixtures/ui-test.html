@@ -35,6 +35,11 @@
         title: 'UI Test Next Track', artist: 'Local Test Artist', album: 'Next local album'
       });
     };
+    if (parameters.has('tracks')) {
+      navigator.mediaSession.setActionHandler('nexttrack', () => {
+        document.getElementById('metadata').click();
+      });
+    }
     track.ontimeupdate = () => {
       position.value = 'Position: ' + Math.floor(track.currentTime) + ' seconds';
     };

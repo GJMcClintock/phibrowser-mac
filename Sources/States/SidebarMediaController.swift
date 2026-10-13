@@ -50,7 +50,6 @@ final class SidebarMediaController: ObservableObject {
         let documentEpoch: Int
         let playback: NativeMediaAdapter.Playback
         let faviconData: Data?
-        let isTabMuted: Bool
     }
 
     @Published private(set) var item: Item?
@@ -500,8 +499,7 @@ final class SidebarMediaController: ObservableObject {
         guard let key = sourceKey(for: tab) else { return }
         let candidate = Item(key: key, wrapperId: wrapperId, pageURL: pageURL,
                              documentEpoch: documentEpoch, playback: playback,
-                             faviconData: tab.liveFaviconData ?? tab.cachedFaviconData,
-                             isTabMuted: playback.isTabMuted)
+                             faviconData: tab.liveFaviconData ?? tab.cachedFaviconData)
         if let previous = candidates[key], SourceIdentity(previous) != SourceIdentity(candidate),
            cyclingSourceKey == key { cancelCycle() }
         let identity = SourceIdentity(candidate)
@@ -532,6 +530,14 @@ final class SidebarMediaController: ObservableObject {
                        documentEpoch: candidate.documentEpoch)
     }
 
+    private func canPresent(_ candidate: Item) -> Bool {
+        let playback = candidate.playback
+        guard playback.isMuted || playback.isSourceSilent || playback.isTabMuted || playback.volume == 0 else { return true }
+        // Keep controls for a card silenced in place, but end that exception
+        // once its page is visited or a different source takes over.
+        return item?.key == candidate.key && !isSourceVisible && !isDismissed
+    }
+
     private var orderedBackgroundSources: [Item] {
         let fallback = liveStates.flatMap { state -> [SourceKey] in
             let ids = sessions[ObjectIdentifier(state)]?.tabOrder ?? []
@@ -540,6 +546,7 @@ final class SidebarMediaController: ObservableObject {
         let order = visitedSources + fallback.filter { !visitedSources.contains($0) }
         return order.compactMap { id in
             guard let candidate = candidates[id], isValid(candidate), !isVisible(id),
+                  canPresent(candidate),
                   !candidate.playback.isPictureInPicture,
                   dismissedSources[id] != SourceIdentity(candidate),
                   candidate.playback.isPlaying || item?.key == id
@@ -578,13 +585,16 @@ final class SidebarMediaController: ObservableObject {
                    documentEpoch: chosen.documentEpoch, playback: chosen.playback,
                    preservePresentation: preservePresentation)
         } else if let current = item, isValid(current),
-                  let candidate = candidates[current.key], let tab = observedTabs[current.key]?.tab {
+                  let candidate = candidates[current.key], let tab = observedTabs[current.key]?.tab,
+                  isVisible(current.key) || canPresent(candidate) {
             select(tab: tab, wrapperId: candidate.wrapperId, pageURL: candidate.pageURL,
                    documentEpoch: candidate.documentEpoch, playback: candidate.playback)
         } else if item == nil, let focused = browserState?.focusingTab,
                   let key = sourceKey(for: focused), let candidate = candidates[key], isValid(candidate) {
             select(tab: focused, wrapperId: candidate.wrapperId, pageURL: candidate.pageURL,
                    documentEpoch: candidate.documentEpoch, playback: candidate.playback)
+        } else if item != nil {
+            clearSelection()
         }
     }
 
@@ -624,9 +634,9 @@ final class SidebarMediaController: ObservableObject {
             }
             let fresh = Item(key: destination.key, wrapperId: destination.wrapperId,
                              pageURL: destination.pageURL, documentEpoch: destination.documentEpoch,
-                             playback: playback, faviconData: tab.liveFaviconData ?? tab.cachedFaviconData,
-                             isTabMuted: playback.isTabMuted)
+                             playback: playback, faviconData: tab.liveFaviconData ?? tab.cachedFaviconData)
             guard SourceIdentity(fresh) == identity, !playback.isPictureInPicture,
+                  self.canPresent(fresh),
                   playback.isPlaying || !destination.playback.isPlaying else {
                 self.cancelCycle()
                 self.remember(tab: tab, wrapperId: destination.wrapperId, pageURL: destination.pageURL,
@@ -661,8 +671,7 @@ final class SidebarMediaController: ObservableObject {
         item = Item(key: key, wrapperId: wrapperId, pageURL: pageURL,
                     documentEpoch: documentEpoch,
                     playback: playback,
-                    faviconData: tab.liveFaviconData ?? tab.cachedFaviconData,
-                    isTabMuted: playback.isTabMuted)
+                    faviconData: tab.liveFaviconData ?? tab.cachedFaviconData)
         // Published delivery can synchronously deactivate the surface. Do not
         // resume presentation or a timer after that consumer has torn us down.
         guard isActive else {
@@ -932,17 +941,8 @@ final class SidebarMediaController: ObservableObject {
     }
 
     func toggleMute(for expectedItem: Item? = nil, from surface: Surface? = nil) {
-        guard expectedItem.map(matchesCurrentSource) ?? true,
-              !isRevalidating, !isDismissed, surface == nil || activeSurface == surface,
-              let item, let tab = observedTabs[item.key]?.tab,
-              isValid(tab, wrapperId: item.wrapperId, pageURL: item.pageURL,
-                      documentEpoch: item.documentEpoch) else { return }
-        let newMuted = !tab.isAudioMuted
-        tab.setAudioMuted(newMuted)
-        self.item = Item(key: item.key, wrapperId: item.wrapperId,
-                         pageURL: item.pageURL, documentEpoch: item.documentEpoch,
-                         playback: item.playback, faviconData: item.faviconData,
-                         isTabMuted: newMuted)
+        guard let displayed = expectedItem ?? item else { return }
+        perform(.mute(!displayed.playback.isMuted), for: displayed, from: surface)
     }
 
     isolated deinit {

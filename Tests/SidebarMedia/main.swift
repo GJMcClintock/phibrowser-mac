@@ -119,6 +119,11 @@ struct SidebarMediaHarness {
             nativeActionIntentAndCapabilities()
             nativeTrackActions()
             await volumeInteractionAndValidation()
+            await mutingKeepsSelectedSource()
+            await silentSourcesDoNotReenterAfterVisit()
+            await silentBackgroundSourcesAreNotAdmitted()
+            await muteValidationAndNativeState()
+            await mutedSourceStillInvalidatesWithItsTab()
             nativeObservationLifecycle()
             await trackChangeKeepsCardStable()
             await missingTrackExpiresAndRejectedTrackDoesNotHold()
@@ -310,7 +315,7 @@ struct SidebarMediaHarness {
                          source: String = "source-1", playing: Bool = true) -> [String: Any] {
         ["token": token, "sourceToken": source, "title": title, "artist": "Native artist",
          "currentTime": 2.0, "duration": 18.0, "playing": playing,
-         "muted": false, "tabMuted": false, "canPlay": true, "canPause": true,
+         "muted": false, "canSetMute": true, "tabMuted": false, "canPlay": true, "canPause": true,
          "canSeek": true, "canEnterPictureInPicture": true,
          "canExitPictureInPicture": false, "isPictureInPicture": false]
     }
@@ -372,6 +377,167 @@ struct SidebarMediaHarness {
     }
 
     @MainActor
+    static func mutingKeepsSelectedSource() async {
+        let f = Fixture([923, 924]); defer { f.stop() }
+        await tick()
+        let controller = f.controller, tab = f.tabs[0]
+        let original = require(controller.item)
+        controller.setExpanded(true, on: .docked)
+        controller.volumeButtonClicked(for: original, from: .docked, optionPressed: false)
+        controller.volumeButtonClicked(for: original, from: .docked, optionPressed: true)
+        tab.isCurrentlyAudible = false
+        let snapshots = tab.controls.snapshotCount
+        await tick(1150)
+        precondition(controller.item?.key == original.key && controller.item?.playback.isMuted == true,
+                     "MediaSession mute must retain the live source and its unmute control")
+        precondition(!tab.isAudioMuted && tab.controls.snapshotCount > snapshots)
+        precondition(controller.isExpanded && controller.isVolumeExpanded
+                     && !controller.isSourceVisible && !controller.isDismissed
+                     && !controller.isRevalidating && controller.backgroundSourceCount == 1)
+        let actions = tab.controls.actions.count
+        controller.perform(.playPause, for: require(controller.item), from: .docked)
+        precondition(tab.controls.actions.count == actions + 1,
+                     "Playback controls must continue dispatching while the player is muted")
+        var muted = require(tab.controls.snapshotValue)
+        muted["canNextTrack"] = true
+        tab.controls.emit(muted)
+        controller.perform(.nextTrack, for: require(controller.item), from: .docked)
+        precondition(tab.controls.actions.count == actions + 2,
+                     "Track controls must continue dispatching while the player is muted")
+        tab.controls.emit(snapshot("Next track", token: "next-token", source: "next-source"))
+        await tick(300)
+        controller.toggleMute(for: require(controller.item), from: .docked)
+        precondition(controller.item?.playback.isMuted == true && !tab.isAudioMuted)
+        controller.toggleMute(for: require(controller.item), from: .docked)
+        precondition(controller.item?.playback.isMuted == false && !tab.isAudioMuted)
+        tab.controls.emit(nil)
+        precondition(controller.item == nil, "Media loss must still remove the card")
+    }
+
+    @MainActor
+    static func silentSourcesDoNotReenterAfterVisit() async {
+        for field in ["muted", "sourceSilent", "tabMuted", "volume"] {
+            let f = Fixture([941, 942]); defer { f.stop() }
+            await tick()
+            let tab = f.tabs[0], controller = f.controller
+            if field == "muted" {
+                controller.toggleMute(for: require(controller.item), from: .docked)
+            } else {
+                var value = require(tab.controls.snapshotValue)
+                value[field] = field == "volume" ? 0.0 : true
+                tab.controls.emit(value)
+            }
+            await tick()
+            if field == "sourceSilent" {
+                precondition(controller.item?.playback.isMuted == false,
+                             "Page volume zero must not change the element mute control")
+            }
+            precondition(controller.item?.tabId == tab.guid && controller.backgroundSourceCount == 1,
+                         "Silencing an existing card must retain its controls")
+            f.state.focusingTab = tab
+            await tick()
+            precondition(controller.isSourceVisible && controller.backgroundSourceCount == 0)
+            f.state.focusingTab = f.tabs[1]
+            await tick()
+            precondition(controller.item == nil && controller.backgroundSourceCount == 0,
+                         "A silent source must not reenter Mini Player after visiting its tab: \(field)")
+            tab.controls.emit(require(tab.controls.snapshotValue))
+            await tick()
+            precondition(controller.item == nil, "Polling must not readmit a silent source")
+            var audible = require(tab.controls.snapshotValue)
+            audible[field] = field == "volume" ? 0.5 : false
+            tab.controls.emit(audible)
+            await tick()
+            precondition(controller.item?.tabId == tab.guid && controller.backgroundSourceCount == 1,
+                         "Restoring sound makes a playing background source eligible again")
+        }
+    }
+
+    @MainActor
+    static func silentBackgroundSourcesAreNotAdmitted() async {
+        for field in ["muted", "sourceSilent", "tabMuted", "volume"] {
+            let f = Fixture([943, 944, 945]); defer { f.stop() }
+            await tick()
+            let other = f.tabs[1]
+            var silent = require(other.controls.snapshotValue)
+            silent[field] = field == "volume" ? 0.0 : true
+            other.controls.emit(silent)
+            await tick()
+            precondition(f.controller.item?.tabId == 943 && f.controller.backgroundSourceCount == 1,
+                         "Silent background tabs must be excluded from source cycling")
+            f.controller.cycleSource(for: require(f.controller.item), from: .docked)
+            await tick()
+            precondition(f.controller.item?.tabId == 943)
+            f.state.focusingTab = f.tabs[0]
+            await tick()
+            precondition(f.controller.item?.tabId != other.guid,
+                         "A silent tab must not replace the visited source")
+        }
+    }
+
+    @MainActor
+    static func muteValidationAndNativeState() async {
+        let f = Fixture([927, 928]); defer { f.stop() }
+        await tick()
+        let controller = f.controller, tab = f.tabs[0]
+        var value = require(tab.controls.snapshotValue)
+        value.removeValue(forKey: "canSetMute")
+        tab.controls.emit(value)
+        let initial = tab.controls.actions.count
+        controller.toggleMute(for: require(controller.item), from: .docked)
+        precondition(tab.controls.actions.count == initial && !tab.isAudioMuted,
+                     "Older snapshots must not fall back to tab mute")
+        value["canSetMute"] = true
+        tab.controls.emit(value)
+        tab.controls.lacksMuteSelector = true
+        controller.toggleMute(for: require(controller.item), from: .docked)
+        precondition(tab.controls.actions.count == initial)
+        tab.controls.lacksMuteSelector = false
+        tab.controls.acceptsActions = false
+        controller.toggleMute(for: require(controller.item), from: .docked)
+        precondition(controller.item?.playback.isMuted == false)
+        tab.controls.acceptsActions = true
+        tab.controls.delaysMuteState = true
+        let displayed = require(controller.item)
+        controller.toggleMute(for: displayed, from: .docked)
+        precondition(controller.item?.playback.isMuted == false,
+                     "Dispatch must not optimistically publish mute state")
+        value["muted"] = true
+        tab.controls.emit(value)
+        let count = tab.controls.actions.count
+        controller.toggleMute(for: displayed, from: .docked)
+        precondition(tab.controls.actions.count == count + 1
+                     && tab.controls.actions.last?["muted"] as? Bool == true,
+                     "A stale unmuted control must preserve mute intent, not unmute")
+        value["canSetMute"] = false
+        tab.controls.snapshotValue = value
+        controller.toggleMute(for: require(controller.item), from: .docked)
+        precondition(tab.controls.actions.count == count + 1,
+                     "Capability loss must be checked before observer delivery")
+    }
+
+    @MainActor
+    static func mutedSourceStillInvalidatesWithItsTab() async {
+        for invalidation in 0..<4 {
+            let f = Fixture([925, 926]); defer { f.stop() }
+            await tick()
+            let tab = f.tabs[0]
+            f.controller.toggleMute(for: require(f.controller.item), from: .docked)
+            precondition(f.controller.item?.playback.isMuted == true)
+            tab.controls.snapshotValue = nil
+            switch invalidation {
+            case 0: tab.isLoading = true
+            case 1: tab.url = "https://example.test/replaced"
+            case 2: tab.setWebContentsWrapper(wrapper: FakeWrapper())
+            default: f.state.tabs.removeAll { $0 === tab }
+            }
+            await tick()
+            precondition(f.controller.item == nil,
+                         "A muted source must not survive navigation, wrapper replacement or tab removal")
+        }
+    }
+
+    @MainActor
     static func volumeInteractionAndValidation() async {
         let f = Fixture([921, 922]); defer { f.stop() }
         await tick()
@@ -384,10 +550,10 @@ struct SidebarMediaHarness {
         precondition(controller.isVolumeExpanded && !f.tabs[0].isAudioMuted,
                      "Ordinary volume clicks show a slider without muting")
         controller.volumeButtonClicked(for: item, from: .docked, optionPressed: true)
-        precondition(controller.isVolumeExpanded && f.tabs[0].isAudioMuted,
+        precondition(controller.isVolumeExpanded && controller.item?.playback.isMuted == true && !f.tabs[0].isAudioMuted,
                      "Option-click toggles mute without toggling the slider")
         controller.setVolume(0.35, for: require(controller.item), from: .docked)
-        precondition(controller.item?.playback.volume == 0.35 && f.tabs[0].isAudioMuted)
+        precondition(controller.item?.playback.volume == 0.35 && controller.item?.playback.isMuted == true)
         let count = f.tabs[0].controls.actions.count
         controller.setVolume(.nan, for: require(controller.item), from: .docked)
         precondition(f.tabs[0].controls.actions.count == count)
@@ -737,7 +903,7 @@ struct SidebarMediaHarness {
         controller.showTab(for: fresh, from: .docked)
         precondition(tab.fakeWrapper.activationCount == 1)
         controller.toggleMute(for: fresh, from: .docked)
-        precondition(tab.isAudioMuted && controller.item?.isTabMuted == true)
+        precondition(!tab.isAudioMuted && controller.item?.playback.isMuted == true)
         value["token"] = "same-source-new-token"
         tab.controls.emit(value)
         await tick()

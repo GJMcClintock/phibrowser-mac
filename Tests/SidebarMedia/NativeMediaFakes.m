@@ -17,6 +17,10 @@
 }
 - (NSArray<NSDictionary<NSString *, id> *> *)actions { return [_recordedActions copy]; }
 - (BOOL)isObserving { return _observer != nil; }
+- (BOOL)respondsToSelector:(SEL)selector {
+  if (_lacksMuteSelector && selector == @selector(setMuted:expectedToken:)) return NO;
+  return [super respondsToSelector:selector];
+}
 - (void)startObserving:(void (^)(NSDictionary<NSString *, id> * _Nullable))observer {
   NSAssert(NSThread.isMainThread, @"Observation must start on the main thread");
   _startCount++;
@@ -49,6 +53,15 @@
   if (!_observer || !_acceptsActions || ![_snapshotValue[@"token"] isEqual:token]) return NO;
   NSMutableDictionary *value = [_snapshotValue mutableCopy];
   value[@"volume"] = @(volume);
+  _snapshotValue = value;
+  return YES;
+}
+- (BOOL)setMuted:(BOOL)muted expectedToken:(NSString *)token {
+  [_recordedActions addObject:@{@"muted": @(muted), @"token": token}];
+  if (!_observer || !_acceptsActions || ![_snapshotValue[@"token"] isEqual:token]) return NO;
+  if (_delaysMuteState) return YES;
+  NSMutableDictionary *value = [_snapshotValue mutableCopy];
+  value[@"muted"] = @(muted);
   _snapshotValue = value;
   return YES;
 }

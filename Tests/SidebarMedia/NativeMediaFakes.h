@@ -13,6 +13,8 @@ NS_ASSUME_NONNULL_BEGIN
 @property(nonatomic, readonly) NSArray<NSDictionary<NSString *, id> *> *actions;
 @property(nonatomic) BOOL acceptsActions;
 @property(nonatomic) BOOL rotateTokenOnStart;
+@property(nonatomic) BOOL lacksMuteSelector;
+@property(nonatomic) BOOL delaysMuteState;
 - (void)emit:(nullable NSDictionary<NSString *, id> *)value;
 - (void)emitStopped:(nullable NSDictionary<NSString *, id> *)value;
 @end

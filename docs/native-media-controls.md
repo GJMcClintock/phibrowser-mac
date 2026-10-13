@@ -52,6 +52,13 @@ stable per-session history fallback, and supports cycling across Spaces.
 Ordinary Space switches preserve an eligible selected source. Visiting a playing
 media tab can reset manual selection under the usual visit-order policy.
 
+Muted sources, a sole normal player reporting effective silence (including zero
+page volume), and sources with zero native user gain cannot enter the background
+source list. A card silenced while already displayed keeps its controls until
+its page becomes visible or another source replaces it. Returning to that tab
+and leaving it again requires an unmuted, nonzero-volume source; polling does
+not bypass this admission rule.
+
 Only the presented Space's focused tab and visible split panes are excluded as
 visible page content. A hidden Space's remembered focused tab is a background
 source. The floating sidebar takes precedence over the docked surface within
@@ -109,13 +116,34 @@ seeking.
 Clicking the volume button toggles a slider below the transport controls.
 Leaving the player hides the slider immediately in every presentation mode,
 while its row height animates closed.
-Option-click toggles tab mute without changing slider visibility. Muting and
-unmuting preserve the gain, and adjusting gain does not unmute the tab.
+Option-click toggles the MediaSession player's mute state without changing
+slider visibility, tab mute or user gain. The speaker icon follows the native
+`muted` snapshot, sourced from the single player's element mute flag rather
+than effective volume. Setting page volume to zero alone does not show mute.
+For media that has already played audibly, element mute keeps its MediaSession
+available for playback and track controls.
+
+Mute requires `canSetMute`, a fresh source token and the `setMuted:expectedToken:`
+selector. Chromium advertises the capability only for a sole normal player,
+with no OneShot or Ambient players; mixed sessions and older frameworks reject
+mute requests. The bridge
+calls `MediaSession::SetMute` and waits for native state rather than optimistically
+changing the icon or retaining an invalid snapshot. Adjusting gain does not
+change the media element's mute state.
 
 Gain is a per-WebContents multiplier in [0, 1], combined with page volume and
 Chromium audio-focus ducking. It survives track changes and observation
 stop/start. A replacement WebContents starts at full gain. It does not modify
 the page's DOM volume or the system volume.
+
+A page volume setter with transient user activation restores zero native gain
+to 1 when the requested page volume is positive. The browser rechecks frame
+activation and document membership before applying it. This lets a user recover
+sound using the original page's volume control, including selecting its current
+value. Returning to the page, automatic volume changes without activation,
+player initialization, and native multiplier updates do not restore gain.
+Nonzero native gain, element mute, tab mute, and audio-focus ducking retain their
+independent behavior.
 
 Slider gestures remain bound to their original source identity; source
 replacement rejects stale updates. Missing native gain capabilities disable
@@ -144,3 +172,14 @@ state can also change after browser-side validation.
 The adapter does not reconstruct arbitrary preloaded or silent DOM elements,
 disjoint seekable ranges, per-element volume, or playlist contents. Available
 controls reflect the capabilities reported by the native session.
+
+Tab speaker indicators combine tab mute and MediaSession mute for presentation,
+while keeping their native states separate. Session updates travel through the
+Tab media-state bridge independently of Mini Player visibility. Clicking the
+indicator prefers toggling the current player's element mute through
+MediaSession when the session is controllable and supports `kSetMute`. This
+keeps the session available to an already displayed Mini Player. Missing or
+unsupported sessions fall back to whole-tab mute.
+After whole-tab unmute, Chromium checks the synchronously restored session
+and unmutes its current single player when supported. No request is retained
+for a later player. Multi-player sessions retain whole-tab mute behavior.
