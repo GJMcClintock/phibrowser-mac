@@ -127,11 +127,14 @@ class FloatingSidebarViewController: NSViewController, BrowserThemeContextProvid
     /// windows that resolve no slot, neither of which mounts the strip.
     private(set) weak var spacesStripRowView: NSView?
 
+    private let messageCardPresentation = NotificationCardPresentation(isPresented: false)
+
     private lazy var messageCardHostingController: ThemedHostingController<NotificationMessageCardView> = {
         let hostingController = ThemedHostingController(
             rootView: NotificationMessageCardView(
                 manager: NotificationCardManager.shared,
                 layoutMode: .sidebar,
+                presentation: messageCardPresentation,
                 onRun: { card in
                     NotificationCardManager.shared.decide(card: card, decision: .accept)
                 },
@@ -664,6 +667,7 @@ class FloatingSidebarViewController: NSViewController, BrowserThemeContextProvid
         shouldShowMessageCard = shouldShow
         updateBottomContentFooterGap()
         guard !isCreateSpaceCoveredContentSuppressed else {
+            messageCardPresentation.isPresented = false
             messageCardHostingController.view.isHidden = true
             return
         }
@@ -674,6 +678,7 @@ class FloatingSidebarViewController: NSViewController, BrowserThemeContextProvid
 
         messageCardContainerView.isHidden = false
         messageCardHostingController.view.isHidden = false
+        messageCardPresentation.isPresented = true
         view.layoutSubtreeIfNeeded()
 
         updateMessageCardHeight(animated: animated)
@@ -688,10 +693,12 @@ class FloatingSidebarViewController: NSViewController, BrowserThemeContextProvid
                 context.allowsImplicitAnimation = true
                 view.layoutSubtreeIfNeeded()
             }) { [weak self] in
+                self?.messageCardPresentation.isPresented = false
                 self?.messageCardHostingController.view.isHidden = true
             }
         } else {
             view.layoutSubtreeIfNeeded()
+            messageCardPresentation.isPresented = false
             messageCardHostingController.view.isHidden = true
         }
     }
@@ -934,6 +941,7 @@ class FloatingSidebarViewController: NSViewController, BrowserThemeContextProvid
         bottomBarSwiftUI.setCreateSpaceOverlayInteractionSuppressed(suppressed)
 
         if suppressed {
+            messageCardPresentation.isPresented = false
             messageCardHostingController.view.isHidden = true
         } else {
             updateMessageCardVisibility(shouldShow: shouldShowMessageCard)

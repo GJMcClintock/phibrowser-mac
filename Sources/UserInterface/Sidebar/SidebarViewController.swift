@@ -480,11 +480,14 @@ class SidebarViewController: NSViewController, BrowserThemeContextProviding {
     private(set) weak var spacesStripRowView: NSView?
 
     /// Hosting controller for the sidebar message card view.
+    private let messageCardPresentation = NotificationCardPresentation(isPresented: false)
+
     private lazy var messageCardHostingController: ThemedHostingController<NotificationMessageCardView> = {
         let hostingController = ThemedHostingController(
             rootView: NotificationMessageCardView(
                 manager: NotificationCardManager.shared,
                 layoutMode: .sidebar,
+                presentation: messageCardPresentation,
                 onRun: { card in
                     NotificationCardManager.shared.decide(card: card, decision: .accept)
                 },
@@ -1355,6 +1358,7 @@ class SidebarViewController: NSViewController, BrowserThemeContextProviding {
         shouldShowMessageCard = shouldShow
         updateBottomContentFooterGap()
         guard !isCreateSpaceCoveredContentSuppressed else {
+            messageCardPresentation.isPresented = false
             messageCardHostingController.view.isHidden = true
             return
         }
@@ -1366,6 +1370,7 @@ class SidebarViewController: NSViewController, BrowserThemeContextProviding {
         // Show container before updating height
         messageCardContainerView.isHidden = false
         messageCardHostingController.view.isHidden = false
+        messageCardPresentation.isPresented = true
         view.layoutSubtreeIfNeeded()
         
         updateMessageCardHeight(animated: animated)
@@ -1381,10 +1386,12 @@ class SidebarViewController: NSViewController, BrowserThemeContextProviding {
                 context.allowsImplicitAnimation = true
                 view.layoutSubtreeIfNeeded()
             }) { [weak self] in
+                self?.messageCardPresentation.isPresented = false
                 self?.messageCardHostingController.view.isHidden = true
             }
         } else {
             view.layoutSubtreeIfNeeded()
+            messageCardPresentation.isPresented = false
             messageCardHostingController.view.isHidden = true
         }
     }
@@ -1710,6 +1717,7 @@ class SidebarViewController: NSViewController, BrowserThemeContextProviding {
         notificationContainerView.subviews.forEach { $0.isHidden = suppressed }
 
         if suppressed {
+            messageCardPresentation.isPresented = false
             messageCardHostingController.view.isHidden = true
         } else {
             updateMessageCardVisibility(shouldShow: shouldShowMessageCard)
