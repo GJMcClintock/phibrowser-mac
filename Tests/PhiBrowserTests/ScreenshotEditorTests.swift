@@ -250,7 +250,10 @@ final class ScreenshotEditorTests: XCTestCase {
     }
     @MainActor private final class ExportGate {
         var continuation: CheckedContinuation<Void, Never>?
-        func wait() async { await withCheckedContinuation { continuation = $0 } }
+        let entered = XCTestExpectation(description: "The export reached its suspension gate")
+        func wait() async {
+            await withCheckedContinuation { continuation = $0; entered.fulfill() }
+        }
         func finish() { continuation?.resume(); continuation = nil }
     }
 
@@ -262,7 +265,7 @@ final class ScreenshotEditorTests: XCTestCase {
         editor.writeSnapshot(editor.model.snapshot(), format: .jpg, to: URL(fileURLWithPath: "/unused-fixture.jpg")) { _, _, _ in
             await gate.wait()
         }
-        await Task.yield()
+        await fulfillment(of: [gate.entered], timeout: 2)
         XCTAssertNotNil(gate.continuation)
         var reviewed = false
         let review = Task { await editor.prepareForTermination(confirmDiscard: { reviewed = true; return false }) }
@@ -285,7 +288,7 @@ final class ScreenshotEditorTests: XCTestCase {
         editor.writeSnapshot(editor.model.snapshot(), format: .pdf, to: URL(fileURLWithPath: "/unused-fixture.pdf")) { _, _, _ in
             await gate.wait()
         }
-        await Task.yield()
+        await fulfillment(of: [gate.entered], timeout: 2)
         let review = Task { await editor.prepareForTermination(confirmDiscard: { XCTFail("Saved document asked to discard edits"); return false }) }
         await Task.yield()
         gate.finish()
@@ -329,7 +332,7 @@ final class ScreenshotEditorTests: XCTestCase {
         editor.writeSnapshot(editor.model.snapshot(), format: .jpg, to: URL(fileURLWithPath: "/unused-fixture.jpg")) { _, _, _ in
             await gate.wait()
         }
-        await Task.yield()
+        await fulfillment(of: [gate.entered], timeout: 2)
         var finished = false
         let wait = Task { await editor.waitForConfirmedExport(); finished = true }
         await Task.yield()

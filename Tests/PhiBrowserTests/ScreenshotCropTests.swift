@@ -137,21 +137,22 @@ final class ScreenshotCropTests: XCTestCase {
         let (m, canvas, _, window) = fixture(); defer { window.close() }
         draw(m, .rectangle, CGPoint(x: 20, y: 20), CGPoint(x: 200, y: 180))
         let objects = m.annotations, original = m.source
-        let button = try XCTUnwrap(canvas.subviews.compactMap { $0 as? NSButton }.first { $0.identifier?.rawValue == "screenshot.crop.confirm" })
         m.selectTool(.crop)
         canvas.mouseDown(with: event(.leftMouseDown, window: window, point: canvas.convert(CGPoint(x: 20, y: 20), to: nil)))
         let end = canvas.convert(CGPoint(x: 200, y: 180), to: nil)
         canvas.mouseDragged(with: event(.leftMouseDragged, window: window, point: end))
-        XCTAssertTrue(button.isHidden); XCTAssertTrue(m.selectedIDs.isEmpty); XCTAssertEqual(m.annotations, objects)
+        XCTAssertFalse(m.canCrop); XCTAssertTrue(m.selectedIDs.isEmpty); XCTAssertEqual(m.annotations, objects)
         canvas.mouseUp(with: event(.leftMouseUp, window: window, point: end))
-        XCTAssertFalse(button.isHidden); XCTAssertTrue(canvas.visibleRect.contains(button.frame))
-        button.performClick(nil)
+        XCTAssertTrue(m.canCrop)
+        let enter = try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
+            windowNumber: window.windowNumber, context: nil, characters: "\r", charactersIgnoringModifiers: "\r", isARepeat: false, keyCode: 36))
+        canvas.keyDown(with: enter)
         XCTAssertEqual(m.width, 180); XCTAssertEqual(m.height, 160); XCTAssertEqual(m.tool, .select)
-        XCTAssertTrue(button.isHidden); XCTAssertTrue(canvas.backgroundImage === m.source)
+        XCTAssertFalse(m.canCrop); XCTAssertTrue(canvas.backgroundImage === m.source)
         XCTAssertEqual(canvas.frame.size, CGSize(width: 180, height: 160))
         m.undo(); canvas.synchronize(); XCTAssertTrue(canvas.backgroundImage === original); XCTAssertEqual(m.annotations, objects)
         selectCrop(m); canvas.synchronize(); canvas.cancelOperation(nil)
-        XCTAssertTrue(button.isHidden); XCTAssertNil(m.cropRect); XCTAssertEqual(m.tool, .select)
+        XCTAssertFalse(m.canCrop); XCTAssertNil(m.cropRect); XCTAssertEqual(m.tool, .select)
     }
     func testStationaryDragAutoscrollsBothAxesAndStopsAfterMouseUp() throws {
         let (m, canvas, scroll, window) = fixture(); defer { window.close() }
@@ -199,4 +200,27 @@ final class ScreenshotCropTests: XCTestCase {
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.12))
         XCTAssertEqual(scroll.contentView.bounds.origin, stopped); XCTAssertFalse(m.isInteracting)
     }
+    func testCropCanMoveAndResizeWithoutChangingDocumentUntilApplied() {
+        let m = model()
+        selectCrop(m)
+        let original = m.source
+        m.beginInteraction(at: CGPoint(x: 250, y: 250), tolerance: 6)
+        m.continueInteraction(at: CGPoint(x: 950, y: 750)); m.endInteraction()
+        XCTAssertEqual(m.cropRect, CGRect(x: 600, y: 400, width: 400, height: 400))
+        XCTAssertTrue(m.source === original); XCTAssertFalse(m.canUndo)
+        m.beginInteraction(at: CGPoint(x: 602, y: 402), tolerance: 6)
+        m.continueInteraction(at: CGPoint(x: 502, y: 302)); m.endInteraction()
+        XCTAssertEqual(m.cropRect, CGRect(x: 500, y: 300, width: 500, height: 500))
+        XCTAssertFalse(m.canUndo); XCTAssertEqual(m.generation, 0)
+        m.cropToSelection(); XCTAssertEqual(m.width, 500); XCTAssertEqual(m.height, 500)
+        m.undo(); XCTAssertTrue(m.source === original); XCTAssertFalse(m.canUndo)
+    }
+    func testCancelCropHandleDragRestoresPreviousSelection() {
+        let m = model(); selectCrop(m)
+        let before = m.cropRect
+        m.beginInteraction(at: CGPoint(x: 100, y: 100), tolerance: 6)
+        m.continueInteraction(at: CGPoint(x: 40, y: 50)); m.cancelInteraction()
+        XCTAssertEqual(m.cropRect, before); XCTAssertTrue(m.canCrop); XCTAssertFalse(m.canUndo)
+    }
+
 }

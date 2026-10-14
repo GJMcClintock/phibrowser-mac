@@ -242,4 +242,62 @@ final class ScreenshotEditorInteractionTests: XCTestCase {
         canvas.mouseUp(with: try event(.leftMouseUp, CGPoint(x: 700, y: 700)))
         XCTAssertEqual(m.annotations.count, 1); XCTAssertFalse(m.hasSelection)
     }
+    func testContextMenuTargetsClickedObjectAndPreservesSelectedGroup() throws {
+        let m = model(), ids = twoObjects(m), canvas = ScreenshotCanvasView()
+        canvas.model = m
+        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 1000, height: 800), styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false; window.contentView = canvas
+        defer { window.close() }
+        func menu(at point: CGPoint) throws -> NSMenu? {
+            let event = try XCTUnwrap(NSEvent.mouseEvent(with: .rightMouseDown, location: canvas.convert(point, to: nil), modifierFlags: [], timestamp: 0,
+                windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
+            return canvas.menu(for: event)
+        }
+        m.select(ids[1])
+        let context = try XCTUnwrap(menu(at: CGPoint(x: 40, y: 70)))
+        XCTAssertEqual(m.selectedID, ids[0])
+        XCTAssertEqual(context.items.filter { !$0.isSeparatorItem }.count, 4)
+        canvas.menuWillOpen(context); XCTAssertTrue(canvas.isShowingContextMenu)
+        let front = try XCTUnwrap(context.items.first)
+        _ = canvas.perform(try XCTUnwrap(front.action), with: front)
+        XCTAssertEqual(m.annotations.last?.id, ids[0])
+        m.undo(); XCTAssertEqual(m.annotations.map(\.id), ids)
+        m.select(ids: Set(ids)); _ = try menu(at: CGPoint(x: 220, y: 70))
+        XCTAssertEqual(m.selectedIDs, Set(ids))
+        canvas.menuDidClose(context); XCTAssertFalse(canvas.isShowingContextMenu)
+        XCTAssertNil(try menu(at: CGPoint(x: 700, y: 700))); XCTAssertFalse(m.hasSelection)
+        m.selectTool(.crop); XCTAssertNil(try menu(at: CGPoint(x: 40, y: 70)))
+    }
+
+    func testPopoverPlacementTracksEdgesAndAvoidsToolbar() throws {
+        let viewport = CGRect(x: 0, y: 0, width: 850, height: 400), size = CGSize(width: 420, height: 64)
+        let toolbar = CGRect(x: 185, y: 320, width: 480, height: 56)
+        let top = CGRect(x: 780, y: 0, width: 60, height: 60)
+        let frame = try XCTUnwrap(ScreenshotPopoverPlacement.frame(anchor: top, size: size, viewport: viewport, avoiding: [toolbar]))
+        XCTAssertTrue(viewport.contains(frame)); XCTAssertGreaterThan(frame.minY, top.maxY)
+        XCTAssertFalse(frame.intersects(toolbar))
+        let bottom = CGRect(x: 350, y: 260, width: 100, height: 40)
+        let above = try XCTUnwrap(ScreenshotPopoverPlacement.frame(anchor: bottom, size: size, viewport: viewport, avoiding: [toolbar]))
+        XCTAssertLessThan(above.maxY, bottom.minY); XCTAssertFalse(above.intersects(toolbar))
+        XCTAssertNil(ScreenshotPopoverPlacement.frame(anchor: CGRect(x: -300, y: -200, width: 100, height: 60), size: size, viewport: viewport, avoiding: []))
+        XCTAssertNotNil(ScreenshotPopoverPlacement.frame(anchor: CGRect(x: 200, y: 160, width: 180, height: 0), size: size, viewport: viewport, avoiding: []), "A horizontal arrow still has an anchor")
+    }
+
+    func testViewportPopoverFollowsSelectionAndHidesDuringGestureAndTextEntry() {
+        let m = model(), canvas = ScreenshotCanvasView(), scroll = NSScrollView()
+        canvas.model = m; scroll.documentView = canvas
+        let viewport = ScreenshotEditorViewport(scrollView: scroll, model: m, export: { _ in })
+        viewport.frame = CGRect(x: 0, y: 0, width: 1000, height: 800)
+        viewport.layoutSubtreeIfNeeded()
+        draw(m, .rectangle, CGPoint(x: 100, y: 200), CGPoint(x: 300, y: 400))
+        canvas.synchronize(); viewport.updatePresentation()
+        XCTAssertFalse(viewport.annotationPopover.isHidden)
+        m.beginInteraction(at: CGPoint(x: 100, y: 300), tolerance: 6); canvas.synchronize()
+        XCTAssertTrue(viewport.annotationPopover.isHidden)
+        m.continueInteraction(at: CGPoint(x: 200, y: 300)); m.endInteraction(); canvas.synchronize()
+        XCTAssertFalse(viewport.annotationPopover.isHidden)
+        m.isEditingText = true; viewport.updatePresentation(); XCTAssertTrue(viewport.annotationPopover.isHidden)
+        m.isEditingText = false; m.select(nil); canvas.synchronize(); XCTAssertTrue(viewport.annotationPopover.isHidden)
+    }
+
 }

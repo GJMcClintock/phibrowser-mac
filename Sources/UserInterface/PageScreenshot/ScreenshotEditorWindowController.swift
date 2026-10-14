@@ -30,9 +30,12 @@ final class ScreenshotEditorWindowController: NSWindowController, NSWindowDelega
         super.init(window: window)
         window.delegate = self
         window.editor = self
-        window.contentViewController = NSHostingController(rootView: ScreenshotEditorView(model: model, undo: { [weak window] in window?.replayUndo(redo: false) }, redo: { [weak window] in window?.replayUndo(redo: true) }, export: { [weak self] format in
+        let host = NSHostingController(rootView: ScreenshotCanvasScrollView(model: model, export: { [weak self] format in
             self?.export(format: format)
         }))
+        host.sizingOptions = []
+        window.contentViewController = host
+        window.setContentSize(NSSize(width: 1100, height: 780))
         model.onChange = { [weak self] in
             guard let self else { return }
             self.window?.isDocumentEdited = self.model.generation != self.savedGeneration
@@ -276,83 +279,5 @@ final class ScreenshotEditorWindow: NSWindow {
         if let text = canvasResponder?.textEntry ?? firstResponder as? NSTextView, let undo = text.undoManager {
             if redo { undo.redo() } else { undo.undo() }
         } else if redo { editor?.model.redo() } else { editor?.model.undo() }
-    }
-}
-
-@MainActor
-private struct ScreenshotEditorView: View {
-    @Bindable var model: ScreenshotEditorModel
-    let undo: () -> Void
-    let redo: () -> Void
-    let export: (ScreenshotExportFormat) -> Void
-    @State private var format = ScreenshotExportFormat.jpg
-
-    var body: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 8) {
-                toolButton(.select, title: NSLocalizedString("browser.screenshot.select", value: "Select", comment: "Screenshot editor - Select and move annotations"), symbol: "cursorarrow")
-                toolButton(.crop, title: NSLocalizedString("browser.screenshot.crop", value: "Crop", comment: "Screenshot editor - Crop the image to the selected rectangular region"), symbol: "lasso")
-                toolButton(.arrow, title: NSLocalizedString("browser.screenshot.arrow", value: "Arrow", comment: "Screenshot editor - Arrow drawing tool"), symbol: "arrow.up.right")
-                toolButton(.freehand, title: NSLocalizedString("browser.screenshot.freehand", value: "Freehand", comment: "Screenshot editor - Freehand drawing tool"), symbol: "pencil.tip")
-                toolButton(.text, title: NSLocalizedString("browser.screenshot.text", value: "Text", comment: "Screenshot editor - Text annotation tool"), symbol: "textformat")
-                toolButton(.rectangle, title: NSLocalizedString("browser.screenshot.rectangle", value: "Rectangle", comment: "Screenshot editor - Rectangle annotation tool"), symbol: "rectangle")
-                toolButton(.ellipse, title: NSLocalizedString("browser.screenshot.ellipse", value: "Ellipse", comment: "Screenshot editor - Ellipse annotation tool"), symbol: "circle")
-                Divider().frame(height: 22)
-                ColorPicker(NSLocalizedString("browser.screenshot.color", value: "Color", comment: "Screenshot editor - Annotation color control"), selection: Binding(get: {
-                    Color(.sRGB, red: model.foreground.red, green: model.foreground.green, blue: model.foreground.blue, opacity: model.foreground.alpha)
-                }, set: { color in
-                    if let rgb = NSColor(color).usingColorSpace(.sRGB) {
-                        model.foreground = ScreenshotColor(red: Double(rgb.redComponent), green: Double(rgb.greenComponent), blue: Double(rgb.blueComponent), alpha: Double(rgb.alphaComponent))
-                    }
-                })).labelsHidden().frame(width: 28)
-                Picker(NSLocalizedString("browser.screenshot.width", value: "Width", comment: "Screenshot editor - Stroke width in source image pixels"), selection: $model.brushSize) {
-                    ForEach(Array(Set([model.brushSize] + [CGFloat(model.width) / 1000 * 2.5, 2.5, 4, 8, 16, 32])).sorted(), id: \.self) { size in Text(verbatim: String(format: "%.1f px", Double(size))).tag(size) }
-                }.labelsHidden().frame(width: 85)
-                Picker(NSLocalizedString("browser.screenshot.textSize", value: "Text Size", comment: "Screenshot editor - Text size in source image pixels"), selection: $model.textSize) {
-                    ForEach(Array(Set([Double(model.textSize), 15.0, 24.0, 44.0, 60.0, 80.0])).sorted(), id: \.self) { size in Text(verbatim: "\(Int(size)) px").tag(CGFloat(size)) }
-                }.labelsHidden().frame(width: 85)
-                Toggle(NSLocalizedString("browser.screenshot.fill", value: "Fill", comment: "Screenshot editor - Fill rectangle or ellipse with the annotation color"), isOn: $model.filled)
-                    .toggleStyle(.checkbox)
-                Spacer(minLength: 4)
-                Picker(NSLocalizedString("browser.screenshot.format", value: "Format", comment: "Screenshot editor - Export file format"), selection: $format) {
-                    Text(verbatim: "JPG").tag(ScreenshotExportFormat.jpg)
-                    Text(verbatim: "PDF").tag(ScreenshotExportFormat.pdf)
-                }.labelsHidden().frame(width: 65)
-                Button(NSLocalizedString("browser.screenshot.export", value: "Export…", comment: "Screenshot editor - Save the edited image to a file")) { export(format) }
-            }.padding(10)
-            HStack(spacing: 12) {
-                iconButton(NSLocalizedString("browser.screenshot.undo", value: "Undo", comment: "Screenshot editor - Undo the last edit"), symbol: "arrow.uturn.backward", action: undo).disabled(model.isEditingText ? !model.textCanUndo : !model.canUndo)
-                iconButton(NSLocalizedString("browser.screenshot.redo", value: "Redo", comment: "Screenshot editor - Redo the last undone edit"), symbol: "arrow.uturn.forward", action: redo).disabled(model.isEditingText ? !model.textCanRedo : !model.canRedo)
-                Button(NSLocalizedString("browser.screenshot.duplicate", value: "Duplicate", comment: "Screenshot editor - Duplicate selected annotation"), action: model.duplicateSelection).disabled(!model.hasSelection)
-                Button(NSLocalizedString("browser.screenshot.delete", value: "Delete", comment: "Screenshot editor - Delete selected annotation"), action: model.deleteSelection).disabled(!model.hasSelection)
-                Button(NSLocalizedString("browser.screenshot.bringToFront", value: "Bring to Front", comment: "Screenshot editor - Move selected annotation above others")) { model.reorderSelection(front: true) }.disabled(!model.hasSelection)
-                Button(NSLocalizedString("browser.screenshot.sendToBack", value: "Send to Back", comment: "Screenshot editor - Move selected annotation below others")) { model.reorderSelection(front: false) }.disabled(!model.hasSelection)
-                Spacer()
-            }.padding(.horizontal, 12).padding(.bottom, 8)
-            Divider()
-            ScreenshotCanvasScrollView(model: model)
-            Divider()
-            HStack {
-                Text(verbatim: "\(model.width) × \(model.height) px")
-                Spacer()
-                iconButton(NSLocalizedString("browser.screenshot.zoomOut", value: "Zoom Out", comment: "Screenshot editor - Reduce preview magnification"), symbol: "minus.magnifyingglass") { model.zoomBy(0.8) }
-                Text(verbatim: "\(Int((model.zoom * 100).rounded()))%")
-                iconButton(NSLocalizedString("browser.screenshot.zoomIn", value: "Zoom In", comment: "Screenshot editor - Increase preview magnification"), symbol: "plus.magnifyingglass") { model.zoomBy(1.25) }
-                Button(NSLocalizedString("browser.screenshot.fit", value: "Fit", comment: "Screenshot editor - Fit the complete screenshot in the window"), action: model.fit)
-                Button(NSLocalizedString("browser.screenshot.actualSize", value: "100%", comment: "Screenshot editor - Show one source image pixel per preview point")) { model.zoomBy(1 / model.zoom) }
-            }.font(.system(size: 12)).padding(8)
-        }.background(Color(nsColor: .windowBackgroundColor))
-    }
-    private func toolButton(_ tool: ScreenshotTool, title: String, symbol: String) -> some View {
-        Button { model.selectTool(tool) } label: {
-            Image(systemName: symbol).frame(width: 24, height: 24).padding(6)
-                .background(model.tool == tool ? Color.accentColor.opacity(0.2) : Color.clear, in: RoundedRectangle(cornerRadius: 6))
-                .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(model.tool == tool ? Color.accentColor : Color.secondary.opacity(0.25), lineWidth: 1))
-        }
-        .buttonStyle(.plain).help(title).accessibilityLabel(title)
-        .accessibilityAddTraits(model.tool == tool ? [.isSelected] : [])
-    }
-    private func iconButton(_ title: String, symbol: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) { Image(systemName: symbol) }.help(title).accessibilityLabel(title)
     }
 }

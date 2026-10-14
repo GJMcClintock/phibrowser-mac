@@ -6,7 +6,7 @@ import QuartzCore
 
 /// Retained layers are independent of the immutable screenshot background.
 @MainActor
-final class ScreenshotCanvasView: NSView, NSTextViewDelegate {
+final class ScreenshotCanvasView: NSView, NSTextViewDelegate, NSMenuDelegate {
     override var isFlipped: Bool { true }
     override var acceptsFirstResponder: Bool { true }
     override var undoManager: UndoManager? { model?.undoManager }
@@ -25,7 +25,11 @@ final class ScreenshotCanvasView: NSView, NSTextViewDelegate {
     private let selection = CAShapeLayer()
     private let marqueeLayer = CAShapeLayer()
     private let cropShade = CAShapeLayer()
-    private let cropButton = NSButton()
+    private let cropGrid = CAShapeLayer()
+    private let cropHandles = CAShapeLayer()
+    var onPresentationChange: (() -> Void)?
+    private(set) var isShowingContextMenu = false
+    var isPanningImage: Bool { isPanning || spaceHeld }
     private var objectLayers: [UUID: CALayer] = [:]
     private var rendered: [UUID: ScreenshotAnnotation] = [:]
     private var renderedTextScale = 0.0
@@ -69,15 +73,11 @@ final class ScreenshotCanvasView: NSView, NSTextViewDelegate {
         marqueeLayer.fillColor = NSColor.controlAccentColor.withAlphaComponent(0.1).cgColor
         marqueeLayer.lineWidth = 1
         layer?.addSublayer(marqueeLayer)
-        cropButton.title = NSLocalizedString("browser.screenshot.crop", value: "Crop", comment: "Screenshot editor - Crop the image to the selected rectangular region")
-        cropButton.bezelStyle = .rounded
-        cropButton.identifier = NSUserInterfaceItemIdentifier("screenshot.crop.confirm")
-        cropButton.setAccessibilityIdentifier("screenshot.crop.confirm")
-        cropButton.target = self; cropButton.action = #selector(confirmCrop(_:))
-        cropButton.sizeToFit()
-        cropButton.setFrameSize(CGSize(width: max(70, cropButton.frame.width + 16), height: 30))
-        cropButton.isHidden = true
-        addSubview(cropButton)
+        cropGrid.strokeColor = NSColor.white.withAlphaComponent(0.4).cgColor
+        cropGrid.fillColor = nil; cropGrid.lineWidth = 0.5
+        cropHandles.fillColor = NSColor.white.cgColor
+        cropHandles.strokeColor = NSColor.black.withAlphaComponent(0.3).cgColor
+        layer?.addSublayer(cropGrid); layer?.addSublayer(cropHandles)
     }
     convenience init() { self.init(frame: .zero) }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
@@ -138,6 +138,7 @@ final class ScreenshotCanvasView: NSView, NSTextViewDelegate {
         updateCropOverlay()
         CATransaction.commit()
         window?.invalidateCursorRects(for: self)
+        onPresentationChange?()
     }
     private func makeObjectLayer(_ annotation: ScreenshotAnnotation) -> CALayer {
         let item: CALayer = annotation.kind == .text ? CALayer() : CAShapeLayer()
@@ -200,35 +201,61 @@ final class ScreenshotCanvasView: NSView, NSTextViewDelegate {
         let rect = model?.tool == .crop ? model?.cropRect : model?.marquee
         marqueeLayer.path = rect.map { CGPath(rect: $0.applying(transform), transform: nil) }
         marqueeLayer.fillColor = model?.tool == .crop ? nil : NSColor.controlAccentColor.withAlphaComponent(0.1).cgColor
-        marqueeLayer.lineDashPattern = model?.tool == .crop ? [5, 3] : nil
+        marqueeLayer.lineDashPattern = nil
+        marqueeLayer.strokeColor = model?.tool == .crop ? NSColor.white.cgColor : NSColor.controlAccentColor.cgColor
     }
     private func updateCropOverlay() {
         guard let model, model.tool == .crop, let cropRect = model.cropRect else {
-            cropShade.path = nil; cropButton.isHidden = true; return
+            cropShade.path = nil; cropGrid.path = nil; cropHandles.path = nil; return
         }
         let rect = cropRect.applying(CGAffineTransform(scaleX: zoom, y: zoom))
-        let path = CGMutablePath(); path.addRect(bounds); path.addRect(rect)
-        cropShade.frame = bounds; cropShade.path = path
-        cropButton.isHidden = !model.canCrop
-        guard model.canCrop else { return }
-        let visible = visibleRect.intersection(bounds), size = cropButton.frame.size
-        // Place the action inside a roomy selection, otherwise immediately beside it.
-        let fits = rect.width >= size.width + 16 && rect.height >= size.height + 16
-        let x = fits ? rect.maxX - size.width - 8 : rect.maxX + 8
-        let y = fits ? rect.maxY - size.height - 8 : rect.maxY + 8
-        cropButton.setFrameOrigin(CGPoint(x: max(visible.minX, min(visible.maxX - size.width, x)),
-                                         y: max(visible.minY, min(visible.maxY - size.height, y))))
+        let shade = CGMutablePath(); shade.addRect(bounds); shade.addRect(rect)
+        cropShade.frame = bounds; cropShade.path = shade
+        let grid = CGMutablePath()
+        for fraction: CGFloat in [1 / 3, 2 / 3] {
+            grid.move(to: CGPoint(x: rect.minX + rect.width * fraction, y: rect.minY))
+            grid.addLine(to: CGPoint(x: rect.minX + rect.width * fraction, y: rect.maxY))
+            grid.move(to: CGPoint(x: rect.minX, y: rect.minY + rect.height * fraction))
+            grid.addLine(to: CGPoint(x: rect.maxX, y: rect.minY + rect.height * fraction))
+        }
+        cropGrid.frame = bounds; cropGrid.path = grid
+        let handles = CGMutablePath()
+        for (_, point) in model.cropHandles {
+            handles.addRect(CGRect(x: point.x * zoom - 4, y: point.y * zoom - 4, width: 8, height: 8))
+        }
+        cropHandles.frame = bounds; cropHandles.path = handles
     }
-    @objc private func confirmCrop(_ sender: Any?) {
-        model?.cropToSelection()
-        window?.makeFirstResponder(self)
+
+    override func menu(for event: NSEvent) -> NSMenu? {
+        guard let model, model.tool != .crop else { return nil }
+        prepareForCommand()
+        let point = sourcePoint(from: convert(event.locationInWindow, from: nil))
+        guard let object = model.hitTest(point, tolerance: 15 / max(zoom, 0.02)) else {
+            model.select(nil); synchronize(); return nil
+        }
+        model.selectTool(.select)
+        if !model.selectedIDs.contains(object.id) { model.select(object.id) }
         synchronize()
+        let menu = NSMenu(); menu.delegate = self
+        let front = NSMenuItem(title: NSLocalizedString("browser.screenshot.bringToFront", value: "Bring to Front", comment: "Screenshot editor - Move selected annotation above others"), action: #selector(bringSelectionToFront(_:)), keyEquivalent: "")
+        let back = NSMenuItem(title: NSLocalizedString("browser.screenshot.sendToBack", value: "Send to Back", comment: "Screenshot editor - Move selected annotation below others"), action: #selector(sendSelectionToBack(_:)), keyEquivalent: "")
+        let duplicate = NSMenuItem(title: NSLocalizedString("browser.screenshot.duplicate", value: "Duplicate", comment: "Screenshot editor - Duplicate selected annotation"), action: #selector(duplicateAnnotation(_:)), keyEquivalent: "d")
+        let delete = NSMenuItem(title: NSLocalizedString("browser.screenshot.delete", value: "Delete", comment: "Screenshot editor - Delete selected annotation"), action: #selector(deleteAnnotation(_:)), keyEquivalent: "\u{8}")
+        delete.keyEquivalentModifierMask = []
+        for item in [front, back, NSMenuItem.separator(), duplicate, delete] { item.target = self; menu.addItem(item) }
+        return menu
     }
+    func menuWillOpen(_ menu: NSMenu) { isShowingContextMenu = true; onPresentationChange?() }
+    func menuDidClose(_ menu: NSMenu) { isShowingContextMenu = false; onPresentationChange?() }
+    @objc private func bringSelectionToFront(_ sender: Any?) { model?.reorderSelection(front: true); synchronize() }
+    @objc private func sendSelectionToBack(_ sender: Any?) { model?.reorderSelection(front: false); synchronize() }
+    @objc private func duplicateAnnotation(_ sender: Any?) { model?.duplicateSelection(); synchronize() }
+    @objc private func deleteAnnotation(_ sender: Any?) { model?.deleteSelection(); synchronize() }
     private var handleTolerance: CGFloat { 7 / max(zoom, 0.02) }
     override func resetCursorRects() {
         addCursorRect(bounds, cursor: spaceHeld ? .openHand : model?.tool == .text ? .iBeam : model?.tool == .select ? .arrow : .crosshair)
-        if let model, model.tool == .select {
-            for (handle, point) in model.selectionHandles {
+        if let model, model.tool == .select || model.tool == .crop {
+            for (handle, point) in model.tool == .crop ? model.cropHandles : model.selectionHandles {
                 let cursor: NSCursor = [.top, .bottom].contains(handle) ? .resizeUpDown : [.left, .right].contains(handle) ? .resizeLeftRight : .crosshair
                 addCursorRect(CGRect(x: point.x * zoom - 7, y: point.y * zoom - 7, width: 14, height: 14), cursor: cursor)
             }
@@ -241,7 +268,7 @@ final class ScreenshotCanvasView: NSView, NSTextViewDelegate {
         window?.makeFirstResponder(self)
         let local = convert(event.locationInWindow, from: nil)
         if spaceHeld {
-            isPanning = true; lastPan = event.locationInWindow; previousPanCursor = NSCursor.current; NSCursor.closedHand.set(); return
+            isPanning = true; lastPan = event.locationInWindow; previousPanCursor = NSCursor.current; NSCursor.closedHand.set(); onPresentationChange?(); return
         }
         let point = sourcePoint(from: local)
         if model.tool == .select, event.clickCount == 2, let object = model.hitTest(point, tolerance: 15 / max(zoom, 0.02)), object.kind == .text {
@@ -282,7 +309,7 @@ final class ScreenshotCanvasView: NSView, NSTextViewDelegate {
     }
     override func mouseUp(with event: NSEvent) {
         stopAutoscroll()
-        if isPanning { endPan(); window?.invalidateCursorRects(for: self); return }
+        if isPanning { endPan(); window?.invalidateCursorRects(for: self); onPresentationChange?(); return }
         if model?.isInteracting == true {
             model?.continueInteraction(at: sourcePoint(from: convert(event.locationInWindow, from: nil)), mirrored: event.modifierFlags.contains(.option), modifiers: event.modifierFlags)
             model?.endInteraction(); synchronize()
@@ -317,7 +344,8 @@ final class ScreenshotCanvasView: NSView, NSTextViewDelegate {
         let flags = event.modifierFlags.intersection([.command, .shift, .control, .option])
         let key = event.charactersIgnoringModifiers?.lowercased() ?? ""
         if event.keyCode == 53 { cancelOperation(nil); return }
-        if event.keyCode == 49, flags.isEmpty { spaceHeld = true; window?.invalidateCursorRects(for: self); return }
+        if event.keyCode == 49, flags.isEmpty { spaceHeld = true; window?.invalidateCursorRects(for: self); onPresentationChange?(); return }
+        if [36, 76].contains(event.keyCode), flags.isEmpty, model.tool == .crop { model.cropToSelection(); synchronize(); return }
         if flags == [.command], key == "a" { model.selectAll(); synchronize(); return }
         if flags == [.command], key == "d" { model.duplicateSelection(); synchronize(); return }
         if event.keyCode == 51 || event.keyCode == 117 { model.deleteSelection(); synchronize(); return }
@@ -333,7 +361,7 @@ final class ScreenshotCanvasView: NSView, NSTextViewDelegate {
         super.keyDown(with: event)
     }
     override func keyUp(with event: NSEvent) {
-        if event.keyCode == 49 { spaceHeld = false; endPan(); window?.invalidateCursorRects(for: self) }
+        if event.keyCode == 49 { spaceHeld = false; endPan(); window?.invalidateCursorRects(for: self); onPresentationChange?() }
         else { super.keyUp(with: event) }
     }
     private func copyAnnotation() -> Bool {
