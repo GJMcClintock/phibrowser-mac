@@ -513,7 +513,7 @@ struct UnifiedTabFaviconView: View {
             )
         }
         .overlay(alignment: .topTrailing) {
-            if viewModel.isCapturingMedia {
+            if viewModel.isCapturingMedia && !viewModel.hidesRecordingBadge {
                 UnifiedTabRecordingIcon()
                     .offset(x: 3, y: -3)
             }
