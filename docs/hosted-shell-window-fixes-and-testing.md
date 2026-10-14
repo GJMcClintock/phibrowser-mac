@@ -109,8 +109,10 @@ oldest loses its frame, as does a tab idle for more than five minutes.
 Switching back to one, its renderer usually draws a new frame before the
 mount, as Chromium makes the tab visible on activation; a frame later than
 four frames after the mount shows the page-area backdrop until it lands.
-Known limitation: a page whose view overruns its host during the AI Chat or
-extension side panel slide draws past the host's edge until the slide ends.
+While the AI Chat panel or the extension side panel slides, the AI Chat
+panel moves with its split item and a page stays inside its card, as self-drawn
+ones do: the client tells the surface each web view's rect and visible part
+on every pass (ADR 0010, "Radii, stacking, position and clip").
 
 The feature is on by default. Run the content-surface row as is, then once
 with `--disable-features=PhiContentSurface` as a smoke test: no crash, and no

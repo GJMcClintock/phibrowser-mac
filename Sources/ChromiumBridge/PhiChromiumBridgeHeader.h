@@ -2245,6 +2245,38 @@ typedef NS_ENUM(NSInteger, PhiGhostMaterializeOutcome) {
                              zOrder:(NSInteger)zOrder
     NS_SWIFT_NAME(setContentHosting(forWebView:topLeftRadius:topRightRadius:bottomRightRadius:bottomLeftRadius:zOrder:));
 
+/// As setContentHosting: above, and also tells where the web view is and the
+/// part of it that shows, as views places and clips a WebView upstream: on
+/// every layout, including one that moves only an ancestor, which the web
+/// view's own views do not see, and to what a sliding panel leaves visible.
+/// Both rects are in the window's coordinates, in points, flipped to a
+/// top-left origin by the window's height, as Chromium keeps a view's bounds
+/// in its window. `clipInWindow` is the part of `frameInWindow` its clipping
+/// ancestors leave visible, empty when none is. Optional so an older
+/// framework ignores it; call setContentHosting: above when it does.
+- (void)setContentHosting:(id<WebContentWrapper>)webContent
+            frameInWindow:(NSRect)frameInWindow
+             clipInWindow:(NSRect)clipInWindow
+            topLeftRadius:(CGFloat)topLeftRadius
+           topRightRadius:(CGFloat)topRightRadius
+        bottomRightRadius:(CGFloat)bottomRightRadius
+         bottomLeftRadius:(CGFloat)bottomLeftRadius
+                   zOrder:(NSInteger)zOrder;
+
+/// As setContentHosting:frameInWindow:clipInWindow: above, for a web view
+/// addressed by its NSView, as setContentHostingForWebView: is. Optional so
+/// an older framework ignores it; call setContentHostingForWebView: when it
+/// does.
+- (void)setContentHostingForWebView:(NSView *)webView
+                      frameInWindow:(NSRect)frameInWindow
+                       clipInWindow:(NSRect)clipInWindow
+                      topLeftRadius:(CGFloat)topLeftRadius
+                     topRightRadius:(CGFloat)topRightRadius
+                  bottomRightRadius:(CGFloat)bottomRightRadius
+                   bottomLeftRadius:(CGFloat)bottomLeftRadius
+                             zOrder:(NSInteger)zOrder
+    NS_SWIFT_NAME(setContentHosting(forWebView:frameInWindow:clipInWindow:topLeftRadius:topRightRadius:bottomRightRadius:bottomLeftRadius:zOrder:));
+
 @end
 
 typedef NS_ENUM(NSInteger, PhiMediaControlAction) {
