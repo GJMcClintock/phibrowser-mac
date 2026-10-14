@@ -216,6 +216,10 @@ final class TabViewModel {
     var isAudioMuted: Bool = false
     var isCapturingMedia: Bool = false
     var isHorizontalCompactMode: Bool = false
+    /// Set by the horizontal tab strip while it hides this favicon under the
+    /// cell's centered recording icon: the badge then stays out of the tree,
+    /// as its pulse would keep rendering inside the hidden host.
+    var hidesRecordingBadge: Bool = false
     /// Color of the tab group this tab belongs to, if any. Drives the
     /// vertical group-affiliation bar on the leading edge of the cell.
     /// Tracks live: changes when the tab joins / leaves a group, when the

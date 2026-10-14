@@ -395,6 +395,11 @@ final class TabItemView: NSView {
             isUnloaded: sourceTab?.isUnloaded == true
                 || pinnedSplitPartner?.isUnloaded == true
         )
+        // Pinned and compact cells show recording as the centered icon below
+        // and hide both favicons; drop their corner badges with them.
+        let hidesRecordingBadges = showRecording && mode != .normal
+        viewModel.hidesRecordingBadge = hidesRecordingBadges
+        secondaryFaviconViewModel.hidesRecordingBadge = hidesRecordingBadges
 
         switch mode {
         case .pinned, .compact:
