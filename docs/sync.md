@@ -324,6 +324,97 @@ existing row from being created again, and a deletion of such a Space arriving
 from the account is applied); Chromium keeps syncing the mapped Profiles for the
 first 15 seconds; the reason is per pass, not per Profile.
 
+### Profile pairing and the default profile
+
+Each account Profile's key travels in an envelope sealed with the ARK:
+`{"v":1,"key":<base64>,"name":<string>,"default":<bool>}`
+(`ProfileKeyManager.sealProfilePayload` / `openProfilePayload`). The server stores
+it opaquely. `"default"` is additive: every registration writes it, `true` only
+for the registering device's Default Profile (`LocalStore.defaultProfileId`),
+`false` for any other. An envelope without the key was written before the flag
+existed and reads as unknown (`RemoteProfile.isDefault == nil`), never as false.
+Older clients ignore the key.
+
+Legacy envelopes of this Mac's own mappings are backfilled best effort. After
+every mapping pass that reaches its announcement, and after every auto-create
+refresh that read the account listing (the periodic sync round reaches the key
+layer only through that refresh, including when nothing is missing),
+`SyncKeyController` starts one single-flight backfill over the local Profiles
+that have a persisted mapping (`ProfileKeyManager.backfillDefaultFlag`, main-actor
+isolated because its fence reads controller state). A local Default provides evidence for
+`true`; ordinary locals fill a missing flag with `false`. True wins across devices:
+`false` may be promoted to `true`, never the reverse. Unmapped account Profiles
+stay unknown; this Mac cannot infer their role from a name. Only other devices'
+pairing reads the flag: this Mac's rounds, Chromium key delivery and Space landing
+never read its own mappings' flag, so the backfill never blocks startup or sync,
+never withholds Chromium keys, never holds or delays the pass announcement and
+never changes the pass result or failure category. A failure is logged once per
+uuid per session (8-character prefix) and the next pass retries. A uuid confirmed
+to carry the flag is not fetched again in the same session; a changed mapping for
+that Profile re-checks it.
+
+`PATCH /keys/v1/profiles/{uuid}` conditionally replaces an envelope using the
+exact old ciphertext in `expected_profile_key_envelope`; PUT stays create-only.
+The client preserves the Profile UUID, key, name and unknown payload fields; 409
+means re-read and merge again, at most three attempts per backfill
+(`metadataConflict`, transient). A 404 on GET leaves the missing identity to the
+existing mapping repair; no key or UUID is minted. Account retirement,
+cancellation and a changed mapping fence each write. Deploy the service endpoint
+first; a client talking to a service without it only leaves its legacy envelopes
+unknown (failures are logged and retried), and sync is otherwise unaffected. The
+backfill upgrades known mappings; envelopes owned only by devices that have not
+upgraded stay unknown.
+
+Rule: a device's Default Profile pairs only with the account's default Profile.
+Exactly one account default is authoritative on a Mac: the one its Default is
+mapped to with the uuid still in the account listing, or, while the Default is
+still undecided in the pairing sheet, the one currently chosen for it. Two devices
+that complete first pairing concurrently each register a default; every account
+default other than the authoritative one is demoted to an ordinary Profile on this
+Mac (offered to other locals, creatable, auto-created) and the conflict is logged
+(`AppLogWarn`, metadata only). Nothing is hidden or left unclaimable, so Spaces
+bound to the other default still land.
+
+| Remote | Local Default | Other local |
+| --- | --- | --- |
+| Authoritative account default | Allowed; preselected whatever its name | Never; never created as a new local |
+| Other account default (demoted) | Allowed (choosing it makes it authoritative) | Allowed, like any Profile |
+| `isDefault == false` | Never | Allowed |
+| `nil` (legacy / unknown) | Allowed | Allowed |
+
+`ProfilePairingModel` applies it to every picker, preselection (the local Default
+is decided first and takes the first unclaimed account default, otherwise a name
+match among the remotes it may take), "Assign to" option, "Create on this Mac"
+option and decision; `authoritativeDefaultUuid` follows the local Default's current
+choice, so roles change live in the sheet. Rows for the local Default and the
+authoritative account default carry the Default badge. `adoptRemoteProfile`
+refuses a known non-default for the local Default with
+`ProfileKeyManagerError.defaultMismatch` before writing anything; the pairing sheet
+shows a fixed error and reloads. Which default is authoritative is the callers'
+knowledge, so the write boundary does not police the other half.
+
+Background mapping follows the same rule. A local counts as mapped only while its
+persisted uuid is in the round's account listing, so a mapping whose envelope is
+gone never keeps the local Default from claiming the live account default (and a
+third uuid is never registered for it). How auto-create reads the missing
+envelopes depends on whether the local Default is free (user-assignable and
+without a live mapping). When it is not, the round streams in uuid order with
+the per-round cap checked before each read, so it reads at most
+`maxAutoCreatesPerRound` envelopes it then acts on; claim order is irrelevant
+because any flagged default is demoted. When it is free, the round first scans
+the missing envelopes with at most `candidateScanWidth` (3) reads in flight and an
+overall `candidateScanDeadline` (10 seconds), then claims flagged account
+defaults first and everything else after, uuid order within each group, under
+the same cap. A read error or the deadline makes the scan incomplete (an
+envelope that does not open is a known non-candidate, not incomplete). While the
+scan is incomplete or a flagged account default is among the candidates, no
+unflagged Profile may take the local Default that round, even if the flagged
+default's own adopt fails; the Default stays free and the next round retries.
+Otherwise a free local Default adopts an account default regardless of name (the
+first by uuid among several), and a known non-default never takes it. Once the
+Default is live-mapped, any other account default is twinned by name or created
+like an ordinary Profile, and its conflict is logged once per uuid.
+
 ## Sync status contract
 
 `SyncHelper` is the account-scoped macOS owner of the common completion time.
