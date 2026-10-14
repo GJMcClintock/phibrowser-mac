@@ -21,7 +21,14 @@ Focused scopes remain available:
 ```sh
 ./build-scripts/test-sidebar-media.sh --multi-source
 ./build-scripts/test-sidebar-media.sh --physical-swipe
+./build-scripts/test-sidebar-media.sh --silent-source-retention
 ```
+
+Cards silenced while displayed retain their source identity across card cycling
+and selection of a newer player, including paused cards. Initially silent
+background sources remain excluded. The focused retention checks cover cycling
+across Spaces, returning to unmute, and cleanup after navigation, media loss,
+source replacement, tab closure, source visits, dismissal, and disabled observation.
 
 For the opt-in end-to-end pointer and seek UI test, start the reproducible local Range fixture in one terminal:
 

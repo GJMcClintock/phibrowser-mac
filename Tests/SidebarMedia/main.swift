@@ -100,6 +100,13 @@ struct FakeSplitGroup {
 struct SidebarMediaHarness {
     @MainActor
     static func main() async {
+        if CommandLine.arguments.contains("--silent-source-retention") {
+            await silentCardsSurviveCyclingAcrossSpaces()
+            await mutedCardSurvivesNewPlayer()
+            await silentRetentionEndsWithItsSource()
+            print("Sidebar silent source retention checks passed")
+            return
+        }
         if CommandLine.arguments.contains("--space-presentation") {
             await spaceSwitchKeepsMediaPresentation()
             await spaceSwitchBuffersNewBackgroundVideos()
@@ -129,6 +136,9 @@ struct SidebarMediaHarness {
             await volumeInteractionAndValidation()
             await volumeIsReadOnlyWhenOpened()
             await mutingKeepsSelectedSource()
+            await silentCardsSurviveCyclingAcrossSpaces()
+            await mutedCardSurvivesNewPlayer()
+            await silentRetentionEndsWithItsSource()
             await silentSourcesDoNotReenterAfterVisit()
             await silentBackgroundSourcesAreNotAdmitted()
             await muteValidationAndNativeState()
@@ -540,6 +550,117 @@ struct SidebarMediaHarness {
         precondition(controller.item?.playback.isMuted == false && !tab.isAudioMuted)
         tab.controls.emit(nil)
         precondition(controller.item == nil, "Media loss must still remove the card")
+    }
+
+    @MainActor
+    static func silentCardsSurviveCyclingAcrossSpaces() async {
+        for field in ["muted", "sourceSilent", "tabMuted", "volume"] {
+            let f = Fixture([961, 962, 963]); defer { f.stop() }
+            let otherSpace = BrowserState()
+            otherSpace.tabs = [Tab(964)]
+            otherSpace.focusingTab = otherSpace.tabs[0]
+            let c = f.controller, a = f.tabs[0], b = f.tabs[1]
+            let surface = SidebarMediaController.Surface(session: otherSpace, kind: .docked)
+            c.setSessions([f.state, otherSpace], presented: otherSpace)
+            c.setActive(true, on: surface)
+            await tick()
+            precondition(c.item?.tabId == a.guid && c.backgroundSourceCount == 2)
+            if field == "muted" {
+                c.toggleMute(for: require(c.item), from: surface)
+            } else {
+                var value = require(a.controls.snapshotValue)
+                value[field] = field == "volume" ? 0.0 : true
+                a.controls.emit(value)
+            }
+            a.isCurrentlyAudible = false
+            await tick()
+            for paused in [false, true] {
+                if paused { c.perform(.playPause, for: require(c.item), from: surface) }
+                let actions = a.controls.actions.count
+                c.cycleSource(for: require(c.item), from: surface)
+                await tick()
+                precondition(c.item?.tabId == b.guid && c.backgroundSourceCount == 2,
+                             "Cycling away must retain the silent card, including when paused: \(field)")
+                a.controls.emit(require(a.controls.snapshotValue))
+                c.cycleSource(for: require(c.item), direction: .previous, from: surface)
+                await tick()
+                precondition(c.item?.tabId == a.guid && c.backgroundSourceCount == 2,
+                             "The silent card must remain a valid cycle destination: \(field)")
+                precondition(a.controls.actions.count == actions,
+                             "Cycling must not alter the retained media's playback or mute state")
+            }
+            if field == "muted" {
+                c.toggleMute(for: require(c.item), from: surface)
+                precondition(c.item?.playback.isMuted == false,
+                             "Returning to the retained card must allow unmuting")
+            }
+        }
+    }
+
+    @MainActor
+    static func mutedCardSurvivesNewPlayer() async {
+        let f = Fixture([965, 966]); defer { f.stop() }
+        await tick()
+        let c = f.controller, a = f.tabs[0], b = Tab(967)
+        c.toggleMute(for: require(c.item), from: .docked)
+        f.state.tabs.append(b)
+        f.state.focusingTab = b
+        await tick()
+        b.controls.emit(snapshot("New player", token: "new-token", source: "new-source"))
+        b.isCurrentlyAudible = true
+        await tick()
+        f.state.focusingTab = f.tabs.last
+        await tick(1150)
+        precondition(c.item?.tabId == b.guid && c.backgroundSourceCount == 2,
+                     "A newer playing tab must not remove the previous muted card")
+        c.cycleSource(for: require(c.item), from: .docked)
+        await tick()
+        precondition(c.item?.tabId == a.guid && c.item?.playback.isMuted == true)
+        c.toggleMute(for: require(c.item), from: .docked)
+        precondition(c.item?.playback.isMuted == false && c.backgroundSourceCount == 2)
+    }
+
+    @MainActor
+    static func silentRetentionEndsWithItsSource() async {
+        for invalidation in 0..<10 {
+            let f = Fixture([968, 969, 970]); defer { f.stop() }
+            await tick()
+            let c = f.controller, a = f.tabs[0]
+            c.toggleMute(for: require(c.item), from: .docked)
+            c.cycleSource(for: require(c.item), from: .docked)
+            await tick()
+            precondition(c.item?.tabId == 969 && c.backgroundSourceCount == 2)
+            switch invalidation {
+            case 0: a.isLoading = true
+            case 1: a.url = "https://example.test/replaced"
+            case 2: a.setWebContentsWrapper(wrapper: FakeWrapper())
+            case 3: f.state.tabs.removeAll { $0 === a }
+            case 4: a.controls.emit(nil)
+            case 5:
+                var replacement = require(a.controls.snapshotValue)
+                replacement["sourceToken"] = "replacement-source"
+                a.controls.emit(replacement)
+            case 6:
+                f.state.focusingTab = a
+                await tick()
+                f.state.focusingTab = f.tabs.last
+            case 7:
+                c.cycleSource(for: require(c.item), from: .docked)
+                await tick()
+                c.dismissCurrent(for: require(c.item), from: .docked)
+            case 8:
+                f.enabled(false)
+                await tick()
+                f.enabled(true)
+            default:
+                f.state.splits = [FakeSplitGroup(first: a.guid, second: 970)]
+                await tick()
+                f.state.splits = []
+            }
+            await tick()
+            precondition(c.item?.tabId == 969 && c.backgroundSourceCount == 1,
+                         "Silent retention must end with source invalidation: \(invalidation)")
+        }
     }
 
     @MainActor

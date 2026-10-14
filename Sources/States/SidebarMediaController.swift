@@ -86,6 +86,7 @@ final class SidebarMediaController: ObservableObject {
     private var dismissedSources: [SourceKey: SourceIdentity] = [:]
     private var pipRetainedSources: [SourceKey: SourceIdentity] = [:]
     private var spaceExitBuffers: [SourceKey: (identity: SourceIdentity, task: Task<Void, Never>)] = [:]
+    private var silentRetainedSources: [SourceKey: SourceIdentity] = [:]
     private var candidates: [SourceKey: Item] = [:]
     private var manuallySelectedSourceKey: SourceKey?
     private var previousFocusedSourceKey: SourceKey?
@@ -272,6 +273,7 @@ final class SidebarMediaController: ObservableObject {
             spaceExitBuffers.removeAll()
             backgroundSourceCount = 0
             candidates.removeAll()
+            silentRetainedSources.removeAll()
             visitsAwaitingPlayback.removeAll()
             stateSubscriptions.removeAll()
             subscriptionGenerations.removeAll()
@@ -536,6 +538,15 @@ final class SidebarMediaController: ObservableObject {
         if let previous = candidates[key], SourceIdentity(previous) != SourceIdentity(candidate),
            cyclingSourceKey == key { cancelCycle() }
         let identity = SourceIdentity(candidate)
+        if playback.isMuted || playback.isSourceSilent || playback.isTabMuted || playback.volume == 0 {
+            // Retain a card silenced in place by source identity, so selecting
+            // another card does not remove the user's way to restore sound.
+            if item.map(SourceIdentity.init) == identity, !isSourceVisible, !isDismissed {
+                silentRetainedSources[key] = identity
+            }
+        } else {
+            silentRetainedSources.removeValue(forKey: key)
+        }
         if let retained = pipRetainedSources[key], retained != identity {
             pipRetainedSources.removeValue(forKey: key)
         }
@@ -566,9 +577,8 @@ final class SidebarMediaController: ObservableObject {
     private func canPresent(_ candidate: Item) -> Bool {
         let playback = candidate.playback
         guard playback.isMuted || playback.isSourceSilent || playback.isTabMuted || playback.volume == 0 else { return true }
-        // Keep controls for a card silenced in place, but end that exception
-        // once its page is visited or a different source takes over.
-        return item?.key == candidate.key && !isSourceVisible && !isDismissed
+        return silentRetainedSources[candidate.key] == SourceIdentity(candidate)
+            || (item?.key == candidate.key && !isSourceVisible && !isDismissed)
     }
 
     private var orderedBackgroundSources: [Item] {
@@ -584,6 +594,7 @@ final class SidebarMediaController: ObservableObject {
                   !candidate.playback.isPictureInPicture,
                   dismissedSources[id] != SourceIdentity(candidate),
                   candidate.playback.isPlaying || item?.key == id
+                    || silentRetainedSources[id] == SourceIdentity(candidate)
                     || pipRetainedSources[id] == SourceIdentity(candidate) else { return nil }
             return candidate
         }
@@ -603,6 +614,14 @@ final class SidebarMediaController: ObservableObject {
         // Dismissal lasts only until the source is visible or the sidebar returns.
         dismissedSources = dismissedSources.filter {
             !isVisible($0.key) && candidates[$0.key]?.playback.isPictureInPicture != true
+        }
+        // Visiting, dismissing or losing the source ends retention. A cached
+        // identity must never admit a replacement document or media session.
+        silentRetainedSources = silentRetainedSources.filter { key, identity in
+            guard let candidate = candidates[key] else { return false }
+            return SourceIdentity(candidate) == identity && isValid(candidate)
+                && !isVisible(key) && !candidate.playback.isPictureInPicture
+                && dismissedSources[key] != identity
         }
         // Empty activation caches are not selection loss. Keep the retained
         // manual/paused identity concealed until its own fresh result arrives.
