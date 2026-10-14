@@ -10431,10 +10431,11 @@ final class SpaceWindowSlot: ObservableObject {
 
     /// The state a native fullscreen transition announced by will-enter or
     /// will-exit is heading for, until did-enter/did-exit (or a failed
-    /// enter) settles it. Between the two the style mask still shows the
-    /// old state, so a request arriving mid-transition must compare against
-    /// this rather than the mask, or it would toggle the shell straight
-    /// back.
+    /// enter) settles it. On an exit AppKit clears `.fullScreen` from the
+    /// style mask inside the same `toggleFullScreen:` call, right after it
+    /// posts will-exit, so only a will-exit handler still sees the old
+    /// mask. A request arriving mid-transition must compare against this
+    /// rather than the mask, or it would toggle the shell straight back.
     private var shellFullScreenTransitionTarget: Bool?
     private var deferredShellFullscreen: Bool?
     /// The session whose request put the shell into fullscreen; nil when
