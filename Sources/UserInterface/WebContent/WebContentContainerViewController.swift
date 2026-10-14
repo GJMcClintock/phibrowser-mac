@@ -1183,6 +1183,9 @@ class WebContentContainerViewController: NSViewController {
         // case above, where the SAME controller is rebound to a different
         // Chromium tab and swaps its content without a controller switch.
         dropClosingAIChatGhost()
+        // The incoming page is laid out at the narrowed size and has to be
+        // told where it is, what of it shows, its corners and its stacking now.
+        releaseContentSurfaceHold()
 
         // Clear status URL when switching tabs
         state.targetURL = ""
@@ -1430,6 +1433,7 @@ class WebContentContainerViewController: NSViewController {
     /// surface, below the lifted page.
     func lendContentSurface(to overlay: NSView) {
         guard let contentSurfaceView, contentSurfaceView.superview === contentContainer else { return }
+        releaseContentSurfaceHold()
         contentSurfaceView.removeFromSuperview()
         overlay.addSubview(contentSurfaceView, positioned: .below, relativeTo: nil)
         contentSurfaceView.snp.remakeConstraints { make in
@@ -1447,6 +1451,36 @@ class WebContentContainerViewController: NSViewController {
         contentSurfaceView.removeFromSuperview()
         placeContentSurface(contentSurfaceView)
         AppLogInfo("[ContentSurface] [Container] reclaimed from content fullscreen windowId=\(browserState?.windowId ?? -1)")
+    }
+
+    /// Holds the surface's view at its current frame while the extension
+    /// side panel slides in. That slide is a Core Animation one, which sets
+    /// `contentContainer` to its end frame at once; the surface would shrink
+    /// with it and cut the paused page short, leaving the backdrop between
+    /// the page and the incoming panel. Held, the page goes on under the
+    /// panel at its old size, as it does drawing itself. The reconcile holds
+    /// too (`ContentSurfaceHosting.isHeld`), as it would clip the page to its
+    /// host's end frame. Does nothing while already held.
+    private func holdContentSurfaceForPanelSlide() {
+        guard let contentSurfaceView, let contentSurfaceHosting, !contentSurfaceHosting.isHeld,
+              contentSurfaceView.superview === contentContainer else { return }
+        let frame = contentSurfaceView.frame
+        contentSurfaceView.snp.removeConstraints()
+        contentSurfaceView.translatesAutoresizingMaskIntoConstraints = true
+        contentSurfaceView.frame = frame
+        contentSurfaceHosting.isHeld = true
+    }
+
+    /// Lets the surface's view and the reconcile go once the slide ends, or
+    /// sooner when a tab switch, the panel's close or content fullscreen cuts
+    /// it short. Does nothing unless held.
+    private func releaseContentSurfaceHold() {
+        guard let contentSurfaceHosting, contentSurfaceHosting.isHeld else { return }
+        contentSurfaceHosting.isHeld = false
+        guard let contentSurfaceView, contentSurfaceView.superview === contentContainer else { return }
+        contentSurfaceView.snp.remakeConstraints { make in
+            make.edges.equalToSuperview()
+        }
     }
 
     /// Over a content surface the page card is clear and this backdrop shows
@@ -1680,6 +1714,7 @@ class WebContentContainerViewController: NSViewController {
 
         let pausedController = currentWebContentController
         pausedController?.setContentFrameSyncPausedForPanelTransition(true)
+        holdContentSurfaceForPanelSlide()
         NSAnimationContext.runAnimationGroup({ context in
             context.allowsImplicitAnimation = true
             panelView.translatesAutoresizingMaskIntoConstraints = false
@@ -1687,6 +1722,7 @@ class WebContentContainerViewController: NSViewController {
             view.layoutSubtreeIfNeeded()
         }, completionHandler: { [weak self, weak pausedController] in
             pausedController?.setContentFrameSyncPausedForPanelTransition(false)
+            self?.releaseContentSurfaceHold()
             // Settle on completion only: during the slide the stale outline
             // still traces the full-width card the panel is covering, while
             // an immediate snap would draw the narrow outline across the
@@ -1728,6 +1764,7 @@ class WebContentContainerViewController: NSViewController {
         // panel: when this close comes from the AI Chat mutex the real
         // chat is about to re-expand exactly where the ghost still flies.
         dropClosingAIChatGhost()
+        releaseContentSurfaceHold()
 
         // Window-server snapshot of the closing content (`WebContentSnapshotter`
         // — local snapshot APIs return blank for the remote Chromium layer).
@@ -1960,6 +1997,7 @@ class WebContentContainerViewController: NSViewController {
             currentTabIdentifier = nil
             // A chat ghost snapped from the removed pane dies with it.
             dropClosingAIChatGhost()
+            releaseContentSurfaceHold()
             // Clear the unified outline so it doesn't linger over the now
             // detached content area until the next focus/layout pass.
             updateContentOuterBorder()

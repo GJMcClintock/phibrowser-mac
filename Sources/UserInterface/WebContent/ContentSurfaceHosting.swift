@@ -57,6 +57,15 @@ final class ContentSurfaceHosting {
     /// One mounted while the view was away is such a view, and Chromium
     /// ignored what it was told meanwhile; so `sent` no longer holds.
     private weak var sentUnder: NSView?
+    /// Set while the page container holds the surface's view at its frame
+    /// from before an extension side panel slides in
+    /// (`WebContentContainerViewController`).
+    /// That slide is a Core Animation one, which sets every frame to its end
+    /// value at once: a page whose frame sync is paused would be clipped to
+    /// its narrowed host before the panel covers the rest. No pass sends
+    /// anything meanwhile; the first one after the hold tells the settled
+    /// layout.
+    var isHeld = false
     /// Replaces the bridge sends in tests.
     var sendForTesting: ((_ address: NSObject, _ hosting: Hosting) -> Void)?
 
@@ -106,6 +115,7 @@ final class ContentSurfaceHosting {
             sent.removeAll()
             return
         }
+        guard !isHeld else { return }
         if surfaceView?.superview !== sentUnder {
             sent.removeAll()
             sentUnder = surfaceView?.superview
