@@ -12,23 +12,36 @@ struct ProfileKeyDTO { let profileKeyEnvelope: Data }
 struct ProfileSummaryDTO { let profileUuid: String }
 protocol KeyEnvelopeAPI {
     func putProfileKey(uuid: String, envelope: Data) async throws -> Bool
+    func replaceProfileKeyEnvelope(uuid: String, expected: Data, envelope: Data) async throws -> Bool
     func getProfileKey(uuid: String) async throws -> ProfileKeyDTO?
     func listProfiles() async throws -> [ProfileSummaryDTO]
     func revokeDevice(deviceKeyId: String) async throws
 }
 enum AccountKeyError: Error { case randomGenerationFailed(Int32) }
 final class AccountKeyManager { var currentARK: SymmetricKey? = SymmetricKey(size: .bits256) }
+enum LocalStore { static let defaultProfileId = "Default" }
 enum PhiSyncLog { static func describe(_ error: Error) -> String { String(describing: error) } }
 func AppLogInfo(_ message: String) {}
 func AppLogWarn(_ message: String) {}
 
 final class PassAPI: KeyEnvelopeAPI {
     var envelopes: [String: Data] = [:]
+    var replaceError: Error?
+    var beforeReplace: ((String) -> Void)?
+    var replacements = 0
     var putError: Error?
     var puts: [String] = []
     var onGet: ((String) async -> Void)?
     var getErrors: [String: Error] = [:]
     var listError: Error?
+    func replaceProfileKeyEnvelope(uuid: String, expected: Data, envelope: Data) async throws -> Bool {
+        if let replaceError { throw replaceError }
+        beforeReplace?(uuid)
+        guard envelopes[uuid] == expected else { return false }
+        envelopes[uuid] = envelope
+        replacements += 1
+        return true
+    }
     func putProfileKey(uuid: String, envelope: Data) async throws -> Bool {
         if let putError { throw putError }
         puts.append(uuid)
@@ -98,6 +111,7 @@ final class SyncKeyController {
     /// registry row claimable), which is what these passes exercise.
     private let profileEntityView: (@MainActor () -> AccountProfileEntityView?)? = nil
     /// `ProfileManager.isProfileListEnumerated` (AM-1).
+    func isCurrentAccount() -> Bool { !isRetired }
     var profileListEnumerated = true
     func isProfileListEnumerated() -> Bool { profileListEnumerated }
     /* PRODUCTION_PASS_STATE */
@@ -153,6 +167,14 @@ struct MappingPassTests {
     }
 
     @MainActor static func main() async throws {
+        try await defaultFlagBackfill()
+        try await defaultFlagBackfillConflict()
+        try await defaultFlagBackfillFailureAndRetirement()
+        try await defaultFlagBackfillRetriedByRefreshRounds()
+        try await flaggedDefaultClaimsTheLocalDefaultFirst()
+        try await unreadFlaggedDefaultKeepsTheLocalDefaultFree()
+        try await mappedDefaultStreamsUnderTheCap()
+        try await freeDefaultScanIsBoundedByItsDeadline()
         try await noCountBasedAdopt()
         try await twinAdopted()
         try await transientRegisterFailureHolds()
@@ -171,6 +193,202 @@ struct MappingPassTests {
         try await failureCategory()
         try await unenumeratedListKeepsEvidence()
         print("PASS mapping pass: no count-based adopt, twin adopt, transient held, definitive class, undecryptable and deleted-local remotes do not block, repair order, key withdrawal, creation tracking, single-flight auto-create, attempt cap, gone-envelope evidence, retirement fences auto-create and create-and-adopt, status-only failure category, no evidence pruning before the list is enumerated")
+    }
+
+    /// One mapping pass, then the best-effort backfill it started.
+    @MainActor static func passAndBackfill(_ s: Stack) async {
+        await s.controller.resolveMappings()
+        await s.controller.defaultFlagBackfillTask?.value
+    }
+
+    @MainActor static func defaultFlagBackfill() async throws {
+        let s = Stack(); defer { s.close() }
+        try s.seedMappedLocal("Default", uuid: "default")
+        try s.seedMappedLocal("Work", uuid: "work")
+        try s.seedRemote("unmapped", name: "Unknown")
+        let key = Data(repeating: 8, count: 32)
+        let payload: [String: Any] = ["v": 1, "key": key.base64EncodedString(), "name": "Original",
+                                     "future": ["values": [1, 2, 3]]]
+        s.api.envelopes["default"] = try PhiKeyCrypto.sealWithSymmetric(
+            JSONSerialization.data(withJSONObject: payload), key: s.manager.currentARK!)
+        let unknownBefore = s.api.envelopes["unmapped"]
+        await passAndBackfill(s)
+        precondition(s.api.replacements == 2)
+        let plain = try PhiKeyCrypto.openWithSymmetric(s.api.envelopes["default"]!, key: s.manager.currentARK!)
+        let upgraded = try JSONSerialization.jsonObject(with: plain) as! [String: Any]
+        precondition(upgraded["default"] as? Bool == true && upgraded["name"] as? String == "Original")
+        precondition(upgraded["key"] as? String == key.base64EncodedString())
+        precondition((upgraded["future"] as? [String: [Int]])?["values"] == [1, 2, 3])
+        let ordinary = try ProfileKeyManager.openProfilePayload(s.api.envelopes["work"]!, ark: s.manager.currentARK!)
+        precondition(ordinary.isDefault == false && s.api.envelopes["unmapped"] == unknownBefore)
+
+        // Confirmed uuids are not fetched again: a later pass pays only its own lookups.
+        var gets: [String] = []
+        s.api.onGet = { gets.append($0) }
+        await passAndBackfill(s)
+        precondition(gets.sorted() == ["default", "work"] && s.api.replacements == 2 && s.api.puts.isEmpty,
+                     "a confirmed flag must not be re-read every pass")
+
+        // A changed mapping re-checks that local.
+        try s.seedRemote("replacement", name: "Replacement")
+        s.store.map["Default"] = "replacement"
+        await passAndBackfill(s)
+        let replaced = try ProfileKeyManager.openProfilePayload(s.api.envelopes["replacement"]!, ark: s.manager.currentARK!)
+        precondition(replaced.isDefault == true && s.api.replacements == 3)
+        print("PASS default backfill: flags, unchanged keys and unknown fields, unmapped remotes, confirmed uuids not re-fetched, changed mapping re-checked")
+    }
+
+    @MainActor static func defaultFlagBackfillConflict() async throws {
+        for localIsDefault in [true, false] {
+            let s = Stack(); defer { s.close() }
+            let id = localIsDefault ? "Default" : "Work"
+            try s.seedMappedLocal(id, uuid: "shared")
+            let competitor = try ProfileKeyManager.sealProfilePayload(
+                key: Data(repeating: 7, count: 32), name: "shared",
+                isDefault: !localIsDefault, ark: s.manager.currentARK!)
+            s.api.beforeReplace = { uuid in
+                s.api.beforeReplace = nil
+                s.api.envelopes[uuid] = competitor
+            }
+            await passAndBackfill(s)
+            let value = try ProfileKeyManager.openProfilePayload(s.api.envelopes["shared"]!, ark: s.manager.currentARK!)
+            precondition(value.isDefault == true, "true wins both write orders; false never demotes")
+            precondition(value.key == Data(repeating: 7, count: 32))
+        }
+        print("PASS default backfill: concurrent false then true and true then false converge to true")
+    }
+
+    @MainActor static func defaultFlagBackfillFailureAndRetirement() async throws {
+        let s = Stack(); defer { s.close() }
+        try s.seedMappedLocal("Default", uuid: "shared")
+        s.api.replaceError = URLError(.notConnectedToInternet)
+        await passAndBackfill(s)
+        precondition(s.api.replacements == 0)
+        precondition(s.controller.profileSyncInfo(forProfileId: "Default") != nil, "a failed backfill must not withhold keys")
+        precondition(s.controller.lastMappingsPassResult == .measured && s.outcomes.last == "measured",
+                     "a failed backfill must not hold the pass")
+        s.api.replaceError = nil
+        await passAndBackfill(s)
+        precondition(s.api.replacements == 1, "the next pass retries")
+
+        // Retirement while the backfill's GET is in flight writes nothing. The
+        // pass's own lookup is the first GET of the round, the backfill's the second.
+        let retired = Stack(); defer { retired.close() }
+        try retired.seedMappedLocal("Default", uuid: "shared")
+        var gets = 0
+        retired.api.onGet = { _ in
+            gets += 1
+            if gets == 2 { retired.controller.retire() }
+        }
+        await passAndBackfill(retired)
+        precondition(gets == 2 && retired.api.replacements == 0)
+        print("PASS default backfill: failed writes keep keys and the pass, a later pass retries, retirement during GET prevents writes")
+    }
+
+    /// The periodic round calls only the auto-create refresh; with nothing
+    /// missing it still retries a backfill an earlier pass failed.
+    @MainActor static func defaultFlagBackfillRetriedByRefreshRounds() async throws {
+        let s = Stack(); defer { s.close() }
+        try s.seedMappedLocal("Default", uuid: "shared")
+        s.api.replaceError = URLError(.notConnectedToInternet)
+        await passAndBackfill(s)
+        precondition(s.api.replacements == 0)
+        s.api.replaceError = nil
+        s.events = []
+        let outcome = await s.controller.ensureLocalProfilesForAccount()
+        await s.controller.defaultFlagBackfillTask?.value
+        precondition(outcome == .unchanged && !s.events.contains("resolve"), "only a refresh round ran: \(s.events)")
+        let flagged = try ProfileKeyManager.openProfilePayload(s.api.envelopes["shared"]!, ark: s.manager.currentARK!)
+        precondition(s.api.replacements == 1 && flagged.isDefault == true)
+        print("PASS default backfill: a failed backfill is retried by refresh rounds alone")
+    }
+
+    /// A legacy profile named like the free local Default sorts before the
+    /// flagged account default; the flagged one still takes the Default and the
+    /// legacy one becomes an ordinary local.
+    @MainActor static func flaggedDefaultClaimsTheLocalDefaultFirst() async throws {
+        let s = Stack(); defer { s.close() }
+        s.creator.profiles = [(profileId: "Default", displayName: "Your Phi")]
+        try s.seedRemote("uuid-a-legacy", name: "Your Phi")
+        s.api.envelopes["uuid-b-default"] = try ProfileKeyManager.sealProfilePayload(
+            key: Data(repeating: 9, count: 32), name: "Personal", isDefault: true, ark: s.manager.currentARK!)
+        _ = await s.controller.ensureLocalProfilesForAccount()
+        precondition(s.store.map["Default"] == "uuid-b-default", "the legacy name match beat the account default")
+        precondition(s.creator.createCalls == ["Your Phi (2)"], "\(s.creator.createCalls)")
+        let created = s.creator.profiles.first { $0.displayName == "Your Phi (2)" }!.profileId
+        precondition(s.store.map[created] == "uuid-a-legacy")
+        print("PASS auto-create: a flagged account default claims the free local Default before a same-named legacy profile")
+    }
+
+    /// The flagged account default answers 503 while a legacy profile named like
+    /// the free local Default reads fine. The scan is incomplete, so the legacy
+    /// one may not take the Default: it is created as an ordinary local and the
+    /// Default stays free until the account default can be read.
+    @MainActor static func unreadFlaggedDefaultKeepsTheLocalDefaultFree() async throws {
+        let s = Stack(); defer { s.close() }
+        s.creator.profiles = [(profileId: "Default", displayName: "Your Phi")]
+        try s.seedRemote("uuid-a-legacy", name: "Your Phi")
+        s.api.envelopes["uuid-b-default"] = try ProfileKeyManager.sealProfilePayload(
+            key: Data(repeating: 9, count: 32), name: "Personal", isDefault: true, ark: s.manager.currentARK!)
+        s.api.getErrors["uuid-b-default"] = KeyAPIError.http(503, "")
+        _ = await s.controller.ensureLocalProfilesForAccount()
+        precondition(s.store.map["Default"] == nil, "an unread account default must keep the local Default free")
+        precondition(s.creator.createCalls == ["Your Phi (2)"], "\(s.creator.createCalls)")
+        let created = s.creator.profiles.first { $0.displayName == "Your Phi (2)" }!.profileId
+        precondition(s.store.map[created] == "uuid-a-legacy")
+
+        s.api.getErrors = [:]
+        _ = await s.controller.ensureLocalProfilesForAccount()
+        precondition(s.store.map["Default"] == "uuid-b-default", "the recovered account default takes the Default")
+        print("PASS auto-create: an unreadable account default keeps the local Default free; the next round claims it")
+    }
+
+    final class GetLog: @unchecked Sendable { var uuids: [String] = [] }
+
+    /// With the local Default mapped, the round streams as it always did: the
+    /// cap is checked before each read, so the 4th envelope is never requested
+    /// and a request that would hang cannot stall the round.
+    @MainActor static func mappedDefaultStreamsUnderTheCap() async throws {
+        let s = Stack(); defer { s.close() }
+        try s.seedMappedLocal("Default", uuid: "uuid-default")
+        for index in 1...4 { try s.seedRemote("uuid-\(index)", name: "P\(index)") }
+        let log = GetLog()
+        s.api.onGet = { uuid in
+            guard uuid == "uuid-4" else { return }
+            log.uuids.append(uuid)
+            try? await Task.sleep(for: .seconds(30))
+        }
+        let clock = ContinuousClock()
+        let started = clock.now
+        _ = await s.controller.ensureLocalProfilesForAccount()
+        precondition(clock.now - started < .seconds(5), "the round waited on a read past the cap")
+        precondition(log.uuids.isEmpty && s.creator.createCalls == ["P1", "P2", "P3"], "\(s.creator.createCalls)")
+        print("PASS auto-create: a mapped local Default keeps the streaming read with the cap before each GET")
+    }
+
+    /// With the local Default free, a read that hangs past the scan deadline
+    /// ends the scan within its budget. The scan is incomplete, so the same-named
+    /// legacy profile does not take the Default; the others are claimed under
+    /// the cap.
+    @MainActor static func freeDefaultScanIsBoundedByItsDeadline() async throws {
+        let s = Stack(); defer { s.close() }
+        s.creator.profiles = [(profileId: "Default", displayName: "Personal")]
+        try s.seedRemote("uuid-1", name: "P1")
+        try s.seedRemote("uuid-2", name: "P2")
+        try s.seedRemote("uuid-3", name: "Personal")
+        try s.seedRemote("uuid-4", name: "P4")
+        s.controller.candidateScanDeadline = .milliseconds(300)
+        s.api.onGet = { uuid in
+            guard uuid == "uuid-2" else { return }
+            try? await Task.sleep(for: .seconds(30))
+        }
+        let clock = ContinuousClock()
+        let started = clock.now
+        _ = await s.controller.ensureLocalProfilesForAccount()
+        precondition(clock.now - started < .seconds(5), "the scan outlived its deadline")
+        precondition(s.store.map["Default"] == nil, "an incomplete scan must keep the local Default free")
+        precondition(s.creator.createCalls == ["P1", "Personal (2)", "P4"], "\(s.creator.createCalls)")
+        print("PASS auto-create: a free local Default's scan is bounded by its deadline and stays closed to unflagged remotes")
     }
 
     /// D20: one new local beside one new account Profile is not a match. Neither

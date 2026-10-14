@@ -101,7 +101,7 @@ final class SyncKeyControllerTests: XCTestCase {
         let mgrA = AccountKeyManager(api: api, deviceKeyProvider: providerA)
         _ = try await mgrA.bootstrap()
         let pkmA = ProfileKeyManager(api: api, keyManager: mgrA, mappingStore: MemoryMappingStore())
-        let recA = try await pkmA.registerLocalProfile(profileId: "Default", displayName: "Work")
+        let recA = try await pkmA.registerLocalProfile(profileId: "Default", displayName: "Work", isDefault: true)
         // Device B joins with the recovery-equivalent (same account) and has one local profile.
         let providerB = FakeDeviceKeyProvider()
         let mgrBSeed = AccountKeyManager(api: api, deviceKeyProvider: providerB)
@@ -126,8 +126,8 @@ final class SyncKeyControllerTests: XCTestCase {
         let mgrA = AccountKeyManager(api: api, deviceKeyProvider: providerA)
         _ = try await mgrA.bootstrap()
         let pkmA = ProfileKeyManager(api: api, keyManager: mgrA, mappingStore: MemoryMappingStore())
-        _ = try await pkmA.registerLocalProfile(profileId: "Default", displayName: "Work")
-        _ = try await pkmA.registerLocalProfile(profileId: "Profile 1", displayName: "Home")
+        _ = try await pkmA.registerLocalProfile(profileId: "Default", displayName: "Work", isDefault: true)
+        _ = try await pkmA.registerLocalProfile(profileId: "Profile 1", displayName: "Home", isDefault: false)
         // Same device, wiped mapping (fresh controller with empty store): 2 remotes, 1 local -> pairing.
         let (c, _) = makeController(api: api, provider: providerA, locals: [("Default", "Default")])
         await c.silentUnlockAndResolve()
@@ -213,8 +213,8 @@ final class SyncKeyControllerTests: XCTestCase {
         let store = MemoryMappingStore()
         // Every local is mapped; the account still holds one more profile.
         let pkm = ProfileKeyManager(api: api, keyManager: mgr, mappingStore: store)
-        let mine = try await pkm.registerLocalProfile(profileId: "Default", displayName: "Default")
-        let theirs = try await pkm.registerLocalProfile(profileId: "temp", displayName: "Work")
+        let mine = try await pkm.registerLocalProfile(profileId: "Default", displayName: "Default", isDefault: true)
+        let theirs = try await pkm.registerLocalProfile(profileId: "temp", displayName: "Work", isDefault: false)
         store.removeMapping(forProfileId: "temp")
 
         let getsBefore = api.getProfileKeyCalls
@@ -616,7 +616,7 @@ final class SyncKeyControllerTests: XCTestCase {
         _ = try await mgr.bootstrap()
         let store = MemoryMappingStore()
         let pkm = ProfileKeyManager(api: api, keyManager: mgr, mappingStore: store)
-        let other = try await pkm.registerLocalProfile(profileId: "temp", displayName: "Work")
+        let other = try await pkm.registerLocalProfile(profileId: "temp", displayName: "Work", isDefault: false)
         store.removeMapping(forProfileId: "temp")
         let controller = SyncKeyController(
             manager: mgr, approvals: DeviceApprovalService(api: api, keyManager: mgr, deviceKeyProvider: provider),

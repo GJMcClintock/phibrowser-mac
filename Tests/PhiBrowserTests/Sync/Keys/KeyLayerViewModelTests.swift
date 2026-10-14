@@ -167,7 +167,7 @@ final class KeyLayerViewModelTests: XCTestCase {
         let mgr = AccountKeyManager(api: api, deviceKeyProvider: provider)
         _ = try await mgr.bootstrap()
         let pkm = ProfileKeyManager(api: api, keyManager: mgr, mappingStore: ProfileKeyManagerTests.MemoryMappingStore())
-        _ = try await pkm.registerLocalProfile(profileId: "Other", displayName: "Work")
+        _ = try await pkm.registerLocalProfile(profileId: "Other", displayName: "Work", isDefault: false)
         let controller = SyncKeyController(manager: mgr, approvals: DeviceApprovalService(api: api, keyManager: mgr, deviceKeyProvider: provider),
                                            profileKeys: pkm,
                                            localProfilesProvider: { [("Default", "Default"), ("Profile 1", "Home")] },
@@ -187,8 +187,8 @@ final class KeyLayerViewModelTests: XCTestCase {
         _ = try await manager.bootstrap()
         let store = ProfileKeyManagerTests.MemoryMappingStore()
         let keys = ProfileKeyManager(api: api, keyManager: manager, mappingStore: store)
-        let remote = try await keys.registerLocalProfile(profileId: "Remote", displayName: "Your Phi")
-        let valid = try await keys.registerLocalProfile(profileId: "Valid", displayName: "Valid")
+        let remote = try await keys.registerLocalProfile(profileId: "Remote", displayName: "Your Phi", isDefault: true)
+        let valid = try await keys.registerLocalProfile(profileId: "Valid", displayName: "Valid", isDefault: false)
         store.map = ["Default": "old-default", "Profile 1": "old-test", "Valid": valid.uuid]
         let before = store.map
         let controller = SyncKeyController(manager: manager,
@@ -221,7 +221,7 @@ final class KeyLayerViewModelTests: XCTestCase {
         let mgr = AccountKeyManager(api: api, deviceKeyProvider: provider)
         _ = try await mgr.bootstrap()
         let pkm = ProfileKeyManager(api: api, keyManager: mgr, mappingStore: ProfileKeyManagerTests.MemoryMappingStore())
-        let remote = try await pkm.registerLocalProfile(profileId: "elsewhere", displayName: "Work")
+        let remote = try await pkm.registerLocalProfile(profileId: "elsewhere", displayName: "Work", isDefault: true)
         let store2 = ProfileKeyManagerTests.MemoryMappingStore() // fresh mapping = unmapped device state
         let pkm2 = ProfileKeyManager(api: api, keyManager: mgr, mappingStore: store2)
         let controller = SyncKeyController(manager: mgr, approvals: DeviceApprovalService(api: api, keyManager: mgr, deviceKeyProvider: provider),
@@ -374,6 +374,9 @@ final class KeyLayerViewModelTests: XCTestCase {
         func getProfileKey(uuid: String) async throws -> ProfileKeyDTO? {
             try await inner.getProfileKey(uuid: uuid)
         }
+        func replaceProfileKeyEnvelope(uuid: String, expected: Data, envelope: Data) async throws -> Bool {
+            try await inner.replaceProfileKeyEnvelope(uuid: uuid, expected: expected, envelope: envelope)
+        }
         func putProfileKey(uuid: String, envelope: Data) async throws -> Bool {
             withLock { $0._putStarts += 1 }
             while putsHeld { try await Task.sleep(for: .milliseconds(5)) }
@@ -494,7 +497,7 @@ final class KeyLayerViewModelTests: XCTestCase {
         // one-shot PUT failure makes it fail without touching the reload that
         // follows. (It used to be `alreadyMapped` on "Default", but that is now a
         // deliberate idempotent SUCCESS -- see `applyPairingDecisions`.)
-        _ = try await pkm.registerLocalProfile(profileId: "Default", displayName: "Default")
+        _ = try await pkm.registerLocalProfile(profileId: "Default", displayName: "Default", isDefault: true)
         let controller = SyncKeyController(
             manager: mgr,
             approvals: DeviceApprovalService(api: api, keyManager: mgr, deviceKeyProvider: provider),
