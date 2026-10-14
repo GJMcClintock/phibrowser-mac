@@ -177,27 +177,54 @@ private struct ScreenshotFillControl: View {
     }
 }
 
-/// Keep the system color picker inside the object widget without a full-size color well.
+/// A compact palette button activates a native color well without displaying its large bezel.
 private struct ScreenshotCustomColorControl: NSViewRepresentable {
     let model: ScreenshotEditorModel
-    func makeNSView(context: Context) -> NSColorWell {
-        let well = NSColorWell()
-        well.colorWellStyle = .minimal
-        well.target = context.coordinator; well.action = #selector(Coordinator.changeColor(_:))
-        well.setAccessibilityLabel(NSLocalizedString("browser.screenshot.color", value: "Color", comment: "Screenshot editor - Annotation color control"))
-        well.toolTip = NSLocalizedString("browser.screenshot.customColor", value: "Custom color", comment: "Screenshot editor - Open the system color picker for the selected annotations")
-        return well
-    }
-    func updateNSView(_ well: NSColorWell, context: Context) {
-        context.coordinator.model = model
-        if well.color != model.foreground.nsColor { well.color = model.foreground.nsColor }
-    }
-    func makeCoordinator() -> Coordinator { Coordinator(model: model) }
-    @MainActor final class Coordinator: NSObject {
-        var model: ScreenshotEditorModel
-        init(model: ScreenshotEditorModel) { self.model = model }
-        @objc func changeColor(_ sender: NSColorWell) {
-            guard let rgb = sender.color.usingColorSpace(.sRGB) else { return }
+    func makeNSView(context: Context) -> PaletteView { PaletteView(model: model) }
+    func updateNSView(_ view: PaletteView, context: Context) { view.update(model: model) }
+
+    @MainActor final class PaletteView: NSView {
+        private let button = NSButton()
+        private let well = NSColorWell()
+        private var model: ScreenshotEditorModel
+        private var editedIDs: Set<UUID> = []
+
+        init(model: ScreenshotEditorModel) {
+            self.model = model
+            super.init(frame: .zero)
+            button.image = NSImage(systemSymbolName: "paintpalette", accessibilityDescription: nil)?
+                .withSymbolConfiguration(.init(pointSize: 17, weight: .regular))
+            button.imagePosition = .imageOnly; button.isBordered = false
+            button.focusRingType = .none; button.contentTintColor = .labelColor
+            button.toolTip = NSLocalizedString("browser.screenshot.customColor", value: "Custom color", comment: "Screenshot editor - Open the system color picker for the selected annotations")
+            button.setAccessibilityLabel(button.toolTip)
+            button.setAccessibilityIdentifier("screenshot.customColor")
+            button.target = self; button.action = #selector(openColors(_:))
+            well.isHidden = true; well.target = self; well.action = #selector(changeColor(_:))
+            addSubview(well); addSubview(button)
+            update(model: model)
+        }
+        required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+        override var intrinsicContentSize: NSSize { NSSize(width: 26, height: 26) }
+        override func layout() { super.layout(); button.frame = bounds }
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            if window == nil { well.deactivate() }
+        }
+        func update(model: ScreenshotEditorModel) {
+            self.model = model
+            if editedIDs != model.selectedIDs { well.deactivate() }
+            if well.color != model.foreground.nsColor { well.color = model.foreground.nsColor }
+        }
+        @objc private func openColors(_ sender: Any?) {
+            editedIDs = model.selectedIDs
+            well.color = model.foreground.nsColor
+            well.activate(true)
+            NSColorPanel.shared.makeKeyAndOrderFront(nil)
+        }
+        @objc private func changeColor(_ sender: NSColorWell) {
+            guard !editedIDs.isEmpty, editedIDs == model.selectedIDs,
+                  let rgb = sender.color.usingColorSpace(.sRGB) else { return }
             model.foreground = ScreenshotColor(red: rgb.redComponent, green: rgb.greenComponent, blue: rgb.blueComponent, alpha: rgb.alphaComponent)
         }
     }

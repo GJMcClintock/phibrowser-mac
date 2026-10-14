@@ -4,16 +4,6 @@
     "" : {
 
     },
-    "%@ (%@)" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "new",
-            "value" : "%1$@ (%2$@)"
-          }
-        }
-      }
-    },
     "app.fileMenu.capturePageArea" : {
       "comment" : "File menu - Select a visible webpage area to capture and edit",
       "extractionState" : "manual",

@@ -6,11 +6,9 @@ import SwiftUI
 struct ScreenshotEditorToolbar: View {
     let model: ScreenshotEditorModel
     let export: (ScreenshotExportFormat) -> Void
-    let move: (CGSize, Bool) -> Void
 
     var body: some View {
         HStack(spacing: 4) {
-            ScreenshotToolbarDragHandle(move: move).frame(width: 22, height: 36)
             if model.tool == .crop {
                 Image(systemName: "crop").frame(width: 28)
                 if let rect = model.cropRect {
@@ -22,10 +20,12 @@ struct ScreenshotEditorToolbar: View {
                 Button(NSLocalizedString("browser.screenshot.cancelCrop", value: "Cancel", comment: "Screenshot editor - Leave crop mode without changing the image")) { model.selectTool(.select) }
                     .buttonStyle(.plain).padding(.horizontal, 8)
                 Button(NSLocalizedString("browser.screenshot.applyCrop", value: "Apply", comment: "Screenshot editor - Apply the selected crop"), action: model.cropToSelection)
-                    .buttonStyle(.borderedProminent).tint(.primary).disabled(!model.canCrop)
+                    .buttonStyle(.plain).fontWeight(.medium)
+                    .foregroundStyle(model.canCrop ? Color.accentColor : Color.secondary)
+                    .padding(.horizontal, 8).padding(.vertical, 4).disabled(!model.canCrop)
                     .accessibilityIdentifier("screenshot.crop.confirm")
             } else {
-                ForEach(ScreenshotTool.allCases, id: \.self) { tool in
+                ForEach([ScreenshotTool.select, .arrow, .freehand, .text, .rectangle, .ellipse, .crop], id: \.self) { tool in
                     ScreenshotToolButton(tool: tool, selected: model.tool == tool) { model.selectTool(tool) }
                 }
                 Divider().frame(height: 22).padding(.horizontal, 8)
@@ -33,14 +33,25 @@ struct ScreenshotEditorToolbar: View {
                     Button { export(.jpg) } label: { Text(verbatim: "JPG…") }
                     Button { export(.pdf) } label: { Text(verbatim: "PDF…") }
                 } label: {
-                    Text(NSLocalizedString("browser.screenshot.export", value: "Export…", comment: "Screenshot editor - Save the edited image to a file"))
+                    Image(systemName: "arrow.down.to.line").font(.system(size: 18, weight: .regular))
+                        .hidden()
                 }
-                .menuStyle(.button).buttonStyle(.borderedProminent).tint(.primary).fixedSize()
+                .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+                .frame(width: 36, height: 36)
+                // Draw outside the native menu label so its secondary tint cannot dim the icon.
+                .overlay {
+                    Image(systemName: "arrow.down.to.line").font(.system(size: 18, weight: .regular))
+                        .foregroundStyle(Color.primary)
+                        .allowsHitTesting(false)
+                        .accessibilityHidden(true)
+                }
+                .help(NSLocalizedString("browser.screenshot.export", value: "Export…", comment: "Screenshot editor - Save the edited image to a file"))
+                .accessibilityLabel(NSLocalizedString("browser.screenshot.export", value: "Export…", comment: "Screenshot editor - Save the edited image to a file"))
                 .accessibilityIdentifier("screenshot.export")
             }
         }
         .font(.system(size: 13)).padding(8)
-        .screenshotGlass(cornerRadius: 16)
+        .screenshotGlass()
     }
 }
 
@@ -53,13 +64,12 @@ private struct ScreenshotToolButton: View {
     var body: some View {
         Button(action: action) {
             Image(systemName: tool.symbol).font(.system(size: 18, weight: .regular))
+                .foregroundStyle(selected ? Color.accentColor : hovered ? Color.accentColor.opacity(0.75) : Color.primary)
                 .frame(width: 36, height: 36)
-                .background(selected ? Color.accentColor.opacity(0.2) : hovered ? Color.primary.opacity(0.08) : .clear,
-                            in: RoundedRectangle(cornerRadius: 9))
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain).onHover { hovered = $0 }
-        .help("\(tool.title) (\(tool.shortcut))").accessibilityLabel(tool.title)
+        .help(Text(verbatim: "\(tool.title) (\(tool.shortcut))")).accessibilityLabel(tool.title)
         .accessibilityAddTraits(selected ? [.isSelected] : [])
         .accessibilityIdentifier("screenshot.tool.\(tool.rawValue)")
     }
@@ -77,22 +87,22 @@ struct ScreenshotZoomWidget: View {
             Button(NSLocalizedString("browser.screenshot.zoomOut", value: "Zoom Out", comment: "Screenshot editor - Reduce preview magnification")) { model.zoomBy(0.8) }
         } label: {
             Text(verbatim: "\(Int((model.zoom * 100).rounded()))%")
-                .monospacedDigit().frame(minWidth: 34)
+                .font(.system(size: 12)).monospacedDigit()
         }
-        .menuStyle(.borderlessButton).fixedSize().padding(.horizontal, 14).padding(.vertical, 10)
-        .screenshotGlass(cornerRadius: 12)
+        .menuStyle(.borderlessButton).controlSize(.small).fixedSize().padding(.horizontal, 9).padding(.vertical, 7)
+        .screenshotGlass()
         .accessibilityIdentifier("screenshot.zoom")
     }
 }
 
 extension View {
     @ViewBuilder
-    func screenshotGlass(cornerRadius: CGFloat) -> some View {
+    func screenshotGlass() -> some View {
         if #available(macOS 26.0, *) {
-            glassEffect(.regular, in: .rect(cornerRadius: cornerRadius))
+            glassEffect(.regular, in: .capsule)
         } else {
-            background(.regularMaterial, in: RoundedRectangle(cornerRadius: cornerRadius))
-                .overlay(RoundedRectangle(cornerRadius: cornerRadius).strokeBorder(.primary.opacity(0.1), lineWidth: 0.5))
+            background(.regularMaterial, in: Capsule())
+                .overlay(Capsule().strokeBorder(.primary.opacity(0.1), lineWidth: 0.5))
         }
     }
 }
@@ -129,34 +139,6 @@ extension ScreenshotTool {
         case .text: return "T"
         case .rectangle: return "R"
         case .ellipse: return "O"
-        }
-    }
-}
-
-/// Window coordinates keep drag translation stable while the hosting view itself moves.
-private struct ScreenshotToolbarDragHandle: NSViewRepresentable {
-    let move: (CGSize, Bool) -> Void
-    func makeNSView(context: Context) -> HandleView {
-        let view = HandleView()
-        view.image = NSImage(systemSymbolName: "line.3.horizontal", accessibilityDescription: nil)?
-            .withSymbolConfiguration(.init(pointSize: 12, weight: .regular))
-        view.contentTintColor = .secondaryLabelColor
-        view.toolTip = NSLocalizedString("browser.screenshot.moveToolbar", value: "Drag to move the toolbar", comment: "Screenshot editor - Floating toolbar drag handle")
-        view.setAccessibilityLabel(view.toolTip)
-        view.move = move
-        return view
-    }
-    func updateNSView(_ view: HandleView, context: Context) { view.move = move }
-    @MainActor final class HandleView: NSImageView {
-        var move: ((CGSize, Bool) -> Void)?
-        private var start: CGPoint?
-        override func resetCursorRects() { addCursorRect(bounds, cursor: .openHand) }
-        override func mouseDown(with event: NSEvent) { start = event.locationInWindow }
-        override func mouseDragged(with event: NSEvent) { report(event, ended: false) }
-        override func mouseUp(with event: NSEvent) { report(event, ended: true); start = nil }
-        private func report(_ event: NSEvent, ended: Bool) {
-            guard let start else { return }
-            move?(CGSize(width: event.locationInWindow.x - start.x, height: start.y - event.locationInWindow.y), ended)
         }
     }
 }
