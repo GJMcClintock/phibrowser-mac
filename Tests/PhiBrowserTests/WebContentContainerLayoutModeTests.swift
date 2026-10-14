@@ -98,18 +98,16 @@ final class WebContentContainerLayoutModeTests: XCTestCase {
         return try XCTUnwrap(tabStripBar, "the container built no tab strip bar").view
     }
 
-    /// The container hears defaults changes on the main queue. Runs the loop
+    /// The container learns of a new mode on the main queue. Runs the loop
     /// until everything queued on it so far has run, a few rounds deep for
     /// chained hops: a fixed wait fell short while earlier tests' teardown
-    /// was still draining.
+    /// was still draining. A round that does not drain within 2 s fails the
+    /// test, or the negative case would pass on a relayout that never ran.
     private func drainMainQueue() {
         for _ in 0..<3 {
-            var didAdvance = false
-            DispatchQueue.main.async { didAdvance = true }
-            let deadline = Date().addingTimeInterval(2)
-            while !didAdvance, Date() < deadline {
-                RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.01))
-            }
+            let drained = expectation(description: "Main queue drained")
+            DispatchQueue.main.async { drained.fulfill() }
+            wait(for: [drained], timeout: 2)
         }
     }
 }
