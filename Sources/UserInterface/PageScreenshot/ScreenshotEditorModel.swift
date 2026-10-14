@@ -45,6 +45,10 @@ final class ScreenshotEditorModel {
                                   fontSize: textSize, filled: filled)
     }
     var selectionBounds: CGRect? { bounds(of: selectedObjects) }
+    var cropHandles: [(ScreenshotAnnotation.Handle, CGPoint)] {
+        guard let cropRect else { return [] }
+        return ScreenshotAnnotation(kind: .rectangle, frame: cropRect).handles
+    }
     var selectionHandles: [(ScreenshotAnnotation.Handle, CGPoint)] {
         if let selected { return selected.handles }
         guard let frame = selectionBounds else { return [] }
@@ -61,7 +65,7 @@ final class ScreenshotEditorModel {
         var selectedIDs: Set<UUID>
     }
     private struct Gesture {
-        enum Mode { case draw(ScreenshotTool, UUID), move(UUID), handle(ScreenshotAnnotation.Handle), marquee, crop }
+        enum Mode { case draw(ScreenshotTool, UUID), move(UUID), handle(ScreenshotAnnotation.Handle), marquee, crop, moveCrop, resizeCrop(ScreenshotAnnotation.Handle) }
         var before: State
         var originals: [ScreenshotAnnotation]
         var start: CGPoint
@@ -150,8 +154,16 @@ final class ScreenshotEditorModel {
         let point = clamped(input), before = state
         if tool == .crop {
             let previous = cropRect
-            cropRect = CGRect(origin: point, size: .zero)
-            gesture = Gesture(before: before, originals: [], start: point, previous: point, mode: .crop, flags: modifiers, previousCropRect: previous)
+            let mode: Gesture.Mode
+            if let handle = cropHandles.first(where: { hypot($0.1.x - point.x, $0.1.y - point.y) <= tolerance })?.0 {
+                mode = .resizeCrop(handle)
+            } else if let previous, previous.contains(point) {
+                mode = .moveCrop
+            } else {
+                mode = .crop
+                cropRect = CGRect(origin: point, size: .zero)
+            }
+            gesture = Gesture(before: before, originals: [], start: point, previous: point, mode: mode, flags: modifiers, previousCropRect: previous)
         } else if tool == .select || moving {
             if modifiers.intersection([.shift, .command]).isEmpty,
                let handle = selectionHandles.first(where: { hypot($0.1.x - point.x, $0.1.y - point.y) <= tolerance })?.0 {
@@ -182,6 +194,17 @@ final class ScreenshotEditorModel {
         if let modifiers { active.flags = modifiers }
         gesture = active
         switch active.mode {
+        case .moveCrop:
+            guard let rect = active.previousCropRect else { return }
+            cropRect = CGRect(x: max(0, min(CGFloat(width) - rect.width, rect.minX + point.x - active.start.x)),
+                              y: max(0, min(CGFloat(height) - rect.height, rect.minY + point.y - active.start.y)),
+                              width: rect.width, height: rect.height)
+        case .resizeCrop(let handle):
+            guard let rect = active.previousCropRect else { return }
+            let guide = ScreenshotAnnotation(kind: .rectangle, frame: rect)
+            guard let anchor = guide.handles.first(where: { $0.0 == handle })?.1 else { return }
+            let target = clamped(CGPoint(x: anchor.x + point.x - active.start.x, y: anchor.y + point.y - active.start.y))
+            cropRect = guide.editing(handle: handle, at: target).bounds.intersection(CGRect(x: 0, y: 0, width: width, height: height))
         case .crop:
             cropRect = CGRect(x: min(point.x, active.start.x), y: min(point.y, active.start.y),
                               width: abs(point.x - active.start.x), height: abs(point.y - active.start.y))
@@ -229,7 +252,7 @@ final class ScreenshotEditorModel {
         gesture = nil
         defer { marquee = nil; previewSelection.removeAll(); syncStyle(); changed() }
         switch active.mode {
-        case .crop:
+        case .crop, .moveCrop, .resizeCrop:
             if let rect = cropRect, rect.width * zoom >= 2, rect.height * zoom >= 2 {
                 cropRect = rect.integral.intersection(CGRect(x: 0, y: 0, width: width, height: height))
             } else { cropRect = nil }
@@ -264,7 +287,10 @@ final class ScreenshotEditorModel {
     func cancelInteraction() {
         guard let active = gesture else { return }
         gesture = nil; annotations = active.before.annotations; selectedIDs = active.before.selectedIDs
-        if case .crop = active.mode { cropRect = active.previousCropRect }
+        switch active.mode {
+        case .crop, .moveCrop, .resizeCrop: cropRect = active.previousCropRect
+        default: break
+        }
         marquee = nil; previewSelection.removeAll(); syncStyle(); changed()
     }
     /// Crop the immutable background and rebase retained objects in one document transaction.

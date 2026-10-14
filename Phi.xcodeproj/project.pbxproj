@@ -691,6 +691,9 @@
 		5C4EF100000000000000000D /* ScreenshotEditorWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C4EF000000000000000000D /* ScreenshotEditorWindowController.swift */; };
 		5C4EF100000000000000000E /* ScreenshotImageExport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C4EF000000000000000000E /* ScreenshotImageExport.swift */; };
 		5C4EF1000000000000000FFF /* ItsPaint-LICENSE.txt in Resources */ = {isa = PBXBuildFile; fileRef = 5C4EF0000000000000000FFF /* ItsPaint-LICENSE.txt */; };
+		5C4EF3000000000000000001 /* ScreenshotEditorControls.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C4EF4000000000000000001 /* ScreenshotEditorControls.swift */; };
+		5C4EF3000000000000000002 /* ScreenshotAnnotationWidgets.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C4EF2000000000000000002 /* ScreenshotAnnotationWidgets.swift */; };
+		5C4EF3000000000000000003 /* ScreenshotEditorViewport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C4EF2000000000000000003 /* ScreenshotEditorViewport.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -1518,6 +1521,9 @@
 		5C4EF000000000000000000D /* ScreenshotEditorWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenshotEditorWindowController.swift; sourceTree = "<group>"; };
 		5C4EF000000000000000000E /* ScreenshotImageExport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenshotImageExport.swift; sourceTree = "<group>"; };
 		5C4EF0000000000000000FFF /* ItsPaint-LICENSE.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = Resources/ThirdParty/ItsPaint-LICENSE.txt; sourceTree = SOURCE_ROOT; };
+		5C4EF4000000000000000001 /* ScreenshotEditorControls.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenshotEditorControls.swift; sourceTree = "<group>"; };
+		5C4EF2000000000000000002 /* ScreenshotAnnotationWidgets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenshotAnnotationWidgets.swift; sourceTree = "<group>"; };
+		5C4EF2000000000000000003 /* ScreenshotEditorViewport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenshotEditorViewport.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -3243,6 +3249,9 @@
 				5C4EF000000000000000000B /* ScreenshotCanvasView.swift */,
 				5C4EF000000000000000000C /* ScreenshotCanvasScrollView.swift */,
 				5C4EF000000000000000000D /* ScreenshotEditorWindowController.swift */,
+				5C4EF2000000000000000003 /* ScreenshotEditorViewport.swift */,
+				5C4EF2000000000000000002 /* ScreenshotAnnotationWidgets.swift */,
+				5C4EF4000000000000000001 /* ScreenshotEditorControls.swift */,
 				5C4EF000000000000000000E /* ScreenshotImageExport.swift */,
             );
             path = PageScreenshot;
@@ -3931,6 +3940,9 @@
 				5C4EE0000000000000000002 /* PageScreenshotService.swift in Sources */,
 				5C4EF100000000000000000E /* ScreenshotImageExport.swift in Sources */,
 				5C4EF100000000000000000D /* ScreenshotEditorWindowController.swift in Sources */,
+				5C4EF3000000000000000003 /* ScreenshotEditorViewport.swift in Sources */,
+				5C4EF3000000000000000002 /* ScreenshotAnnotationWidgets.swift in Sources */,
+				5C4EF3000000000000000001 /* ScreenshotEditorControls.swift in Sources */,
 				5C4EF100000000000000000C /* ScreenshotCanvasScrollView.swift in Sources */,
 				5C4EF100000000000000000B /* ScreenshotCanvasView.swift in Sources */,
 				5C4EF100000000000000000A /* ScreenshotEditorModel.swift in Sources */,

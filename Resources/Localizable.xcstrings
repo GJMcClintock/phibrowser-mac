@@ -4,6 +4,16 @@
     "" : {
 
     },
+    "%@ (%@)" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ (%2$@)"
+          }
+        }
+      }
+    },
     "app.fileMenu.capturePageArea" : {
       "comment" : "File menu - Select a visible webpage area to capture and edit",
       "extractionState" : "manual",
@@ -36,6 +46,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Edit Annotation"
+          }
+        }
+      }
+    },
+    "browser.screenshot.applyCrop" : {
+      "comment" : "Screenshot editor - Apply the selected crop",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Apply"
           }
         }
       }
@@ -88,6 +110,18 @@
         }
       }
     },
+    "browser.screenshot.cancelCrop" : {
+      "comment" : "Screenshot editor - Leave crop mode without changing the image",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cancel"
+          }
+        }
+      }
+    },
     "browser.screenshot.closeWithoutSaving" : {
       "comment" : "Screenshot editor - Discard edits and close the window",
       "extractionState" : "manual",
@@ -120,6 +154,30 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Crop"
+          }
+        }
+      }
+    },
+    "browser.screenshot.cropHint" : {
+      "comment" : "Screenshot editor - Instruction before drawing a crop selection",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Drag to select an area"
+          }
+        }
+      }
+    },
+    "browser.screenshot.customColor" : {
+      "comment" : "Screenshot editor - Open the system color picker for the selected annotations",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Custom color"
           }
         }
       }
@@ -300,6 +358,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Move"
+          }
+        }
+      }
+    },
+    "browser.screenshot.moveToolbar" : {
+      "comment" : "Screenshot editor - Floating toolbar drag handle",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Drag to move the toolbar"
           }
         }
       }

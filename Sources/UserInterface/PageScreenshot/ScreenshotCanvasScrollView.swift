@@ -13,8 +13,9 @@ import SwiftUI
 /// scroller here would steal wheel events mid-stroke.
 struct ScreenshotCanvasScrollView: NSViewRepresentable {
     @Bindable var model: ScreenshotEditorModel
+    var export: (ScreenshotExportFormat) -> Void = { _ in }
 
-    func makeNSView(context: Context) -> NSScrollView {
+    func makeNSView(context: Context) -> ScreenshotEditorViewport {
         let canvas = ScreenshotCanvasView()
         canvas.model = model
         canvas.zoom = model.zoom
@@ -39,10 +40,11 @@ struct ScreenshotCanvasScrollView: NSViewRepresentable {
         scrollView.backgroundColor = .underPageBackgroundColor
         scrollView.contentView.postsBoundsChangedNotifications = true
         scrollView.scrollerStyle = .overlay
-        return scrollView
+        return ScreenshotEditorViewport(scrollView: scrollView, model: model, export: export)
     }
 
-    func updateNSView(_ scrollView: NSScrollView, context: Context) {
+    func updateNSView(_ viewport: ScreenshotEditorViewport, context: Context) {
+        let scrollView = viewport.scrollView
         guard let canvas = scrollView.documentView as? ScreenshotCanvasView else { return }
         canvas.model = model
         canvas.zoom = model.zoom
@@ -52,6 +54,7 @@ struct ScreenshotCanvasScrollView: NSViewRepresentable {
         canvas.repaintIfChanged(revision: model.revision)
         canvas.invalidateCanvasSize()
         fitToViewport(scrollView, canvas: canvas)
+        viewport.updatePresentation()
     }
 
     /// Keep the whole artwork in the viewport until the user picks a zoom.

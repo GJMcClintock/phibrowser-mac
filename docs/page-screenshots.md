@@ -102,9 +102,22 @@ The native overlay is outside Chromium's captured surface.
 
 The separate editor opens after a successful clipboard copy and stays alive
 independently of the originating browser window. The shared AppKit module also
-runs in a standalone synthetic app. It exposes Select, Crop, Arrow, Freehand, Text,
-Rectangle, Ellipse, color, source-pixel stroke and text size, optional shape fill,
-layer order, duplicate/delete, Undo/Redo, preview zoom, and JPG/PDF export.
+runs in a standalone synthetic app. Its draggable floating toolbar exposes Select, Crop, Arrow, Freehand, Text,
+Rectangle, Ellipse and JPG/PDF export. A separate zoom menu stays in the viewport.
+Both surfaces use native Liquid Glass on macOS 26 and a material fallback on
+older systems. There are no fixed editing bars.
+
+Selection opens an object-anchored property popover with a dedicated SwiftUI
+widget for each annotation kind. `ScreenshotAnnotationProperties` dispatches to
+these widgets; color, size and fill controls are shared. The viewport owns
+placement, edge avoidance and visibility, while all edits use the existing
+model and undo history. Moving/resizing, text entry, panning and a context menu
+hide the popover. Offscreen selections hide it until visible again. Mixed
+selections expose only shared properties.
+
+Right-click an annotation to bring it to front, send it to back, duplicate or
+delete it. Clicking a selected group member preserves the group. Undo/Redo
+remain available through the native Edit menu and keyboard shortcuts.
 
 Completed annotations remain separate editable objects. Select and drag an
 object to move it; drag bounding-box handles to resize shapes/freehand/text, or
@@ -164,8 +177,13 @@ isolated test suites, standalone synthetic app and browser acceptance checks.
 
 ## Crop
 
-The lasso toolbar entry (C) arms rectangular image selection without selecting
-annotations, even with Shift or Command held. Crop appears when the drag ends.
+The Crop toolbar entry (C) arms rectangular image selection without selecting
+annotations, even with Shift or Command held. Drag inside an existing crop to
+move it, or drag its eight handles to resize it. These adjustments leave the
+image and undo history unchanged until confirmation. The toolbar switches to
+crop dimensions, Cancel and Apply; Apply is enabled after a valid drag ends.
+Return applies the crop and Escape cancels. The crop overlay shows a thirds
+grid, white handles and a dimmed exterior.
 Confirming crops the source pixels, rebases retained annotations and returns to
 Select. Objects wholly outside the crop are removed; partially intersecting
 objects remain editable and are clipped to the new canvas. Undo/redo restores
