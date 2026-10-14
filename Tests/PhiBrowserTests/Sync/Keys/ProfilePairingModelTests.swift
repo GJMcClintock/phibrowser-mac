@@ -255,42 +255,66 @@ final class ProfilePairingModelTests: XCTestCase {
         XCTAssertEqual(created.decisions(), [.adopt(localProfileId: "Default", remoteUuid: "RD"),
                                              .createLocal(remoteUuid: "RD2", displayName: "Laptop")])
 
-        // Moving the local Default to the other default swaps the roles.
-        let swapped = makeModel(locals: [mine], remotes: [accountDefault, second],
-                                selections: ["Default": .remote("RD2")])
-        XCTAssertEqual(swapped.authoritativeDefaultUuid, "RD2")
-        XCTAssertTrue(swapped.offersCreateLocal(for: accountDefault))
-        XCTAssertFalse(swapped.offersCreateLocal(for: second))
+        // The local Default is fixed to the first account default; a stored choice
+        // of the other reads back as the first, so the roles never swap in the sheet.
+        let stored = makeModel(locals: [mine], remotes: [accountDefault, second],
+                               selections: ["Default": .remote("RD2")])
+        XCTAssertEqual(stored.selection(for: mine), .remote("RD"))
+        XCTAssertEqual(stored.authoritativeDefaultUuid, "RD")
+        XCTAssertFalse(stored.offersCreateLocal(for: accountDefault))
+        XCTAssertTrue(stored.offersCreateLocal(for: second))
     }
 
-    /// With the local Default absent (already mapped) or on a legacy profile,
-    /// no account default here is authoritative: each is an ordinary profile.
+    /// The local Default does not choose: with a readable account default in the
+    /// listing its row is fixed to the first one whatever is stored -- not
+    /// "Register as new", not a legacy profile -- so no sheet can mint a second
+    /// account default (two Macs in different languages, 2026-10-14). Only an
+    /// account whose defaults cannot be read leaves the Default its picker.
+    func testTheLocalDefaultIsFixedToTheAccountDefault() {
+        let mine = localDefault("Your Phi")
+        for selection in [ProfilePairingModel.Choice.registerNew, .remote("R1")] {
+            let model = makeModel(locals: [mine], remotes: [home, accountDefault],
+                                  selections: ["Default": selection])
+            XCTAssertEqual(model.fixedDefaultRemote?.uuid, "RD")
+            XCTAssertEqual(model.selection(for: mine), .remote("RD"))
+            XCTAssertEqual(model.authoritativeDefaultUuid, "RD")
+            XCTAssertEqual(model.unclaimedRemotes.map(\.uuid), ["R1"])
+            XCTAssertEqual(model.decisions(), [.adopt(localProfileId: "Default", remoteUuid: "RD")])
+        }
+
+        let unreadableDefault = RemoteProfile(uuid: "RU", name: nil, isDefault: true)
+        let open = makeModel(locals: [mine], remotes: [home, unreadableDefault],
+                             selections: ["Default": .remote("R1")])
+        XCTAssertNil(open.fixedDefaultRemote)
+        XCTAssertEqual(open.selection(for: mine), .remote("R1"))
+        XCTAssertEqual(open.remoteOptions(for: mine).map(\.uuid), ["R1"])
+    }
+
+    /// With the local Default absent (already mapped), no account default here is
+    /// authoritative: each is an ordinary profile.
     func testWithoutAnAuthoritativeDefaultEveryAccountDefaultIsOrdinary() {
         let spare = ordinary("Profile 1", "Your Phi")
         let model = makeModel(locals: [spare], remotes: [accountDefault])
         XCTAssertNil(model.authoritativeDefaultUuid)
         XCTAssertEqual(model.selection(for: spare), .remote("RD"))
-
-        let legacy = makeModel(locals: [localDefault("Home"), ordinary("Profile 2", "Spare")],
-                               remotes: [home, accountDefault],
-                               selections: ["Default": .remote("R1"), "Profile 2": .registerNew])
-        XCTAssertNil(legacy.authoritativeDefaultUuid)
-        XCTAssertTrue(legacy.offersCreateLocal(for: accountDefault))
-        XCTAssertEqual(legacy.assignableLocals(for: accountDefault).map(\.profileId), ["Profile 2"])
+        XCTAssertTrue(model.offersCreateLocal(for: accountDefault))
     }
 
-    /// The account default's own row may be assigned to the local Default and
-    /// to nothing else.
-    func testTheAccountDefaultRowAssignsOnlyToTheLocalDefault() {
+    /// The account default never appears as an unclaimed row beside the local
+    /// Default: the Default's row claims it, so a stale remote-row choice of it
+    /// is ignored and no other local is offered it.
+    func testTheAccountDefaultRowNeverAppearsBesideTheLocalDefault() {
         let mine = localDefault("Personal")
         let spare = ordinary("Profile 1", "Spare")
         let model = makeModel(locals: [mine, spare], remotes: [accountDefault],
                               selections: ["Default": .registerNew, "Profile 1": .registerNew],
                               remoteChoices: ["RD": .adopt(localProfileId: "Default")])
 
-        XCTAssertEqual(model.assignableLocals(for: accountDefault).map(\.profileId), ["Default"])
-        XCTAssertEqual(model.decisions(), [.registerNew(localProfileId: "Profile 1", displayName: "Spare"),
-                                           .adopt(localProfileId: "Default", remoteUuid: "RD")])
+        XCTAssertEqual(model.unclaimedRemotes, [])
+        XCTAssertNil(model.choice(for: accountDefault))
+        XCTAssertTrue(model.assignableLocals(for: accountDefault).isEmpty)
+        XCTAssertEqual(model.decisions(), [.adopt(localProfileId: "Default", remoteUuid: "RD"),
+                                           .registerNew(localProfileId: "Profile 1", displayName: "Spare")])
     }
 
     /// A legacy (unflagged) profile is unknown, so both sides may take it; with

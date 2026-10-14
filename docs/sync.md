@@ -367,8 +367,10 @@ upgraded stay unknown.
 
 Rule: a device's Default Profile pairs only with the account's default Profile.
 Exactly one account default is authoritative on a Mac: the one its Default is
-mapped to with the uuid still in the account listing, or, while the Default is
-still undecided in the pairing sheet, the one currently chosen for it. Two devices
+mapped to with the uuid still in the account listing, or, in the pairing sheet,
+the first readable account default in the listing, which the Default's row is
+fixed to (shown in place of a picker; only with no readable account default does
+the Default keep a picker over the legacy Profiles it may take). Two devices
 that complete first pairing concurrently each register a default; every account
 default other than the authoritative one is demoted to an ordinary Profile on this
 Mac (offered to other locals, creatable, auto-created) and the conflict is logged
@@ -377,16 +379,17 @@ bound to the other default still land.
 
 | Remote | Local Default | Other local |
 | --- | --- | --- |
-| Authoritative account default | Allowed; preselected whatever its name | Never; never created as a new local |
-| Other account default (demoted) | Allowed (choosing it makes it authoritative) | Allowed, like any Profile |
+| Authoritative account default | Fixed: the Default's row shows it, whatever its name | Never; never created as a new local |
+| Other account default (demoted) | Never while a readable account default is fixed | Allowed, like any Profile |
 | `isDefault == false` | Never | Allowed |
-| `nil` (legacy / unknown) | Allowed | Allowed |
+| `nil` (legacy / unknown) | Allowed (picker, only with no readable account default) | Allowed |
 
 `ProfilePairingModel` applies it to every picker, preselection (the local Default
 is decided first and takes the first unclaimed account default, otherwise a name
 match among the remotes it may take), "Assign to" option, "Create on this Mac"
-option and decision; `authoritativeDefaultUuid` follows the local Default's current
-choice, so roles change live in the sheet. Rows for the local Default and the
+option and decision; `fixedDefaultRemote` pins the local Default's selection so a
+stored "Register as new" or legacy choice for it reads back as the account default
+and no sheet can mint a second one. Rows for the local Default and the
 authoritative account default carry the Default badge. `adoptRemoteProfile`
 refuses a known non-default for the local Default with
 `ProfileKeyManagerError.defaultMismatch` before writing anything; the pairing sheet
