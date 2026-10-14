@@ -300,4 +300,116 @@ final class ScreenshotEditorInteractionTests: XCTestCase {
         m.isEditingText = false; m.select(nil); canvas.synchronize(); XCTAssertTrue(viewport.annotationPopover.isHidden)
     }
 
+    func testSizeShortcutsAdjustShapesAndTextWithoutZoomingAndSupportUndo() throws {
+        let editor = ScreenshotEditorWindowController(canvas: model().source, fileName: "Fixture.jpg")
+        let window = try XCTUnwrap(editor.window as? ScreenshotEditorWindow)
+        defer { window.close() }
+        let m = editor.model
+        func key(_ characters: String, flags: NSEvent.ModifierFlags = .command, code: UInt16 = 24) throws -> NSEvent {
+            try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags, timestamp: 0,
+                windowNumber: window.windowNumber, context: nil, characters: characters,
+                charactersIgnoringModifiers: characters, isARepeat: false, keyCode: code))
+        }
+        for tool in [ScreenshotTool.rectangle, .ellipse, .arrow, .freehand, .text] {
+            if tool == .text { m.commitText("Hello", frame: CGRect(x: 100, y: 100, width: 280, height: 80)) }
+            else { draw(m, tool, CGPoint(x: 100, y: 100), CGPoint(x: 300, y: 200)) }
+            let before = try XCTUnwrap(m.selected), zoom = m.zoom
+            XCTAssertTrue(window.performKeyEquivalent(with: try key("=")))
+            let enlarged = try XCTUnwrap(m.selected)
+            XCTAssertEqual(enlarged.style.width, before.style.width + (tool == .text ? 0 : 1))
+            XCTAssertEqual(enlarged.style.fontSize, before.style.fontSize + (tool == .text ? 1 : 0))
+            XCTAssertEqual(m.zoom, zoom)
+            m.undo(); XCTAssertEqual(m.selected, before)
+            m.redo(); XCTAssertEqual(m.selected, enlarged)
+            XCTAssertTrue(window.performKeyEquivalent(with: try key("-", code: 27)))
+            XCTAssertEqual(m.selected, before)
+            XCTAssertTrue(window.performKeyEquivalent(with: try key("+", flags: [.command, .shift])))
+            XCTAssertEqual(m.selected, enlarged)
+            m.undo()
+            XCTAssertTrue(window.performKeyEquivalent(with: try key("+", code: 69)))
+            XCTAssertEqual(m.selected, enlarged)
+        }
+        let before = m.annotations
+        _ = window.performKeyEquivalent(with: try key("=", flags: [.command, .option]))
+        XCTAssertEqual(m.annotations, before)
+        let textEntry = NSTextView(frame: CGRect(x: 0, y: 0, width: 100, height: 40))
+        window.contentView = textEntry
+        XCTAssertTrue(window.makeFirstResponder(textEntry))
+        _ = window.performKeyEquivalent(with: try key("="))
+        XCTAssertEqual(m.annotations, before)
+    }
+
+    func testSizeAdjustmentPreservesMixedStylesAndGroupsUndo() throws {
+        let m = model()
+        draw(m, .rectangle, CGPoint(x: 50, y: 50), CGPoint(x: 100, y: 100)); m.brushSize = 2
+        draw(m, .ellipse, CGPoint(x: 150, y: 50), CGPoint(x: 200, y: 100)); m.brushSize = 8
+        m.commitText("Hello", frame: CGRect(x: 100, y: 200, width: 280, height: 80)); m.textSize = 24
+        draw(m, .arrow, CGPoint(x: 300, y: 50), CGPoint(x: 400, y: 100))
+        draw(m, .freehand, CGPoint(x: 500, y: 50), CGPoint(x: 600, y: 100))
+        m.selectAll()
+        let before = m.annotations, generation = m.generation
+        XCTAssertTrue(m.adjustSelectionSize(by: 1))
+        XCTAssertEqual(m.annotations[0].style.width, 3)
+        XCTAssertEqual(m.annotations[1].style.width, 9)
+        XCTAssertEqual(m.annotations[2].style.fontSize, 25)
+        for i in [3, 4] {
+            XCTAssertEqual(m.annotations[i].style.width, before[i].style.width + 1)
+            XCTAssertEqual(m.annotations[i].points, before[i].points)
+            XCTAssertEqual(m.annotations[i].style.arrowHeadLength, before[i].style.arrowHeadLength)
+        }
+        XCTAssertEqual(m.generation, generation + 1)
+        m.undo(); XCTAssertEqual(m.annotations, before)
+        XCTAssertTrue(m.adjustSelectionSize(by: -100))
+        XCTAssertEqual(m.annotations[0].style.width, 1)
+        XCTAssertEqual(m.annotations[1].style.width, 1)
+        XCTAssertEqual(m.annotations[2].style.fontSize, 1)
+        XCTAssertEqual(m.annotations[3].style.width, 1)
+        XCTAssertEqual(m.annotations[4].style.width, 1)
+        let atMinimum = m.generation
+        XCTAssertTrue(m.adjustSelectionSize(by: -1))
+        XCTAssertEqual(m.generation, atMinimum)
+        m.select(m.annotations[0].id); m.brushSize = 0.5
+        XCTAssertTrue(m.adjustSelectionSize(by: -1))
+        XCTAssertEqual(m.selected?.style.width, 0.5)
+    }
+
+    func testSizeAdjustmentIgnoresEmptySelectionAndActiveEditing() {
+        let m = model()
+        XCTAssertFalse(m.adjustSelectionSize(by: 1))
+        draw(m, .rectangle, CGPoint(x: 200, y: 200), CGPoint(x: 400, y: 400))
+        m.isEditingText = true
+        XCTAssertFalse(m.adjustSelectionSize(by: 1))
+        m.isEditingText = false
+        m.beginInteraction(at: CGPoint(x: 300, y: 300), tolerance: 6)
+        XCTAssertTrue(m.isInteracting); XCTAssertFalse(m.adjustSelectionSize(by: 1))
+        m.cancelInteraction()
+    }
+
+    func testPopoverBackgroundConsumesClicksWithoutClearingSelection() throws {
+        let m = model(), canvas = ScreenshotCanvasView(), scroll = NSScrollView()
+        canvas.model = m; scroll.documentView = canvas
+        let viewport = ScreenshotEditorViewport(scrollView: scroll, model: m, export: { _ in })
+        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 1000, height: 800), styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false; window.contentView = viewport
+        defer { window.close() }
+        viewport.layoutSubtreeIfNeeded()
+        draw(m, .rectangle, CGPoint(x: 250, y: 300), CGPoint(x: 450, y: 500))
+        canvas.synchronize(); viewport.layoutSubtreeIfNeeded()
+        let popover = viewport.annotationPopover, selected = m.selectedIDs
+        XCTAssertFalse(popover.isHidden)
+        for offset in [CGPoint(x: 12, y: 12), CGPoint(x: 4, y: 4)] {
+            let point = CGPoint(x: popover.frame.minX + offset.x, y: popover.frame.minY + offset.y)
+            let target = try XCTUnwrap(viewport.hitTest(viewport.convert(point, to: viewport.superview)))
+            XCTAssertTrue(target === popover || target.isDescendant(of: popover))
+            let location = viewport.convert(point, to: nil)
+            let down = try XCTUnwrap(NSEvent.mouseEvent(with: .leftMouseDown, location: location, modifierFlags: [], timestamp: 0,
+                windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
+            let up = try XCTUnwrap(NSEvent.mouseEvent(with: .leftMouseUp, location: location, modifierFlags: [], timestamp: 0,
+                windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 0))
+            target.mouseDown(with: down); target.mouseUp(with: up)
+            XCTAssertEqual(m.selectedIDs, selected); XCTAssertFalse(m.isInteracting)
+            XCTAssertFalse(popover.isHidden)
+        }
+    }
+
 }

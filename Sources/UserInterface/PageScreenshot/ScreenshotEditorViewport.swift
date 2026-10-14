@@ -13,8 +13,6 @@ final class ScreenshotEditorViewport: NSView {
     private var toolbar: NSHostingView<ScreenshotEditorToolbar>!
     private let zoomControl: NSHostingView<ScreenshotZoomWidget>
     let annotationPopover: ScreenshotAnnotationPopover
-    private var toolbarCenter: CGPoint?
-    private var dragStart: CGPoint?
     private var boundsObserver: NSObjectProtocol?
     private var updating = false
 
@@ -24,9 +22,7 @@ final class ScreenshotEditorViewport: NSView {
         zoomControl = NSHostingView(rootView: ScreenshotZoomWidget(model: model))
         annotationPopover = ScreenshotAnnotationPopover(model: model)
         super.init(frame: .zero)
-        toolbar = NSHostingView(rootView: ScreenshotEditorToolbar(model: model, export: export, move: { [weak self] delta, ended in
-            self?.moveToolbar(by: delta, ended: ended)
-        }))
+        toolbar = NSHostingView(rootView: ScreenshotEditorToolbar(model: model, export: export))
         addSubview(scrollView)
         addSubview(annotationPopover)
         addSubview(zoomControl)
@@ -45,23 +41,12 @@ final class ScreenshotEditorViewport: NSView {
         updatePresentation()
     }
 
-    private func moveToolbar(by delta: CGSize, ended: Bool) {
-        if dragStart == nil { dragStart = CGPoint(x: toolbar.frame.midX, y: toolbar.frame.midY) }
-        guard let dragStart else { return }
-        toolbarCenter = CGPoint(x: dragStart.x + delta.width, y: dragStart.y + delta.height)
-        updatePresentation()
-        if ended {
-            toolbarCenter = CGPoint(x: toolbar.frame.midX, y: toolbar.frame.midY)
-            self.dragStart = nil
-        }
-    }
-
     func updatePresentation() {
         guard !updating, bounds.width > 0, bounds.height > 0, let toolbar else { return }
         updating = true
         defer { updating = false }
         let size = toolbar.fittingSize
-        let center = toolbarCenter ?? CGPoint(x: bounds.midX, y: bounds.maxY - 24 - size.height / 2)
+        let center = CGPoint(x: bounds.midX, y: bounds.maxY - 24 - size.height / 2)
         toolbar.frame = ScreenshotPopoverPlacement.clamp(CGRect(x: center.x - size.width / 2, y: center.y - size.height / 2, width: size.width, height: size.height), to: bounds.insetBy(dx: 12, dy: 12))
         let zoomSize = zoomControl.fittingSize
         var zoomFrame = CGRect(x: 20, y: bounds.maxY - zoomSize.height - 24, width: zoomSize.width, height: zoomSize.height)
@@ -168,8 +153,13 @@ final class ScreenshotAnnotationPopover: NSView {
         needsLayout = true
     }
     override func hitTest(_ point: NSPoint) -> NSView? {
-        // The decorative pointer and shadow do not intercept drawing gestures.
-        guard !isHidden, material.frame.contains(convert(point, from: superview)) else { return nil }
-        return super.hitTest(point)
+        guard !isHidden, bounds.contains(convert(point, from: superview)) else { return nil }
+        // SwiftUI can return no hit for padding between controls. The popover still
+        // owns that click, so the canvas cannot interpret it as a deselection.
+        return super.hitTest(point) ?? self
     }
+    override func mouseDown(with event: NSEvent) {}
+    override func mouseDragged(with event: NSEvent) {}
+    override func mouseUp(with event: NSEvent) {}
+    override func rightMouseDown(with event: NSEvent) {}
 }

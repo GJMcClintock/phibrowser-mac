@@ -265,6 +265,14 @@ final class ScreenshotEditorWindow: NSWindow {
     }
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         let flags = event.modifierFlags.intersection([.command, .shift, .control, .option])
+        let key = event.charactersIgnoringModifiers ?? ""
+        if !(firstResponder is NSTextView), flags == [.command] || flags == [.command, .shift] {
+            let delta: CGFloat? = (key == "+" || key == "=") ? 1 : (key == "-" && flags == [.command]) ? -1 : nil
+            if let delta, editor?.model.adjustSelectionSize(by: delta) == true {
+                canvasResponder?.synchronize()
+                return true
+            }
+        }
         if flags == [.command] || flags == [.command, .shift], event.charactersIgnoringModifiers?.lowercased() == "z" {
             replayUndo(redo: flags.contains(.shift))
             return true

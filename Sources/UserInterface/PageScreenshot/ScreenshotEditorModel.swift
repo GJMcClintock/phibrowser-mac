@@ -137,6 +137,23 @@ final class ScreenshotEditorModel {
             for i in annotations.indices where selectedIDs.contains(annotations[i].id) { annotations[i].style[keyPath: key] = value }
         }
     }
+    @discardableResult
+    func adjustSelectionSize(by delta: CGFloat) -> Bool {
+        guard !isEditingText, !isInteracting, hasSelection else { return false }
+        command(NSLocalizedString("browser.screenshot.styleEdit", value: "Change Style", comment: "Screenshot editor - Undo action for annotation style")) {
+            for i in annotations.indices where selectedIDs.contains(annotations[i].id) {
+                switch annotations[i].kind {
+                case .rectangle, .ellipse, .arrow, .freehand:
+                    let current = annotations[i].style.width
+                    annotations[i].style.width = max(min(1, current), current + delta)
+                case .text:
+                    let current = annotations[i].style.fontSize
+                    annotations[i].style.fontSize = max(min(1, current), current + delta)
+                }
+            }
+        }
+        return true
+    }
     private func clamped(_ p: CGPoint) -> CGPoint {
         CGPoint(x: max(0, min(CGFloat(width), p.x)), y: max(0, min(CGFloat(height), p.y)))
     }

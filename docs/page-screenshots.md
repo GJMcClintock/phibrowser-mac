@@ -102,22 +102,30 @@ The native overlay is outside Chromium's captured surface.
 
 The separate editor opens after a successful clipboard copy and stays alive
 independently of the originating browser window. The shared AppKit module also
-runs in a standalone synthetic app. Its draggable floating toolbar exposes Select, Crop, Arrow, Freehand, Text,
-Rectangle, Ellipse and JPG/PDF export. A separate zoom menu stays in the viewport.
-Both surfaces use native Liquid Glass on macOS 26 and a material fallback on
-older systems. There are no fixed editing bars.
+runs in a standalone synthetic app. Its bottom-centered floating toolbar exposes
+Select, Arrow, Freehand, Text, Rectangle, Ellipse, Crop and JPG/PDF export.
+A separate zoom menu stays in the viewport.
+Both surfaces use capsule-shaped native Liquid Glass on macOS 26 and a material
+fallback on older systems. Export uses a compact icon menu. The controls overlay
+the canvas without reserving a separate editing bar.
 
 Selection opens an object-anchored property popover with a dedicated SwiftUI
 widget for each annotation kind. `ScreenshotAnnotationProperties` dispatches to
 these widgets; color, size and fill controls are shared. The viewport owns
 placement, edge avoidance and visibility, while all edits use the existing
-model and undo history. Moving/resizing, text entry, panning and a context menu
+model and undo history. A palette icon opens the system color picker; clicks on
+the popover background preserve the selection. Moving/resizing, text entry, panning and a context menu
 hide the popover. Offscreen selections hide it until visible again. Mixed
 selections expose only shared properties.
 
 Right-click an annotation to bring it to front, send it to back, duplicate or
 delete it. Clicking a selected group member preserves the group. Undo/Redo
 remain available through the native Edit menu and keyboard shortcuts.
+Command-Plus (including Command-Equals) and Command-Minus adjust selected
+shape, arrow and freehand stroke widths and text font sizes by one source-image unit,
+with a minimum of one (existing smaller values are preserved on decrement).
+Mixed selections adjust each object's size independently and each keypress is
+one undo step. Active text entry keeps its normal keyboard handling.
 
 Completed annotations remain separate editable objects. Select and drag an
 object to move it; drag bounding-box handles to resize shapes/freehand/text, or

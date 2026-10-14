@@ -64,7 +64,7 @@ struct ScreenshotAnnotation: Identifiable, Codable, Equatable, Sendable {
     var path: CGPath {
         let path = CGMutablePath()
         switch kind {
-        case .rectangle: path.addRect(frame)
+        case .rectangle: path.addRoundedRect(in: frame, cornerWidth: 4, cornerHeight: 4)
         case .ellipse: path.addEllipse(in: frame)
         case .arrow:
             guard points.count == 2 else { return path }
