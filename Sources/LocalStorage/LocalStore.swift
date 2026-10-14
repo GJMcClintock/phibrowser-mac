@@ -73,6 +73,8 @@ class LocalStore {
     /// caller already assumes.
     private var writeJobContinuation: AsyncStream<() async -> Void>.Continuation?
     private(set) var compatibilityStatus: LocalStoreCompatibilityStatus = .notChecked
+    /// In-memory count of pin scope migrations that changed the row scope; see `pinScopeGeneration`.
+    let pinScopeGenerationCounter = PinScopeGenerationCounter()
 
     @MainActor var mainContext: ModelContext? {
         container?.mainContext
@@ -634,6 +636,30 @@ extension LocalStore {
         return try await withCheckedThrowingContinuation { continuation in
             writeJobContinuation.yield {
                 do {
+                    let result = try await writeActor.performThrowing(block)
+                    continuation.resume(returning: result)
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
+    /// `performBackgroundWriteAndWaitThrowing(_:)` with a main-actor `precondition` that runs inside
+    /// the same FIFO job: after every write queued before it, immediately before the transaction. A
+    /// throw skips the transaction and reaches the caller. For a refusal that must hold when the
+    /// write runs, not only when it was queued.
+    func performBackgroundWriteAndWaitThrowing<Result: Sendable>(
+        precondition: @escaping @MainActor () throws -> Void,
+        _ block: @escaping (ModelContext) throws -> Result
+    ) async throws -> Result {
+        guard let writeActor, let writeJobContinuation else {
+            throw LocalStoreWriteError.storeUnavailable
+        }
+        return try await withCheckedThrowingContinuation { continuation in
+            writeJobContinuation.yield {
+                do {
+                    try await precondition()
                     let result = try await writeActor.performThrowing(block)
                     continuation.resume(returning: result)
                 } catch {

@@ -38,6 +38,9 @@ final class DevicesSettingViewModel: ObservableObject {
     @Published private(set) var profileMappingPause: SyncProfileMappingPauseStatus = .none
     @Published private(set) var syncNowCancelledByPause = false
     @Published private(set) var profileListNotEnumeratedSince: Date?
+    /// The pin scope follower's failures as last read (B-3 stage 1, design 3.2); shown as a
+    /// problem line under the status, beside the pause fields above.
+    @Published private(set) var pinScopeMigrationFailure: SyncPinScopeMigrationFailure?
     /// When the report was last read; the unread Profile list's age is measured against it.
     @Published private(set) var statusReadAt = Date()
     /// Bumped when a shown pause ends, so the view announces that sync resumed.
@@ -168,6 +171,7 @@ final class DevicesSettingViewModel: ObservableObject {
         profileMappingPause = report?.profileMappingPause ?? .none
         syncNowCancelledByPause = report?.syncNowCancelledByPause ?? false
         profileListNotEnumeratedSince = report?.profileListNotEnumeratedSince
+        pinScopeMigrationFailure = report?.pinScopeMigrationFailure
         statusReadAt = Date()
         // The pause ended in the report; one that gives way to a reset or Not started has not resumed sync.
         if report != nil, profileMappingPause == .none,
@@ -204,6 +208,7 @@ final class DevicesSettingViewModel: ObservableObject {
         profileMappingPause = .none
         syncNowCancelledByPause = false
         profileListNotEnumeratedSince = nil
+        pinScopeMigrationFailure = nil
         awaitingSyncNow = false
     }
 

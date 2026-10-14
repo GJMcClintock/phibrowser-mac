@@ -353,7 +353,9 @@ Hostless scripts under `build-scripts/` exercise production native logic with
 controlled storage/transport boundaries. Relevant scripts include
 `test-sync-cleanup-resume.sh`, `test-sync-pairing-retry.sh`, `test-sync-join.sh`,
 `test-sync-setup-dismissal.sh`, `test-sync-local-changes.sh`,
-`test-sync-helper.sh` and `test-sync-space-replay.sh`.
+`test-sync-helper.sh`, `test-sync-space-replay.sh`,
+`test-sync-pin-scope-follower.sh`, `test-sync-pin-scope-publication.sh` and
+`test-sync-pin-scope-store.sh`.
 
 Follow each script's environment requirements. These checks do not mark the
 manual UI or two-Mac cases as passed. Application-hosted tests follow the

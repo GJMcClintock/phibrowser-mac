@@ -182,6 +182,11 @@ import SwiftUI
     /// running pin migrations against the previous account's store, and a rebuild would
     /// register a second copy that migrates twice per landed value.
     private var phiPinnedTabScopeObserver: NSObjectProtocol?
+    /// Makes the mounted account's pin scope row follow the `PhiPinnedTabScope` key (B-3 stage 1,
+    /// design 3.2). Built at mount in `buildPhiSyncEngine` and retired in `stopPhiSync()`, both
+    /// synchronously, so a follower never outlives the account it was built for; its status
+    /// output goes to the helper built beside it.
+    @MainActor private var pinScopeFollower: PinScopeFollower?
     /// The last value handed to `PhiSyncEngine.setSpaceSyncEnabled` for the CURRENT engine, or
     /// nil when nothing has been handed to it yet. The observer above fires once per refresh
     /// round forever, and a redundant `setSpaceSyncEnabled` still queues a `.spaceGate` round
@@ -232,7 +237,8 @@ import SwiftUI
     static let phiSyncCursorOwnerKey = PhiSyncEngine.statePrefix + "cursorAccount"
 
     /// Drops the engine's persisted cursor when `defaults` still carries a *different*
-    /// account's, and records the new owner. Returns whether anything was dropped.
+    /// account's, and records the new owner after every cleanup step. Returns whether anything
+    /// was dropped.
     ///
     /// The cursor keys (entity id, version, last-committed entity, `hasAdopted`, tombstone
     /// rounds) live in `UserDefaults.standard`, which is not account-scoped, so without this
@@ -262,7 +268,6 @@ import SwiftUI
     static func resetPhiSyncCursorIfAccountChanged(accountId: String, defaults: UserDefaults,
                                                    markerStore: (any PhiSyncMarkerStore)? = nil) -> Bool {
         guard defaults.string(forKey: phiSyncCursorOwnerKey) != accountId else { return false }
-        defaults.set(accountId, forKey: phiSyncCursorOwnerKey)
         let keys = PhiSyncEngine.stateKeys + PhiSyncEngine.legacyMarkerStateKeys
         let hadCursor = keys.contains { defaults.object(forKey: $0) != nil }
         for key in keys { defaults.removeObject(forKey: key) }
@@ -275,8 +280,20 @@ import SwiftUI
                     SyncableSettings.valueKey(for: PhiDefaultSpaceMirror.key)] {
             defaults.removeObject(forKey: key)
         }
+        // The pinned-tab scope key, for the same reason (B-3 stage 1, design 3.5): it is the PREVIOUS
+        // account's desired scope, and the follower would migrate this account's row to it. Its
+        // sidecars go with it, so the mount-time reseed finds no key and seeds this account's own row
+        // at stamp 0 instead of a stamped foreign value.
+        for key in [PinnedTabScopeMirror.key,
+                    SyncableSettings.timestampKey(for: PinnedTabScopeMirror.key),
+                    SyncableSettings.valueKey(for: PinnedTabScopeMirror.key)] {
+            defaults.removeObject(forKey: key)
+        }
         // A pending explicit reset belongs to this account and survives switching away/back.
         if markerStore?.load().requiresReconfiguration != true { markerStore?.deleteFile() }
+        // The new owner is recorded last (design 3.5): a cleanup interrupted before this line still
+        // sees the previous owner at the next launch and runs again.
+        defaults.set(accountId, forKey: phiSyncCursorOwnerKey)
         return hadCursor
     }
 
@@ -634,15 +651,17 @@ import SwiftUI
         PhiSyncMarkerMigration.migrateLegacyMarker(from: defaults, into: markerStore)
 
         // M3-3 §7.1 step 3: reseed the pin-scope mirror when mounting the account, after `LocalStore` opens
-        // and before engine startup (R-M3-3-8). `reseed` is pure; the coordinator acts on its migration
-        // decision.
+        // and before engine startup (R-M3-3-8). `reseed` is pure; the follower acts on the result.
         //
-        // The mirror is in unscoped `UserDefaults.standard`, while scope rows belong to accounts, so cursor
-        // reset cannot clear it; reseed case 2 handles cross-account leakage. Run after the device-key guard:
-        // without keys no engine could observe a migration, and the next mount retries. Use
-        // `pinnedTabScopeIfReadable()`: `pinnedTabScope()` returns `.profile` for an unopened store, which
-        // must not become an unpublished account's authoritative value.
+        // The account-switch reset above clears the key and its sidecars (B-3 stage 1, design 3.5), so a
+        // new account's mount finds no key and seeds it from its own row at stamp 0. Run after the
+        // device-key guard: without keys no engine could observe a migration, and the next mount retries.
+        // Use `pinnedTabScopeIfReadable()`: `pinnedTabScope()` returns `.profile` for an unopened store,
+        // which must not become an unpublished account's authoritative value.
         let localStore = account.localStorage
+        pinScopeFollower?.retire()
+        let follower = makePinScopeFollower(store: localStore, retries: true)
+        pinScopeFollower = follower
         switch PinnedTabScopeMirror.reseed(rowValue: localStore.pinnedTabScopeIfReadable(),
                                            into: defaults) {
         case .noop, .seeded:
@@ -650,10 +669,12 @@ import SwiftUI
         case .rowUnavailable:
             AppLogWarn("[phi-sync] pinned-tab scope mirror not reseeded: the local store is not readable")
         case .runLocalMigration(let scope):
-            // The key is authoritative: its account value landed but the row lags after a crash or migration
-            // failure. This is the §11.4 retry path.
-            applyAccountPinnedTabScope(scope, store: localStore)
+            // The key is the desired scope (B-3 stage 1, design 3.2): a local change or a landed account
+            // value whose migration was interrupted or failed. The mount trigger below follows it.
+            AppLogInfo("[phi-sync] pinned-tab scope row lags the setting (\(scope.rawValue)) at mount")
         }
+        // Mount trigger (design 3.2): a no-op when the row already equals the key.
+        follower.trigger()
 
         // C1 step 3: the same mount-time reseed for the default-Space role register, beside the pin-scope one
         // and for the same reason. Seed from the local pointer's ACCOUNT identity so a device that has already
@@ -701,6 +722,8 @@ import SwiftUI
         // from `(pinLineageId, owner)`, and local scope migration and window transfers require `pinLineageId`
         // independently of sync.
         let pinAccess = AccountPhiPinnedTabAccess(store: account.localStorage)
+        // Round-start trigger and busy probe (B-3 stage 1, design 3.2 / 3.4).
+        pinAccess.scopeFollower = follower
         let bookmarkKind = OwnedKindRegistration.bookmarks(access: bookmarkAccess,
                                                            store: bookmarkStore)
         let pinKind = OwnedKindRegistration.pins(access: pinAccess, store: pinStore)
@@ -826,6 +849,8 @@ import SwiftUI
             lastSuccess: account.userDefaults.date(forKey: SyncHelper.lastSuccessDefaultsKey),
             saveSuccess: { account.userDefaults.set($0, forKey: SyncHelper.lastSuccessDefaultsKey) })
         syncHelper?.start()
+        // The follower may have failed before this helper existed; it publishes only on change.
+        syncHelper?.setPinScopeMigrationFailure(follower.failure)
 
         syncProfileLoader?.stop()
         syncProfileLoaderWake?.cancel()
@@ -979,9 +1004,11 @@ import SwiftUI
         }
 
         // M3-3 §7.1 step 4: mirror → local. If `SyncableSettings.apply` lists the pin-scope key in `userInfo`,
-        // run the existing migration with its landed value. This notification serves consumers that cache
-        // values at startup (such as `ThemeManager`); the scope row has the same need. Use `.main` because
-        // `apply` runs on the engine actor while every operation below requires the main actor.
+        // trigger the follower, which reads the key itself (B-3 stage 1, design 3.2). `apply` also lists
+        // keys whose value did not change; the follower finds row == key and does nothing. This
+        // notification serves consumers that cache values at startup (such as `ThemeManager`); the scope
+        // row has the same need. Use `.main` because `apply` runs on the engine actor while every
+        // operation below requires the main actor.
         phiPinnedTabScopeObserver = NotificationCenter.default.addObserver(
             forName: .phiSyncedSettingsDidApply, object: nil, queue: .main
         ) { [weak self] notification in
@@ -996,17 +1023,9 @@ import SwiftUI
                     SpaceManager.shared.applyAccountDefaultSpace(syncUuid: uuid)
                 }
             }
-            // Read `UserDefaults.standard` in place: capturing the equivalent local value in this `@Sendable`
-            // closure would capture a non-Sendable object.
-            guard applied.contains(PinnedTabScopeMirror.key),
-                  let raw = UserDefaults.standard.string(forKey: PinnedTabScopeMirror.key),
-                  let scope = PinnedTabScope(rawValue: raw) else { return }
-            // Resolve the store when the observer fires: it lives as long as the engine and landing can occur
-            // anytime. Mount-time callers pass the account store under construction instead of using the
-            // singleton.
+            guard applied.contains(PinnedTabScopeMirror.key) else { return }
             MainActor.assumeIsolated {
-                guard let store = AccountController.shared.account?.localStorage else { return }
-                self?.applyAccountPinnedTabScope(scope, store: store)
+                self?.pinScopeFollower?.trigger()
             }
         }
 
@@ -1015,39 +1034,98 @@ import SwiftUI
         reconcileProfileMappingPause()
     }
 
-    /// Runs the existing local pinned-tab scope migration towards an account value that has just landed (§7.1
-    /// step 4) or that a mount-time reseed found the row lagging behind (§7.1 step 3).
+    /// A follower over `store`, reading the key from `UserDefaults.standard` (B-3 stage 1, design 3.2).
+    /// `retries` is the mounted one: its failures reach the Sync status and retry on a timer. Settings
+    /// builds one without retries for a store no mounted follower covers (`followPinnedTabScopeNow`).
     ///
-    /// Pass both preferred arguments, matching Settings. `sourceCollections` puts the preferred collection
-    /// first; `mergeCandidates` takes its title, URL and order as `candidate.source`. Passing nil could
-    /// produce different pins and ordering for local changes versus remote landing. Settings can fall back to
-    /// its private selection when no Space is active; this path uses `activeSpaceId`.
-    ///
-    /// With nil `activeSpaceId`, merge order is device-dependent: no owner is preferred, so
-    /// `PinnedTabOwner.sortKey` breaks ties using local profile/Space IDs. Devices may choose different order
-    /// and non-signature fields for the same account scope change. Mount-time reseeding in
-    /// `buildPhiSyncEngine` is particularly exposed before any Space is active. Deferring that retry until
-    /// activation remains an undecided option (§11.4 allows a skipped mount).
-    ///
-    /// Failure logs metadata only. Keep the mirror's new account value and the row's old scope, so
-    /// `scope_mismatch` persists and migration retries at the next landing or mount.
+    /// The migration passes both preferred arguments, read when it starts: the active Space, else the
+    /// Space Settings named for that attempt (its selected Space; `preparePinnedTabScopeFollow`).
+    /// `sourceCollections` puts the preferred collection first; `mergeCandidates` takes its title, URL and
+    /// order as `candidate.source`. With neither, merge order is device-dependent: no owner is preferred,
+    /// so `PinnedTabOwner.sortKey` breaks ties using local profile/Space IDs, and a mount-time follow
+    /// before any Space is active is particularly exposed (§11.4 allows a skipped mount).
     @MainActor
-    private func applyAccountPinnedTabScope(_ scope: PinnedTabScope, store: LocalStore) {
-        guard store.pinnedTabScope() != scope else { return }
-        let preferredSpaceId = SpaceManager.shared.activeSpaceId
-        let preferredProfileId = preferredSpaceId.flatMap { spaceId in
-            SpaceManager.shared.spaces.first(where: { $0.spaceId == spaceId })?.profileId
-        }
-        Task { @MainActor in
-            do {
+    private func makePinScopeFollower(store: LocalStore, retries: Bool) -> PinScopeFollower {
+        PinScopeFollower(effects: .init(
+            desiredScope: {
+                // The key is device-global; the unmounted follower reads it only for the data account's
+                // current store. After an account switch the key is the next account's and `store` is
+                // the previous one's: no key, no attempt.
+                if !retries, AccountController.shared.localDataAccount?.localStorage !== store { return nil }
+                return UserDefaults.standard.string(forKey: PinnedTabScopeMirror.key).flatMap(PinnedTabScope.init(rawValue:))
+            },
+            rowScope: { store.pinnedTabScopeIfReadable() },
+            migrate: { scope, hintedSpaceId in
+                let preferredSpaceId = SpaceManager.shared.activeSpaceId ?? hintedSpaceId
+                let preferredProfileId = preferredSpaceId.flatMap { spaceId in
+                    SpaceManager.shared.spaces.first(where: { $0.spaceId == spaceId })?.profileId
+                }
                 try await store.changePinnedTabScope(to: scope,
                                                      preferredProfileId: preferredProfileId,
                                                      preferredSpaceId: preferredSpaceId)
-                AppLogInfo("[phi-sync] pinned-tab scope migrated to \(scope.rawValue)")
-            } catch {
-                AppLogError("[phi-sync] pinned-tab scope migration failed (\(PhiSyncLog.describe(error)))")
-            }
+            },
+            publishFailure: { [weak self] failure in
+                guard retries else { return }
+                self?.syncHelper?.setPinScopeMigrationFailure(failure)
+            },
+            schedule: { delay, fire in
+                guard retries else { return {} }
+                return Self.scheduleOnMain(after: delay, fire)
+            },
+            log: { AppLogInfo("[phi-sync] \($0)") }),
+            storeIdentity: ObjectIdentifier(store),
+            // One attempt, then retired by its caller: a key that moves while the migration runs (an
+            // account switch) must not send a second migration into a store nothing mounted.
+            singleAttempt: !retries)
+    }
+
+    /// Settings, just before it writes the key: hands its selected Space to the mounted follower for
+    /// `store`, so whichever attempt runs first for the new key prefers it, including one a trigger
+    /// starts before `followPinnedTabScopeNow` (B-3 stage 1, design 3.2).
+    @MainActor
+    func preparePinnedTabScopeFollow(store: LocalStore, preferredSpaceId: String?) {
+        guard let follower = pinScopeFollower, follower.storeIdentity == ObjectIdentifier(store) else { return }
+        follower.setPreferredSpaceHint(preferredSpaceId)
+    }
+
+    /// Settings, after it has written the key (B-3 stage 1, design 3.1): the outcome of the first
+    /// follow attempt for `store`. The mounted follower when it covers `store`, which retries a
+    /// failure on its own; its hint came from `preparePinnedTabScopeFollow`. Otherwise (guest mode, no sync mount, or an engine not built this session)
+    /// a one-attempt follower: nothing retries it, so a failed attempt is `.failedNoRetry` and Settings
+    /// takes its key write back (design 3.1 as amended 2026-10-10); `.deferred` means the key was
+    /// cleared under it or `store` is no longer the data account's (an account switch during the wait).
+    @MainActor
+    func followPinnedTabScopeNow(store: LocalStore, preferredSpaceId: String?) async -> PinScopeFollower.AttemptResult {
+        if let follower = pinScopeFollower, follower.storeIdentity == ObjectIdentifier(store) {
+            return await follower.followNow()
         }
+        let follower = makePinScopeFollower(store: store, retries: false)
+        let result = await follower.followNow(preferredSpaceId: preferredSpaceId)
+        follower.retire()
+        switch result {
+        case .applied: return .applied
+        case .failed(let kind), .failedNoRetry(let kind): return .failedNoRetry(kind)
+        // No attempt ran: the key was cleared under it (an account-switch reset), so there is no
+        // change left to undo or report.
+        case .deferred: return .deferred
+        }
+    }
+
+    /// Whether a mounted follower covers `store`: Settings' unmounted path checks it before taking its
+    /// key write back, in case one mounted during the attempt.
+    @MainActor
+    func hasPinScopeFollower(store: LocalStore) -> Bool {
+        pinScopeFollower?.storeIdentity == ObjectIdentifier(store)
+    }
+
+    /// Whether the mounted follower for `store` still has work: a job running or row != key (B-3
+    /// stage 1, design 3.2), so Settings shows the key's scope as finishing in the background. False
+    /// without a mounted follower for it: nothing would finish the change. The browser migration
+    /// runner does not read this (`BrowserDataActivity.pinScopeMigrationIsPending`).
+    @MainActor
+    func pinScopeFollowerHasWork(store: LocalStore) -> Bool {
+        guard let follower = pinScopeFollower, follower.storeIdentity == ObjectIdentifier(store) else { return false }
+        return follower.isPending
     }
 
     /// The Space section requires explicit enrollment and unlocked account keys.
@@ -1474,6 +1552,11 @@ import SwiftUI
             NotificationCenter.default.removeObserver(observer)
             phiPinnedTabScopeObserver = nil
         }
+        // Retired with the engine it was mounted beside (B-3 stage 1, design 3.2): synchronous, so no
+        // job starts against this account's store after sign-out or an account switch. A store job
+        // already queued finishes on its own account's store and writes no shared state.
+        pinScopeFollower?.retire()
+        pinScopeFollower = nil
         // The memo describes the engine being dropped below; the next one loads its own
         // persisted gate state and must be told again.
         lastSpaceGateEnabled = nil
@@ -1581,17 +1664,23 @@ import SwiftUI
             failureCategory: { [weak self] in self?.syncKeyController?.lastMappingsFailureCategory },
             refreshProfileList: { _ = ProfileManager.shared.refresh() },
             reconcileNow: { [weak self] in self?.reconcileProfileMappingPause() },
-            schedule: { delay, fire in
-                let task = Task { @MainActor in
-                    try? await Task.sleep(for: .seconds(delay))
-                    guard !Task.isCancelled else { return }
-                    fire()
-                }
-                return { task.cancel() }
-            },
+            schedule: { delay, fire in Self.scheduleOnMain(after: delay, fire) },
             log: { AppLogInfo("[phi-sync] \($0)") }))
         profileMappingPauseState = state
         return state
+    }
+
+    /// The production timer of the reconciler and the pin scope follower: calls `fire` after
+    /// `delay` unless the returned cancel runs first.
+    @MainActor
+    private static func scheduleOnMain(after delay: TimeInterval,
+                                       _ fire: @escaping @MainActor () -> Void) -> (@MainActor () -> Void) {
+        let task = Task { @MainActor in
+            try? await Task.sleep(for: .seconds(delay))
+            guard !Task.isCancelled else { return }
+            fire()
+        }
+        return { task.cancel() }
     }
 
     /// Step 1 and step 2 of the reconciliation. The predicate is evaluated only with every
