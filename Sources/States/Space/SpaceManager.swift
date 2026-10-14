@@ -10514,8 +10514,12 @@ final class SpaceWindowSlot: ObservableObject {
     }
 
     /// Hosted mode: Chromium changed the presented Browser's fullscreen
-    /// state — a page's fullscreen request or exit, the fullscreen command,
-    /// press-and-hold Esc — and the shell follows. Chromium's logical state
+    /// state — a page's fullscreen request or exit, a fullscreen change
+    /// Chromium makes itself (the fullscreen command, an extension or agent
+    /// changing the window's state), press-and-hold Esc — and the shell
+    /// follows. View > Enter Full Screen and its Ctrl-Cmd-F are not among
+    /// these: they send AppKit's `toggleFullScreen:` to the shell, which
+    /// arrives as `shellFullScreenWillChange`. Chromium's logical state
     /// is the one source of truth here: it already decides, for instance,
     /// that a page leaving fullscreen inside a window the user had
     /// fullscreened keeps the window fullscreen, so the shell simply takes
@@ -10530,7 +10534,8 @@ final class SpaceWindowSlot: ObservableObject {
     /// window to follow only when that tab put it there, as a real window
     /// leaves fullscreen when its tab switches away from a fullscreen page;
     /// the shell follows that, though the Space is in the background by
-    /// then. The user's own fullscreen has no owner and stays.
+    /// then. The user's own fullscreen (the green button, View > Enter
+    /// Full Screen, Ctrl-Cmd-F) has no owner and stays.
     func sessionRequestedShellFullscreen(_ controller: SpaceSessionController,
                                          fullscreen: Bool, targetDisplayId: Int64 = -1) {
         // `isPresented` as well as `visibleController`: a session being

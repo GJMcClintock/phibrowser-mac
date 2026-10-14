@@ -31,7 +31,14 @@ tree, and each is handled at the moment the Space withdraws
   the Space replacing it, with one exception: when the leaving Space's
   request put the shell into fullscreen (`shellFullscreenOwner`), Chromium
   asks for the window to leave fullscreen with the tab, and the shell does,
-  as a real window does. Fullscreen the user entered has no owner and stays.
+  as a real window does. Fullscreen the user entered through AppKit — the
+  green button, or View › Enter Full Screen and its ⌃⌘F, which send
+  AppKit's `toggleFullScreen:` rather than Chromium's fullscreen command and
+  reach the slot as `shellFullScreenWillChange`, not as a request — has no
+  owner and stays. A browser fullscreen Chromium requests for a Space (an
+  extension or agent changing the window's state, through
+  `windowRequestedFullscreen:`) belongs to that Space, but no tab brought
+  it, so it stays too when the Space leaves.
   The slot's restore record leaves out a fullscreen whose owner's page is
   still in it (`snapshotIsFullScreen`), so quitting from a video in
   fullscreen reopens windowed.
