@@ -8,9 +8,10 @@ import XCTest
 @testable import Phi
 
 /// The page container lays out its tab strip and page area for the layout
-/// mode, and learns of a new mode from `UserDefaults.didChangeNotification`.
-/// That notification fires for a write to any key and reaches every
-/// container in every window, so only a layout mode change relays it out.
+/// mode, and learns of a new mode from its `BrowserState`, which hears
+/// `UserDefaults.didChangeNotification` and republishes `layoutMode` only
+/// when the mode changes. That notification fires for a write to any key,
+/// so a write to another key must not relay the page area out.
 @MainActor
 final class WebContentContainerLayoutModeTests: XCTestCase {
 

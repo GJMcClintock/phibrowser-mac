@@ -851,17 +851,13 @@ class WebContentContainerViewController: NSViewController {
         }
     }
     
-    /// Relays out on a layout mode change only. `didChangeNotification` fires
-    /// for a write to any key and reaches every page container in every
-    /// window: when `ApplicationState` rewrote its Guest choice on each window
-    /// activation, one activation with ten windows ran this layout 82 times.
+    /// Relays out on a layout mode change only. `BrowserState` publishes
+    /// `layoutMode` only when the mode changes, though the defaults
+    /// notification behind it fires for a write to any key.
     private func setupConfigObserver() {
-        NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)
-            .receive(on: DispatchQueue.main)
-            .map { _ in PhiPreferences.GeneralSettings.loadLayoutMode() }
-            .prepend(PhiPreferences.GeneralSettings.loadLayoutMode())
-            .removeDuplicates()
+        browserState?.$layoutMode
             .dropFirst()
+            .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
                 self?.updateLayoutForMode()
             }
