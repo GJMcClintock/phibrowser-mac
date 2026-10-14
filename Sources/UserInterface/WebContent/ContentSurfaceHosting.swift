@@ -6,26 +6,35 @@
 import Cocoa
 
 /// Keeps a Space instance's content surface (chromium ADR 0014) told the
-/// corner radii and stacking order of every web view in its hosting
-/// container, as views tells `NativeViewHostMac` upstream.
+/// corner radii, stacking order, rect and visible part of every web view in
+/// its hosting container, as views tells `NativeViewHostMac` upstream.
 ///
 /// It reconciles once per run-loop pass, as `TrafficLightPositioner` does
 /// with the traffic lights. Mounting a web view, restacking a tab's view, a
 /// layout pass, docking DevTools and opening the AI Chat panel can each
-/// change what the surface has to be told, and a web view the surface
-/// attaches again starts out square and on top; looking at the laid-out
-/// tree after AppKit's pass covers every such path. A pass with nothing new
-/// sends nothing, since each send makes Chromium draw a frame.
+/// change what the surface has to be told, an animation that moves only a
+/// web view's ancestors (the AI Chat panel's slide) changes it every frame,
+/// and a web view the surface attaches again starts out square and on top;
+/// looking at the laid-out tree after AppKit's pass covers every such path.
+/// A pass with nothing new sends nothing, since each send makes Chromium
+/// draw a frame.
 @MainActor
 final class ContentSurfaceHosting {
     /// What one web view's host is told: the radii of its four on-screen
-    /// corners and its stacking order among the web views of the container.
+    /// corners, its stacking order among the web views of the container,
+    /// where it is and the part of it that shows.
     struct Hosting: Equatable {
         var topLeft: CGFloat = 0
         var topRight: CGFloat = 0
         var bottomRight: CGFloat = 0
         var bottomLeft: CGFloat = 0
         var zOrder = 0
+        /// The web view's rect in the window, flipped to a top-left origin by
+        /// the window's height, as Chromium keeps a view's bounds in its window.
+        var frame: CGRect = .zero
+        /// The part of `frame` its clipping ancestors leave visible, in the
+        /// same coordinates; empty when none is.
+        var clip: CGRect = .zero
     }
 
     private struct Sent {
@@ -129,19 +138,37 @@ final class ContentSurfaceHosting {
 
         var nowSent: [ObjectIdentifier: Sent] = [:]
         for (zOrder, item) in mounted.enumerated() {
-            let hosting = Self.hosting(of: item.webView, zOrder: zOrder, below: item.root)
+            let hosting = Self.hosting(of: item.webView, zOrder: zOrder, below: item.root,
+                                       windowHeight: window.frame.height)
             let key = ObjectIdentifier(item.address)
             if sent[key]?.address !== item.address || sent[key]?.hosting != hosting {
                 if let sendForTesting {
                     sendForTesting(item.address, hosting)
                 } else if let wrapper = item.address as? WebContentWrapper {
-                    bridge.setContentHosting?(wrapper,
-                                              topLeftRadius: hosting.topLeft,
-                                              topRightRadius: hosting.topRight,
-                                              bottomRightRadius: hosting.bottomRight,
-                                              bottomLeftRadius: hosting.bottomLeft,
-                                              zOrder: hosting.zOrder)
-                } else {
+                    // An older framework takes only the radii and the z order.
+                    if bridge.setContentHosting?(wrapper,
+                                                 frameInWindow: hosting.frame,
+                                                 clipInWindow: hosting.clip,
+                                                 topLeftRadius: hosting.topLeft,
+                                                 topRightRadius: hosting.topRight,
+                                                 bottomRightRadius: hosting.bottomRight,
+                                                 bottomLeftRadius: hosting.bottomLeft,
+                                                 zOrder: hosting.zOrder) == nil {
+                        bridge.setContentHosting?(wrapper,
+                                                  topLeftRadius: hosting.topLeft,
+                                                  topRightRadius: hosting.topRight,
+                                                  bottomRightRadius: hosting.bottomRight,
+                                                  bottomLeftRadius: hosting.bottomLeft,
+                                                  zOrder: hosting.zOrder)
+                    }
+                } else if bridge.setContentHosting?(forWebView: item.webView,
+                                                    frameInWindow: hosting.frame,
+                                                    clipInWindow: hosting.clip,
+                                                    topLeftRadius: hosting.topLeft,
+                                                    topRightRadius: hosting.topRight,
+                                                    bottomRightRadius: hosting.bottomRight,
+                                                    bottomLeftRadius: hosting.bottomLeft,
+                                                    zOrder: hosting.zOrder) == nil {
                     bridge.setContentHosting?(forWebView: item.webView,
                                               topLeftRadius: hosting.topLeft,
                                               topRightRadius: hosting.topRight,
@@ -175,13 +202,24 @@ final class ContentSurfaceHosting {
     /// The radii AppKit gives `webView`'s corners: at each corner, the largest
     /// corner radius among its clipping ancestors below `container` whose own
     /// corner it reaches. A corner that reaches none stays square: one next to
-    /// docked DevTools, the top of a page under the address bar.
-    private static func hosting(of webView: NSView, zOrder: Int, below container: NSView) -> Hosting {
+    /// docked DevTools, the top of a page under the address bar. Also where
+    /// `webView` is in the window and the part of it that those ancestors and
+    /// `container`, whose bounds the surface draws in, leave visible: a page
+    /// whose frame sync is paused for a slide keeps its old size while its
+    /// host narrows.
+    private static func hosting(of webView: NSView, zOrder: Int, below container: NSView,
+                                windowHeight: CGFloat) -> Hosting {
         var hosting = Hosting(zOrder: zOrder)
+        let frame = webView.convert(webView.bounds, to: nil)
+        var visible = frame.intersection(container.convert(container.bounds, to: nil))
         var ancestor = webView.superview
         while let clip = ancestor, clip !== container {
             ancestor = clip.superview
-            guard let layer = clip.layer, layer.masksToBounds, layer.cornerRadius > 0 else {
+            guard let layer = clip.layer, layer.masksToBounds else {
+                continue
+            }
+            visible = visible.intersection(clip.convert(clip.bounds, to: nil))
+            guard layer.cornerRadius > 0 else {
                 continue
             }
             let rect = clip.convert(webView.bounds, from: webView)
@@ -205,6 +243,13 @@ final class ContentSurfaceHosting {
             hosting.bottomLeft = max(hosting.bottomLeft, flipped ? minXMaxY : minXMinY)
             hosting.bottomRight = max(hosting.bottomRight, flipped ? maxXMaxY : maxXMinY)
         }
+        // As -[RenderWidgetHostViewCocoa sendViewBoundsInWindowToHost] reports
+        // a view's bounds: window coordinates flipped by the window's height.
+        func fromTop(_ rect: CGRect) -> CGRect {
+            CGRect(x: rect.minX, y: windowHeight - rect.maxY, width: rect.width, height: rect.height)
+        }
+        hosting.frame = fromTop(frame)
+        hosting.clip = visible.isEmpty ? .zero : fromTop(visible)
         return hosting
     }
 }
