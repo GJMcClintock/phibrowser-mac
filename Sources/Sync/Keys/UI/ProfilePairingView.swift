@@ -88,12 +88,23 @@ struct ProfilePairingModel {
         return initial
     }
 
+    /// The account default this device's Default is fixed to: the first readable
+    /// account default in the listing. The Default does not choose -- it IS the
+    /// account default -- so its row shows the match in place of a picker; a free
+    /// picker could "Register as new" and mint a second account default. nil when
+    /// the account has no readable default: then the Default keeps its picker over
+    /// the legacy Profiles it may take.
+    var fixedDefaultRemote: RemoteProfile? {
+        guard locals.contains(where: \.isDefault) else { return nil }
+        return remotes.first { $0.isDefault == true && $0.name != nil }
+    }
+
     /// The one account default this sheet treats as the default: the one the
-    /// local Default's own picker selects, or the one a remote row assigns to the
-    /// local Default. nil when the local Default takes none (or is not in the
-    /// sheet because it is already mapped): then every account default here is
-    /// an ordinary profile. Read from the stored state rather than the live
-    /// choices, which are themselves derived from it.
+    /// local Default is fixed to or its picker selects, or the one a remote row
+    /// assigns to the local Default. nil when the local Default takes none (or is
+    /// not in the sheet because it is already mapped): then every account default
+    /// here is an ordinary profile. Read from the stored state rather than the
+    /// live choices, which are themselves derived from it.
     var authoritativeDefaultUuid: String? {
         guard let localDefault = locals.first(where: \.isDefault) else { return nil }
         if case .remote(let uuid) = selection(for: localDefault) {
@@ -110,10 +121,12 @@ struct ProfilePairingModel {
     }
 
     /// A stored remote the default-profile rule forbids for this local reads back
-    /// as `.registerNew`, so no state the UI cannot produce reaches `decisions()`.
-    /// (The local Default's rule never depends on the authoritative default, so
-    /// reading its selection here does not recurse.)
+    /// as `.registerNew`, and the local Default reads back as its fixed account
+    /// default whatever is stored, so no state the UI cannot produce reaches
+    /// `decisions()`. (The local Default's rule never depends on the
+    /// authoritative default, so reading its selection here does not recurse.)
     func selection(for local: PairingLocal) -> Choice {
+        if local.isDefault, let fixed = fixedDefaultRemote { return .remote(fixed.uuid) }
         let stored = selections[local.profileId] ?? .registerNew
         if case .remote(let uuid) = stored, let remote = remotes.first(where: { $0.uuid == uuid }),
            !mayPair(local, remote) {
@@ -418,15 +431,23 @@ struct ProfilePairingView: View {
             // The picker below is narrowed by the default-profile rule; the badge says why.
             if local.isDefault { SettingsDefaultBadge() }
             Spacer()
-            Picker("", selection: binding(for: local)) {
-                ForEach(model.remoteOptions(for: local), id: \.uuid) { remote in
-                    Text(remoteLabel(remote)).tag(Choice.remote(remote.uuid))
+            if local.isDefault, let fixed = model.fixedDefaultRemote {
+                // The Default is the account default: shown, not chosen.
+                Text(remoteLabel(fixed))
+                    .font(.body)
+                    .themedForeground(.textSecondary)
+                    .frame(maxWidth: 220, alignment: .trailing)
+            } else {
+                Picker("", selection: binding(for: local)) {
+                    ForEach(model.remoteOptions(for: local), id: \.uuid) { remote in
+                        Text(remoteLabel(remote)).tag(Choice.remote(remote.uuid))
+                    }
+                    Text(NSLocalizedString("sync.pairing.profiles.registerAsNew", value: "Register as new", comment: "Sync setup profile matching - option that adds a profile on this Mac to the account as a new profile"))
+                        .tag(Choice.registerNew)
                 }
-                Text(NSLocalizedString("sync.pairing.profiles.registerAsNew", value: "Register as new", comment: "Sync setup profile matching - option that adds a profile on this Mac to the account as a new profile"))
-                    .tag(Choice.registerNew)
+                .labelsHidden()
+                .frame(maxWidth: 220)
             }
-            .labelsHidden()
-            .frame(maxWidth: 220)
         }
         .padding(12)
         .modifier(RowChrome(context: context))
