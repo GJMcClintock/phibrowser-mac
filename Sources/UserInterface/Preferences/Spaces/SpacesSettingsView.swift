@@ -566,6 +566,7 @@ struct SpacesSettingsView: View {
         PhiChromiumCoordinator.shared.preparePinnedTabScopeFollow(store: store, preferredSpaceId: preferredSpaceId)
         let previousKey = UserDefaults.standard.string(forKey: PinnedTabScopeMirror.key)
         UserDefaults.standard.set(newScope.rawValue, forKey: PinnedTabScopeMirror.key)
+        let attemptWasMounted = PhiChromiumCoordinator.shared.hasPinScopeFollower(store: store)
         isChangingPinnedTabScope = true
         pinnedTabScopeCompletesInBackground = false
         Task { @MainActor in
@@ -580,6 +581,17 @@ struct SpacesSettingsView: View {
                 pinnedTabScopeCompletesInBackground = false
                 loadPinnedTabScope()
                 return
+            }
+            // The engine mounted for this store during an unmounted attempt. Its account-switch reset
+            // cleared the key and its reseed wrote the row's scope as it was before the attempt (stamp
+            // 0), so the key no longer says what the user chose while the row now does; left alone, the
+            // mounted follower would migrate the row back. The choice is this user's edit: write it
+            // again, which the settings snapshot stamps as such. Only the unmounted path: with a
+            // mounted follower a key that moved during the attempt is a landed account value.
+            if !attemptWasMounted, result == .applied,
+               PhiChromiumCoordinator.shared.hasPinScopeFollower(store: store),
+               UserDefaults.standard.string(forKey: PinnedTabScopeMirror.key) != newScope.rawValue {
+                UserDefaults.standard.set(newScope.rawValue, forKey: PinnedTabScopeMirror.key)
             }
             switch result {
             case .applied:

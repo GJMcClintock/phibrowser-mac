@@ -1936,7 +1936,11 @@ The engine must preserve these persistence, retry and account-isolation rules.
     `RunLoop.main.perform` (amended 2026-10-10, review round 1 F1). The restore
     runs only while `store` is still the data account's; after an account
     switch during the attempt the key is the next account's and nothing is
-    restored (PR #191 review finding 2). The key write
+    restored (PR #191 review finding 2). When the engine mounts for the
+    store during an unmounted attempt that applies, its reset and reseed
+    have put the row's old scope into the key at stamp 0; Settings writes
+    the chosen scope again as the user's edit, or the mounted follower would
+    migrate the row back (review round 4 F1). The key write
     is an ordinary settings edit: the debounced defaults trigger and
     `SyncableSettings.snapshot` stamp and publish it; nothing scope-specific
     is stamped or compared. While the Profile mapping pause is closed the
