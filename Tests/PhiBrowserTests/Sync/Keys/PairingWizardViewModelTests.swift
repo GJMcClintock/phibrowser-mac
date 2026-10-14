@@ -807,4 +807,27 @@ final class PairingWizardViewModelTests: XCTestCase {
         XCTAssertEqual(Dictionary(uniqueKeysWithValues: remotes.map { ($0.uuid, $0.name) }),
                        ["uuid-renamed": "Alpha", "uuid-plain": "Work"])
     }
+
+    /// The entity name replaces only the name: the envelope's default flag stays
+    /// with the renamed Profile, so the local Default still preselects it (two
+    /// Macs in different languages, 2026-10-14).
+    func testAnEntityNamedAccountProfileKeepsItsDefaultFlag() async throws {
+        let (wizard, controller, _, api) = try await makeWizard(
+            locals: [], accountSpaces: [], preview: {
+                .success(.init(spaces: [], skippedEntityCount: 0,
+                               profileNames: ["uuid-default": "Mein Phi", "uuid-plain": "Work"]))
+            })
+        let ark = try XCTUnwrap(controller.manager.currentARK)
+        for (uuid, name, isDefault) in [("uuid-default", "Your Phi", true), ("uuid-plain", "Work", false)] {
+            api.profileEnvelopes[uuid] = try ProfileKeyManager.sealProfilePayload(
+                key: Data(repeating: 7, count: 32), name: name, isDefault: isDefault, ark: ark)
+        }
+
+        await wizard.start(controller: controller)
+
+        guard case .profiles(_, let remotes) = wizard.phase else { return XCTFail("expected .profiles, got \(wizard.phase)") }
+        XCTAssertEqual(Dictionary(uniqueKeysWithValues: remotes.map { ($0.uuid, $0.isDefault) }),
+                       ["uuid-default": true, "uuid-plain": false])
+        XCTAssertEqual(remotes.first(where: { $0.uuid == "uuid-default" })?.name, "您的 Phi")
+    }
 }

@@ -568,7 +568,10 @@ final class PairingWizardViewModel: ObservableObject {
             guard !previewDeletedProfileTagHashes.contains(
                 PhiSyncEntity.clientTagHash(for: PhiSyncEntity.profileClientTag(remote.uuid))) else { return nil }
             guard let name = previewProfileNames[remote.uuid] else { return remote }
-            return RemoteProfile(uuid: remote.uuid, name: name)
+            // Only the name comes from the entity; the default flag lives in the
+            // envelope and must survive, or the default-profile rule reads the
+            // renamed Profile as legacy and offers it to any local.
+            return RemoteProfile(uuid: remote.uuid, name: name, isDefault: remote.isDefault)
         }
     }
 
