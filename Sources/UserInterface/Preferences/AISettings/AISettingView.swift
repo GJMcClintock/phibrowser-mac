@@ -332,6 +332,11 @@ private struct AISidebarSectionView: View {
     @AppStorage(PhiPreferences.AISettings.enableChatWithTabs.rawValue)
     private var enableChatWithTabs: Bool = PhiPreferences.AISettings.enableChatWithTabs.defaultValue
 
+    #if DEBUG || NIGHTLY_BUILD
+    @AppStorage(PhiPreferences.AISettings.useLiveModeInSidecar.rawValue)
+    private var useLiveModeInSidecar: Bool = PhiPreferences.AISettings.useLiveModeInSidecar.defaultValue
+    #endif
+
     let enabled: Bool
 
     var body: some View {
@@ -344,11 +349,25 @@ private struct AISidebarSectionView: View {
                     isOn: $enableChatWithTabs,
                     enabled: enabled
                 )
+                #if DEBUG || NIGHTLY_BUILD
+                Divider()
+
+                AIToggleRow(
+                    title: NSLocalizedString("settings.ai.sidebar.useLiveModeToggle", value: "Use Live Mode in Sidecar", comment: "AI settings - Toggle to use Live Mode in Sidecar"),
+                    isOn: $useLiveModeInSidecar,
+                    enabled: enabled
+                )
+                #endif
             }
         }
         .onChange(of: enableChatWithTabs) {
             notifyNativeSettingsChanged()
         }
+        #if DEBUG || NIGHTLY_BUILD
+        .onChange(of: useLiveModeInSidecar) {
+            notifyNativeSettingsChanged()
+        }
+        #endif
     }
 }
 

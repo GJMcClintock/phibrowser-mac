@@ -269,6 +269,9 @@ extension PhiPreferences {
     
     enum AISettings: String, CaseIterable {
         case phiAIEnabled, enableConnectors, enableConnectorContext , enableChatWithTabs, enableBrowserMemories, launchSentinelOnLogin, enableProactiveSuggestionsOnNTP
+        #if DEBUG || NIGHTLY_BUILD
+        case useLiveModeInSidecar
+        #endif
 
         var defaultValue: Bool {
             switch self {
@@ -286,6 +289,10 @@ extension PhiPreferences {
                 return true
             case .enableProactiveSuggestionsOnNTP:
                 return true
+            #if DEBUG || NIGHTLY_BUILD
+            case .useLiveModeInSidecar:
+                return true
+            #endif
             }
         }
 
