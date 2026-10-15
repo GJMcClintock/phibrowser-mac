@@ -76,6 +76,24 @@ final class ContentSurfaceHostingTests: XCTestCase {
         XCTAssertEqual(fixture.lastSent(), told)
     }
 
+    /// A framework without the rect and clip takes only the radii and the z
+    /// order, so a move, which leaves those alone, sends it nothing.
+    func testAFrameworkThatTakesNoPlacementIsNotToldAMove() throws {
+        let fixture = try makeFixture()
+        fixture.hosting.takesPlacement = false
+        RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+        XCTAssertEqual(fixture.lastSent()?.frame, .zero, "precondition: the page was told it has no rect")
+        let rect = fixture.webView.convert(fixture.webView.bounds, to: nil)
+        let sendCount = fixture.sends.count
+
+        fixture.window.setContentSize(NSSize(width: 1300, height: 800))
+        RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+
+        XCTAssertNotEqual(fixture.webView.convert(fixture.webView.bounds, to: nil), rect,
+                          "precondition: the resize moved the page")
+        XCTAssertEqual(fixture.sends.count, sendCount)
+    }
+
     // MARK: - Helpers
 
     private final class Fixture {
@@ -147,6 +165,8 @@ final class ContentSurfaceHostingTests: XCTestCase {
         let fixture = Fixture(container: container, window: window, page: page, webView: webView,
                               hosting: hosting)
         hosting.sendForTesting = { [unowned fixture] in fixture.sends.append(($0, $1)) }
+        // Whatever framework the host links.
+        hosting.takesPlacement = true
         RunLoop.main.run(until: Date().addingTimeInterval(0.1))
         return fixture
     }

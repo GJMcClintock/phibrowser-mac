@@ -67,6 +67,12 @@ final class ContentSurfaceHosting {
     /// the settled layout, as one attached again meanwhile starts square and
     /// on top.
     var isHeld = false
+    /// Whether the framework takes a web view's rect and visible part
+    /// (`setContentHosting(_:frameInWindow:…)`). An older one takes only the
+    /// radii and the z order, so only those are compared and sent: a move
+    /// sends it nothing. Asked once, on the first pass with a bridge; tests
+    /// set it.
+    var takesPlacement: Bool?
     /// Replaces the bridge sends in tests.
     var sendForTesting: ((_ address: NSObject, _ hosting: Hosting) -> Void)?
 
@@ -116,6 +122,12 @@ final class ContentSurfaceHosting {
             sent.removeAll()
             return
         }
+        if takesPlacement == nil {
+            // Its twin addressed by web view came with it.
+            takesPlacement = bridge.responds(to: #selector(PhiChromiumBridgeProtocol.setContentHosting(
+                _:frameInWindow:clipInWindow:topLeftRadius:topRightRadius:bottomRightRadius:bottomLeftRadius:zOrder:)))
+        }
+        let sendsPlacement = takesPlacement == true
         if surfaceView?.superview !== sentUnder {
             sent.removeAll()
             sentUnder = surfaceView?.superview
@@ -148,22 +160,27 @@ final class ContentSurfaceHosting {
 
         var nowSent: [ObjectIdentifier: Sent] = [:]
         for (zOrder, item) in mounted.enumerated() {
-            let hosting = Self.hosting(of: item.webView, zOrder: zOrder, below: item.root,
+            var hosting = Self.hosting(of: item.webView, zOrder: zOrder, below: item.root,
                                        windowHeight: window.frame.height)
+            if !sendsPlacement {
+                hosting.frame = .zero
+                hosting.clip = .zero
+            }
             let key = ObjectIdentifier(item.address)
             if sent[key]?.address !== item.address || sent[key]?.hosting != hosting {
                 if let sendForTesting {
                     sendForTesting(item.address, hosting)
                 } else if let wrapper = item.address as? WebContentWrapper {
-                    // An older framework takes only the radii and the z order.
-                    if bridge.setContentHosting?(wrapper,
-                                                 frameInWindow: hosting.frame,
-                                                 clipInWindow: hosting.clip,
-                                                 topLeftRadius: hosting.topLeft,
-                                                 topRightRadius: hosting.topRight,
-                                                 bottomRightRadius: hosting.bottomRight,
-                                                 bottomLeftRadius: hosting.bottomLeft,
-                                                 zOrder: hosting.zOrder) == nil {
+                    if sendsPlacement {
+                        bridge.setContentHosting?(wrapper,
+                                                  frameInWindow: hosting.frame,
+                                                  clipInWindow: hosting.clip,
+                                                  topLeftRadius: hosting.topLeft,
+                                                  topRightRadius: hosting.topRight,
+                                                  bottomRightRadius: hosting.bottomRight,
+                                                  bottomLeftRadius: hosting.bottomLeft,
+                                                  zOrder: hosting.zOrder)
+                    } else {
                         bridge.setContentHosting?(wrapper,
                                                   topLeftRadius: hosting.topLeft,
                                                   topRightRadius: hosting.topRight,
@@ -171,14 +188,16 @@ final class ContentSurfaceHosting {
                                                   bottomLeftRadius: hosting.bottomLeft,
                                                   zOrder: hosting.zOrder)
                     }
-                } else if bridge.setContentHosting?(forWebView: item.webView,
-                                                    frameInWindow: hosting.frame,
-                                                    clipInWindow: hosting.clip,
-                                                    topLeftRadius: hosting.topLeft,
-                                                    topRightRadius: hosting.topRight,
-                                                    bottomRightRadius: hosting.bottomRight,
-                                                    bottomLeftRadius: hosting.bottomLeft,
-                                                    zOrder: hosting.zOrder) == nil {
+                } else if sendsPlacement {
+                    bridge.setContentHosting?(forWebView: item.webView,
+                                              frameInWindow: hosting.frame,
+                                              clipInWindow: hosting.clip,
+                                              topLeftRadius: hosting.topLeft,
+                                              topRightRadius: hosting.topRight,
+                                              bottomRightRadius: hosting.bottomRight,
+                                              bottomLeftRadius: hosting.bottomLeft,
+                                              zOrder: hosting.zOrder)
+                } else {
                     bridge.setContentHosting?(forWebView: item.webView,
                                               topLeftRadius: hosting.topLeft,
                                               topRightRadius: hosting.topRight,
