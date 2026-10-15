@@ -718,6 +718,9 @@ final class TabItemView: NSView {
             view.isHidden = true
             view.frame = .zero
         }
+        // SwiftUI keeps animating a hidden host's recording badge.
+        viewModel.hidesRecordingBadge = true
+        secondaryFaviconViewModel.hidesRecordingBadge = true
         removePaneToolTips()
     }
 

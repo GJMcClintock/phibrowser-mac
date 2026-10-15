@@ -64,6 +64,34 @@ final class TabRecordingIconHostTests: XCTestCase {
         XCTAssertTrue(try faviconRendersRecordingBadge(in: view))
     }
 
+    /// The strip lays out the cells it leaves out (a collapsed group's
+    /// members, the second tab of a split pair) at `.zero`, favicons hidden.
+    func test_tabItemLaidOutAtZeroRendersNoFaviconBadge() throws {
+        let view = makeTabItem(
+            width: TabStripMetrics.Content.compactModeThreshold + 1,
+            guid: 1,
+            recording: true
+        )
+        XCTAssertTrue(try faviconRendersRecordingBadge(in: view), "Precondition.")
+
+        view.frame = .zero
+        view.layout()
+
+        XCTAssertFalse(try faviconRendersRecordingBadge(in: view))
+    }
+
+    func test_tabItemLaidOutAgainAfterZeroRendersItsFaviconBadge() throws {
+        let width = TabStripMetrics.Content.compactModeThreshold + 1
+        let view = makeTabItem(width: width, guid: 1, recording: true)
+        view.frame = .zero
+        view.layout()
+
+        view.frame = CGRect(x: 0, y: 0, width: width, height: TabStripMetrics.Strip.tabHeight)
+        view.layout()
+
+        XCTAssertTrue(try faviconRendersRecordingBadge(in: view))
+    }
+
     func test_compactSplitCellShowingTheRecordingIconRendersNeitherFaviconBadge() throws {
         let view = makeCompactSplitCell(primaryRecording: true, partnerRecording: true)
 
