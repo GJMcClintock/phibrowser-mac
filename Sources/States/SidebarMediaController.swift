@@ -85,6 +85,8 @@ final class SidebarMediaController: ObservableObject {
 
     private var dismissedSources: [SourceKey: SourceIdentity] = [:]
     private var pipRetainedSources: [SourceKey: SourceIdentity] = [:]
+    private var spaceExitBuffers: [SourceKey: (identity: SourceIdentity, task: Task<Void, Never>)] = [:]
+    private var silentRetainedSources: [SourceKey: SourceIdentity] = [:]
     private var candidates: [SourceKey: Item] = [:]
     private var manuallySelectedSourceKey: SourceKey?
     private var previousFocusedSourceKey: SourceKey?
@@ -123,6 +125,9 @@ final class SidebarMediaController: ObservableObject {
         let membershipChanged = Set(ids) != Set(sessions.keys)
         let presentationChanged = browserState !== presented
         let oldPresentedID = browserState.map(ObjectIdentifier.init)
+        if presentationChanged, presented != nil, isActive {
+            bufferLeavingSpaceSources()
+        }
         sessions = Dictionary(uniqueKeysWithValues: states.map { state in
             let id = ObjectIdentifier(state)
             return (id, sessions[id] ?? Session(state))
@@ -152,6 +157,33 @@ final class SidebarMediaController: ObservableObject {
     }
 
     private var navigationTarget: ObjectIdentifier?
+
+    private func bufferLeavingSpaceSources() {
+        // Chromium receives animated Space visibility changes on a later turn.
+        // Give newly hidden videos time to enter PiP without flashing a card.
+        for candidate in candidates.values where isVisible(candidate.key)
+            && candidate.playback.isPlaying && candidate.playback.canEnterPictureInPicture
+            && !candidate.playback.isPictureInPicture {
+            let key = candidate.key
+            spaceExitBuffers.removeValue(forKey: key)?.task.cancel()
+            let task = Task { @MainActor [weak self] in
+                do { try await Task.sleep(nanoseconds: 250_000_000) }
+                catch { return }
+                guard let self, !Task.isCancelled else { return }
+                // Inspect while still concealed: even an undelivered PiP update
+                // must be applied before the source becomes eligible again.
+                if let tab = self.observedTabs[key]?.tab { self.inspect(tab) }
+                self.spaceExitBuffers.removeValue(forKey: key)?.task.cancel()
+                self.refreshSelection()
+            }
+            spaceExitBuffers[key] = (SourceIdentity(candidate), task)
+        }
+    }
+
+    private func isBuffered(_ candidate: Item) -> Bool {
+        spaceExitBuffers[candidate.key]?.identity == SourceIdentity(candidate)
+    }
+
     private let defaults: UserDefaults
     private var preferencesSubscription: AnyCancellable?
     private var isActive = false
@@ -237,8 +269,11 @@ final class SidebarMediaController: ObservableObject {
             // this controller's subscriptions seeing it. Keep the selection
             // for later, but hide and block it until a fresh snapshot arrives.
             isRevalidating = item != nil
+            spaceExitBuffers.values.forEach { $0.task.cancel() }
+            spaceExitBuffers.removeAll()
             backgroundSourceCount = 0
             candidates.removeAll()
+            silentRetainedSources.removeAll()
             visitsAwaitingPlayback.removeAll()
             stateSubscriptions.removeAll()
             subscriptionGenerations.removeAll()
@@ -503,6 +538,15 @@ final class SidebarMediaController: ObservableObject {
         if let previous = candidates[key], SourceIdentity(previous) != SourceIdentity(candidate),
            cyclingSourceKey == key { cancelCycle() }
         let identity = SourceIdentity(candidate)
+        if playback.isMuted || playback.isSourceSilent || playback.isTabMuted || playback.volume == 0 {
+            // Retain a card silenced in place by source identity, so selecting
+            // another card does not remove the user's way to restore sound.
+            if item.map(SourceIdentity.init) == identity, !isSourceVisible, !isDismissed {
+                silentRetainedSources[key] = identity
+            }
+        } else {
+            silentRetainedSources.removeValue(forKey: key)
+        }
         if let retained = pipRetainedSources[key], retained != identity {
             pipRetainedSources.removeValue(forKey: key)
         }
@@ -533,9 +577,8 @@ final class SidebarMediaController: ObservableObject {
     private func canPresent(_ candidate: Item) -> Bool {
         let playback = candidate.playback
         guard playback.isMuted || playback.isSourceSilent || playback.isTabMuted || playback.volume == 0 else { return true }
-        // Keep controls for a card silenced in place, but end that exception
-        // once its page is visited or a different source takes over.
-        return item?.key == candidate.key && !isSourceVisible && !isDismissed
+        return silentRetainedSources[candidate.key] == SourceIdentity(candidate)
+            || (item?.key == candidate.key && !isSourceVisible && !isDismissed)
     }
 
     private var orderedBackgroundSources: [Item] {
@@ -546,10 +589,12 @@ final class SidebarMediaController: ObservableObject {
         let order = visitedSources + fallback.filter { !visitedSources.contains($0) }
         return order.compactMap { id in
             guard let candidate = candidates[id], isValid(candidate), !isVisible(id),
+                  !isBuffered(candidate),
                   canPresent(candidate),
                   !candidate.playback.isPictureInPicture,
                   dismissedSources[id] != SourceIdentity(candidate),
                   candidate.playback.isPlaying || item?.key == id
+                    || silentRetainedSources[id] == SourceIdentity(candidate)
                     || pipRetainedSources[id] == SourceIdentity(candidate) else { return nil }
             return candidate
         }
@@ -558,9 +603,25 @@ final class SidebarMediaController: ObservableObject {
     private func refreshSelection(preservePresentation: Bool = false) {
         guard !isSyncingTabs else { return }
         guard isActive else { backgroundSourceCount = 0; return }
+        for (key, buffer) in spaceExitBuffers {
+            guard let candidate = candidates[key], isValid(candidate), !isVisible(key),
+                  SourceIdentity(candidate) == buffer.identity,
+                  !candidate.playback.isPictureInPicture else {
+                spaceExitBuffers.removeValue(forKey: key)?.task.cancel()
+                continue
+            }
+        }
         // Dismissal lasts only until the source is visible or the sidebar returns.
         dismissedSources = dismissedSources.filter {
             !isVisible($0.key) && candidates[$0.key]?.playback.isPictureInPicture != true
+        }
+        // Visiting, dismissing or losing the source ends retention. A cached
+        // identity must never admit a replacement document or media session.
+        silentRetainedSources = silentRetainedSources.filter { key, identity in
+            guard let candidate = candidates[key] else { return false }
+            return SourceIdentity(candidate) == identity && isValid(candidate)
+                && !isVisible(key) && !candidate.playback.isPictureInPicture
+                && dismissedSources[key] != identity
         }
         // Empty activation caches are not selection loss. Keep the retained
         // manual/paused identity concealed until its own fresh result arrives.
@@ -667,11 +728,14 @@ final class SidebarMediaController: ObservableObject {
                         playback: NativeMediaAdapter.Playback, preservePresentation: Bool = false) {
         guard let key = sourceKey(for: tab) else { return }
         let previousSource = item.map(SourceIdentity.init)
-        if item?.key != key || item?.wrapperId != wrapperId { isVolumeExpanded = false }
         item = Item(key: key, wrapperId: wrapperId, pageURL: pageURL,
                     documentEpoch: documentEpoch,
                     playback: playback,
                     faviconData: tab.liveFaviconData ?? tab.cachedFaviconData)
+        if previousSource != item.map(SourceIdentity.init)
+            || (!playback.isLoadingVolume && playback.volume == nil) {
+            isVolumeExpanded = false
+        }
         // Published delivery can synchronously deactivate the surface. Do not
         // resume presentation or a timer after that consumer has torn us down.
         guard isActive else {
@@ -685,7 +749,7 @@ final class SidebarMediaController: ObservableObject {
             isDismissed = dismissedSources[item.key] == SourceIdentity(item)
             updateSourceVisibility()
         }
-        isRevalidating = false
+        isRevalidating = item.map(isBuffered) ?? false
         let sourceChanged = item.map(SourceIdentity.init) != previousSource
         if sourceChanged {
             cancelHoverExpansion(clearHover: true)
@@ -754,6 +818,7 @@ final class SidebarMediaController: ObservableObject {
         if isSourceVisible {
             cancelHoverExpansion(clearHover: true)
             isExpanded = false
+            isVolumeExpanded = false
         } else {
             applyPresentationMode()
         }
@@ -902,6 +967,12 @@ final class SidebarMediaController: ObservableObject {
             toggleMute(for: expectedItem, from: surface)
         } else {
             isVolumeExpanded.toggle()
+            if isVolumeExpanded {
+                if mediaSubscriptions[expectedItem.key]?.readVolume(expected: expectedItem.playback) != true {
+                    isVolumeExpanded = false
+                }
+                if let tab = observedTabs[expectedItem.key]?.tab { inspect(tab) }
+            }
         }
     }
 
@@ -945,6 +1016,7 @@ final class SidebarMediaController: ObservableObject {
     }
 
     isolated deinit {
+        spaceExitBuffers.values.forEach { $0.task.cancel() }
         trackChangeSettle?.cancel()
         trackChangeTimeout?.cancel()
         hoverEntryWorkItem?.cancel()

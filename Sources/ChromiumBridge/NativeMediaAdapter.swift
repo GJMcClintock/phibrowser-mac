@@ -25,6 +25,7 @@ enum NativeMediaAdapter {
         let canPause: Bool
         let volume: Double?
         let canSetVolume: Bool
+        let isLoadingVolume: Bool
         let canPreviousTrack: Bool
         let canNextTrack: Bool
         let canSeek: Bool
@@ -42,6 +43,7 @@ enum NativeMediaAdapter {
     @MainActor
     final class Subscription {
         private let controls: PhiMediaControls
+        private let supportsElementVolume: Bool
         private var isClosed = false
 
         init?(wrapper: WebContentWrapper & NSObject, fallbackTitle: String,
@@ -50,11 +52,13 @@ enum NativeMediaAdapter {
             // Framework. Never send the new selector to an older wrapper.
             guard wrapper.responds(to: NSSelectorFromString("mediaControls")) else { return nil }
             controls = wrapper.mediaControls
+            supportsElementVolume = controls.responds(to: NSSelectorFromString("readVolumeWithExpectedToken:"))
             controls.startObserving { [weak self] value in
                 // Native contract: callbacks and access are on the UI thread.
                 MainActor.assumeIsolated {
                     guard let self, !self.isClosed else { return }
-                    observer(Self.decode(value, fallbackTitle: fallbackTitle))
+                    observer(Self.decode(value, fallbackTitle: fallbackTitle,
+                                         supportsElementVolume: self.supportsElementVolume))
                 }
             }
         }
@@ -67,7 +71,8 @@ enum NativeMediaAdapter {
 
         func snapshot(fallbackTitle: String) -> Playback? {
             guard !isClosed else { return nil }
-            return Self.decode(controls.snapshot(), fallbackTitle: fallbackTitle)
+            return Self.decode(controls.snapshot(), fallbackTitle: fallbackTitle,
+                               supportsElementVolume: supportsElementVolume)
         }
 
         /// Map the displayed intent explicitly. A stale pause button must never
@@ -108,16 +113,26 @@ enum NativeMediaAdapter {
             return controls.perform(nativeAction, expectedToken: expected.token, seconds: seconds)
         }
 
+        /// Only called when the volume row opens; progress snapshots never read it.
+        @discardableResult
+        func readVolume(expected: Playback) -> Bool {
+            guard !isClosed, supportsElementVolume,
+                  let fresh = snapshot(fallbackTitle: ""),
+                  fresh.token == expected.token, fresh.sourceToken == expected.sourceToken else { return false }
+            return controls.readVolume(expectedToken: expected.token)
+        }
+
         @discardableResult
         func setVolume(_ volume: Double, expected: Playback) -> Bool {
-            guard !isClosed, volume.isFinite,
+            guard !isClosed, supportsElementVolume, volume.isFinite,
                   controls.responds(to: NSSelectorFromString("setVolume:expectedToken:")),
                   let fresh = snapshot(fallbackTitle: ""), fresh.canSetVolume,
                   fresh.token == expected.token, fresh.sourceToken == expected.sourceToken else { return false }
             return controls.setVolume(min(max(volume, 0), 1), expectedToken: expected.token)
         }
 
-        private static func decode(_ value: [String: Any]?, fallbackTitle: String) -> Playback? {
+        private static func decode(_ value: [String: Any]?, fallbackTitle: String,
+                                   supportsElementVolume: Bool) -> Playback? {
             guard let value, let token = value["token"] as? String, !token.isEmpty,
                   let sourceToken = value["sourceToken"] as? String, !sourceToken.isEmpty,
                   let playing = value["playing"] as? Bool,
@@ -141,7 +156,9 @@ enum NativeMediaAdapter {
                 isSourceSilent: value["sourceSilent"] as? Bool ?? false,
                 canSetMute: value["canSetMute"] as? Bool ?? false, isTabMuted: tabMuted,
                 canPlay: canPlay, canPause: canPause,
-                volume: volume, canSetVolume: value["canSetVolume"] as? Bool == true && volume != nil,
+                volume: supportsElementVolume ? volume : nil,
+                canSetVolume: supportsElementVolume && value["canSetVolume"] as? Bool == true && volume != nil,
+                isLoadingVolume: supportsElementVolume && value["volumePending"] as? Bool == true,
                 canPreviousTrack: value["canPreviousTrack"] as? Bool ?? false,
                 canNextTrack: value["canNextTrack"] as? Bool ?? false,
                 canSeek: canSeek && position != nil && duration != nil,

@@ -696,6 +696,7 @@ final class ServiceBrokerExtensionProtocolTests: XCTestCase {
         let asset = try await loader.load(item)
 
         XCTAssertEqual(asset.pixelSize, CGSize(width: 1, height: 1))
+        XCTAssertEqual(asset.originalData, png)
         let loadedPath = await calls.lastPath()
         let loadedSenderID = await calls.lastSenderID()
         XCTAssertEqual(loadedPath, "/api/v1/files/image-1")

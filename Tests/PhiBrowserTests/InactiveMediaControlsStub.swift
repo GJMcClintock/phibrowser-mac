@@ -16,6 +16,8 @@ final class InactiveMediaControlsStub: NSObject, PhiMediaControls {
 
     func snapshot() -> [String: Any]? { nil }
 
+    func readVolume(expectedToken: String) -> Bool { false }
+
     func setVolume(_ volume: Double, expectedToken: String) -> Bool { false }
 
     func perform(_ action: PhiMediaControlAction, expectedToken: String, seconds: Double) -> Bool {

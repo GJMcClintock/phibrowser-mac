@@ -21,7 +21,14 @@ Focused scopes remain available:
 ```sh
 ./build-scripts/test-sidebar-media.sh --multi-source
 ./build-scripts/test-sidebar-media.sh --physical-swipe
+./build-scripts/test-sidebar-media.sh --silent-source-retention
 ```
+
+Cards silenced while displayed retain their source identity across card cycling
+and selection of a newer player, including paused cards. Initially silent
+background sources remain excluded. The focused retention checks cover cycling
+across Spaces, returning to unmute, and cleanup after navigation, media loss,
+source replacement, tab closure, source visits, dismissal, and disabled observation.
 
 For the opt-in end-to-end pointer and seek UI test, start the reproducible local Range fixture in one terminal:
 
@@ -75,3 +82,10 @@ legacy snapshots without the new fields, dispatch without seek/duration, live
 capability removal and stale request rejection. PiP cases verify card suppression,
 continued observation, paused restoration, and restoration of a selected paused
 source after another playing tab temporarily occupies the card.
+
+Volume is queried once when its row opens. The row shows a loading indicator
+until the reply arrives; progress polling only uses the cached value. Setting
+volume writes the selected media element and publishes the applied value without
+another read. Reopening refreshes page-side changes. Source replacement closes
+the old row, and older Frameworks without the read selector expose no volume
+control. The native harness covers this request lifecycle and capability guard.

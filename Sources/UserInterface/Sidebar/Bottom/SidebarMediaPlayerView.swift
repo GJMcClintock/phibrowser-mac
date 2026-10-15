@@ -223,17 +223,6 @@ struct SidebarMediaCardTransition: AnimatableModifier {
     }
 }
 
-private struct SidebarMediaTimelineFrameKey: PreferenceKey {
-    static var defaultValue: CGRect { .zero }
-    static func reduce(value: inout CGRect, nextValue: () -> CGRect) { value = nextValue() }
-}
-
-private struct SidebarMediaVolumeFrameKey: PreferenceKey {
-    static let defaultValue: CGRect = .zero
-    static func reduce(value: inout CGRect, nextValue: () -> CGRect) { value = nextValue() }
-}
-
-
 /// Shared feedback for transport, source, PiP and dismissal buttons.
 private struct SidebarMediaButtonStyle: ButtonStyle {
     var isSelected = false
@@ -292,8 +281,6 @@ struct SidebarMediaPlayerView: View {
     @State private var scrubTarget: ScrubTarget?
     @State private var isHovering = false
     @State private var hoverExitWorkItem: DispatchWorkItem?
-    @State private var timelineFrame: CGRect = .zero
-    @State private var volumeFrame: CGRect = .zero
     @State private var volumeTarget: SidebarMediaController.Item?
     @State private var cardDragItem: SidebarMediaController.Item?
 
@@ -374,31 +361,6 @@ struct SidebarMediaPlayerView: View {
                     .animation(.easeInOut(duration: reduceMotion ? 0.12 : 0.22),
                                value: controller.cycleAnimationGeneration)
                 }
-                .coordinateSpace(name: "sidebarMedia.card")
-                .onPreferenceChange(SidebarMediaTimelineFrameKey.self) { timelineFrame = $0 }
-                .onPreferenceChange(SidebarMediaVolumeFrameKey.self) { volumeFrame = $0 }
-                .contentShape(Rectangle())
-                .simultaneousGesture(DragGesture(minimumDistance: 24, coordinateSpace: .named("sidebarMedia.card"))
-                    .onChanged { value in
-                        // Wheel gestures belong to the AppKit host. Only a
-                        // pressed mouse drag may claim this parallel path.
-                        guard NSEvent.pressedMouseButtons & 1 != 0,
-                              controller.backgroundSourceCount > 1,
-                              !timelineFrame.contains(value.startLocation), !volumeFrame.contains(value.startLocation),
-                              controller.matchesCurrentSource(item) else { return }
-                        if cardDragItem == nil { cardDragItem = item }
-                    }
-                    .onEnded { value in
-                        defer { cardDragItem = nil }
-                        guard let source = cardDragItem,
-                              abs(value.translation.width) >= 40,
-                              abs(value.translation.width) > abs(value.translation.height),
-                              !timelineFrame.contains(value.startLocation), !volumeFrame.contains(value.startLocation) else { return }
-                        SidebarMediaAnalytics.capture("switch_source")
-                        controller.cycleSource(for: source,
-                                               direction: value.translation.width < 0 ? .next : .previous,
-                                               from: surface)
-                    })
                 .frame(maxWidth: .infinity)
                 .frame(maxHeight: .infinity)
                 .background {
@@ -482,6 +444,29 @@ struct SidebarMediaPlayerView: View {
         keyboardExpanded = false
     }
 
+    /// Only non-slider regions can begin a source drag. Keeping the recognizer
+    /// off the sliders' ancestors prevents simultaneous seek/volume and cycling.
+    private func cardDragGesture(_ item: SidebarMediaController.Item) -> some Gesture {
+        DragGesture(minimumDistance: 24)
+            .onChanged { _ in
+                // Wheel gestures belong to the AppKit host.
+                guard NSEvent.pressedMouseButtons & 1 != 0,
+                      controller.backgroundSourceCount > 1,
+                      controller.matchesCurrentSource(item) else { return }
+                if cardDragItem == nil { cardDragItem = item }
+            }
+            .onEnded { value in
+                defer { cardDragItem = nil }
+                guard let source = cardDragItem,
+                      abs(value.translation.width) >= 40,
+                      abs(value.translation.width) > abs(value.translation.height) else { return }
+                SidebarMediaAnalytics.capture("switch_source")
+                controller.cycleSource(for: source,
+                                       direction: value.translation.width < 0 ? .next : .previous,
+                                       from: surface)
+            }
+    }
+
     /// Keep the transport in one view at the card's bottom so the buttons do
     /// not move or change identity when pointer hover reveals the details.
     private func transportRow(_ item: SidebarMediaController.Item) -> some View {
@@ -539,32 +524,36 @@ struct SidebarMediaPlayerView: View {
         }
         .padding(.horizontal, 8)
         .frame(height: 32)
+        .contentShape(Rectangle())
+        .simultaneousGesture(cardDragGesture(item))
     }
 
     private func volumeRow(_ item: SidebarMediaController.Item) -> some View {
         HStack(spacing: 6) {
-            Slider(value: Binding(
-                get: { item.playback.volume ?? 1 },
-                set: {
-                    if volumeTarget == nil { SidebarMediaAnalytics.capture("adjust_volume") }
-                    controller.setVolume($0, for: volumeTarget ?? item, from: surface)
-                }
-            ), in: 0...1, onEditingChanged: { editing in
-                if !editing, volumeTarget != nil {
-                    SidebarMediaAnalytics.capture("adjust_volume")
-                }
-                volumeTarget = editing ? item : nil
-            })
-            .themedTint(.themeColor)
-            .disabled(item.playback.isMuted || !item.playback.canSetVolume || controller.isChangingTrack)
-            .accessibilityLabel(volumeSliderLabel)
-            .accessibilityIdentifier("sidebarMedia.volumeSlider")
+            if let volume = item.playback.volume {
+                Slider(value: Binding(
+                    get: { item.playback.volume ?? volume },
+                    set: {
+                        if volumeTarget == nil { SidebarMediaAnalytics.capture("adjust_volume") }
+                        controller.setVolume($0, for: volumeTarget ?? item, from: surface)
+                    }
+                ), in: 0...1, onEditingChanged: { editing in
+                    if !editing, volumeTarget != nil {
+                        SidebarMediaAnalytics.capture("adjust_volume")
+                    }
+                    volumeTarget = editing ? item : nil
+                })
+                .themedTint(.themeColor)
+                .disabled(item.playback.isMuted || !item.playback.canSetVolume || controller.isChangingTrack)
+                .accessibilityLabel(volumeSliderLabel)
+                .accessibilityIdentifier("sidebarMedia.volumeSlider")
+            } else if item.playback.isLoadingVolume {
+                ProgressView().controlSize(.small).frame(maxWidth: .infinity)
+            } else {
+                Spacer()
+            }
         }
         .padding(.horizontal, 10)
-        .background(GeometryReader { geometry in
-            Color.clear.preference(key: SidebarMediaVolumeFrameKey.self,
-                                   value: geometry.frame(in: .named("sidebarMedia.card")))
-        })
     }
 
     private func expandedDetails(_ item: SidebarMediaController.Item) -> some View {
@@ -622,6 +611,8 @@ struct SidebarMediaPlayerView: View {
                         .lineLimit(1)
                 }
             }
+            .contentShape(Rectangle())
+            .simultaneousGesture(cardDragGesture(item))
 
             if let duration = item.playback.duration, let position = item.playback.currentTime {
                 VStack(spacing: 4) {
@@ -696,10 +687,6 @@ struct SidebarMediaPlayerView: View {
                 })
         }
         .frame(height: 18)
-        .background(GeometryReader { geometry in
-            Color.clear.preference(key: SidebarMediaTimelineFrameKey.self,
-                                   value: geometry.frame(in: .named("sidebarMedia.card")))
-        })
         .focusable(item.playback.canSeek)
         .focusEffectDisabled()
         .onMoveCommand { direction in

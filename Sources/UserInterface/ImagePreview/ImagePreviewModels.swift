@@ -5,6 +5,7 @@
 
 import AppKit
 import Foundation
+import UniformTypeIdentifiers
 
 enum ImagePreviewSource: Equatable {
     case localFile(URL)
@@ -151,6 +152,12 @@ struct ImagePreviewAsset {
     let pixelSize: CGSize
     let formatIdentifier: String
     let isAnimated: Bool
+    // Keep the source bytes so exporting preserves animation, metadata, and encoding.
+    let originalData: Data
+
+    var contentType: UTType? {
+        UTType(formatIdentifier)
+    }
 }
 
 enum ImagePreviewLoadState {

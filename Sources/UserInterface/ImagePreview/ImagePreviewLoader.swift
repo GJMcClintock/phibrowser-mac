@@ -176,11 +176,16 @@ final class ImagePreviewLoader: ImagePreviewLoading {
 
         if matchesKnownImageType(sourceURL: sourceURL, mimeType: mimeType),
            let image = NSImage(data: data) {
+            let mimeContentType = mimeType.flatMap { UTType(mimeType: $0) }
+            let contentType = mimeContentType?.conforms(to: .image) == true
+                ? mimeContentType
+                : sourceURL.flatMap { UTType(filenameExtension: $0.pathExtension) }
             return ImagePreviewAsset(
                 image: image,
                 pixelSize: image.size,
-                formatIdentifier: sourceURL?.pathExtension.lowercased() ?? (mimeType ?? "unknown"),
-                isAnimated: false
+                formatIdentifier: contentType?.identifier ?? "unknown",
+                isAnimated: false,
+                originalData: data
             )
         }
 
@@ -203,7 +208,8 @@ final class ImagePreviewLoader: ImagePreviewLoading {
             image: image,
             pixelSize: CGSize(width: pixelWidth, height: pixelHeight),
             formatIdentifier: typeIdentifier,
-            isAnimated: CGImageSourceGetCount(imageSource) > 1
+            isAnimated: CGImageSourceGetCount(imageSource) > 1,
+            originalData: data
         )
     }
 

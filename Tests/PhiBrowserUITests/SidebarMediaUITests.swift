@@ -438,7 +438,7 @@ final class SidebarMediaUITests: XCTestCase {
             throw XCTSkip("Set PHI_MEDIA_UI_FIXTURE_URL to the local Range fixture")
         }
         let app = XCUIApplication()
-        app.launchArguments += ["-uitest", "1", "-layoutMode", "balanced", "-spacesFeatureEnabled", "NO",
+        app.launchArguments += ["-uitest", "1", "-skip-onboarding", "-layoutMode", "balanced", "-spacesFeatureEnabled", "NO",
                                 "-sidebarHeaderWidth", "193", "--force-renderer-accessibility",
                                 "--user-data-dir=\(NSTemporaryDirectory())PhiMediaCycle-\(ProcessInfo.processInfo.globallyUniqueString)"]
         app.launch()
@@ -493,6 +493,37 @@ final class SidebarMediaUITests: XCTestCase {
         }
         XCTAssertTrue(app.buttons["sidebarMedia.dismiss"].waitForExistence(timeout: 5),
                       "Expanded Dynamic header should show a dismiss arrow")
+        let timeline = app.descendants(matching: .any)
+            .matching(identifier: "sidebarMedia.timeline").firstMatch
+        let elapsed = app.staticTexts["sidebarMedia.elapsed"]
+        let duration = app.staticTexts["sidebarMedia.duration"]
+        XCTAssertTrue(timeline.waitForExistence(timeout: 5))
+        for (start, end) in [(0.15, 0.8), (0.8, 0.15)] {
+            timeline.coordinate(withNormalizedOffset: CGVector(dx: start, dy: 0.5))
+                .click(forDuration: 0.15, thenDragTo: timeline.coordinate(
+                    withNormalizedOffset: CGVector(dx: end, dy: 0.5)))
+            XCTAssertTrue(waitForTitle("Media C"), "Seeking must not cycle the media source")
+            XCTAssertTrue(waitUntil(timeout: 8) {
+                guard let position = seconds(elementText(elapsed)),
+                      let total = seconds(elementText(duration)) else { return false }
+                return abs(Double(position) - Double(total) * end) < 15
+            }, "The timeline must still seek in both directions")
+        }
+        let volumeButton = app.buttons["sidebarMedia.volumeButton"]
+        volumeButton.click()
+        let volumeSlider = app.sliders["sidebarMedia.volumeSlider"]
+        XCTAssertTrue(volumeSlider.waitForExistence(timeout: 10))
+        for (start, end) in [(0.95, 0.2), (0.2, 0.8)] {
+            let previousValue = String(describing: volumeSlider.value)
+            volumeSlider.coordinate(withNormalizedOffset: CGVector(dx: start, dy: 0.5))
+                .click(forDuration: 0.15, thenDragTo: volumeSlider.coordinate(
+                    withNormalizedOffset: CGVector(dx: end, dy: 0.5)))
+            XCTAssertTrue(waitForTitle("Media C"), "Changing volume must not cycle the media source")
+            XCTAssertTrue(volumeSlider.exists, "The volume row must remain open after dragging")
+            XCTAssertNotEqual(String(describing: volumeSlider.value), previousValue,
+                              "Dragging must still adjust the volume")
+        }
+        volumeButton.click()
         let outline = app.outlines["sidebarTabList"].firstMatch
         let outlineFrame = outline.frame
         let windowFrame = app.windows.firstMatch.frame

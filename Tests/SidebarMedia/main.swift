@@ -100,8 +100,16 @@ struct FakeSplitGroup {
 struct SidebarMediaHarness {
     @MainActor
     static func main() async {
+        if CommandLine.arguments.contains("--silent-source-retention") {
+            await silentCardsSurviveCyclingAcrossSpaces()
+            await mutedCardSurvivesNewPlayer()
+            await silentRetentionEndsWithItsSource()
+            print("Sidebar silent source retention checks passed")
+            return
+        }
         if CommandLine.arguments.contains("--space-presentation") {
             await spaceSwitchKeepsMediaPresentation()
+            await spaceSwitchBuffersNewBackgroundVideos()
             print("Space media presentation checks passed")
             return
         }
@@ -119,13 +127,18 @@ struct SidebarMediaHarness {
             await observationSurvivesPresentationExit()
             await windowSourcesAndPresentation()
             await spaceSwitchKeepsMediaPresentation()
+            await spaceSwitchBuffersNewBackgroundVideos()
             await crossSpaceReturnValidation()
             await backgroundFocusDoesNotReorderSources()
             nativeDecodeAndOldFramework()
             nativeActionIntentAndCapabilities()
             nativeTrackActions()
             await volumeInteractionAndValidation()
+            await volumeIsReadOnlyWhenOpened()
             await mutingKeepsSelectedSource()
+            await silentCardsSurviveCyclingAcrossSpaces()
+            await mutedCardSurvivesNewPlayer()
+            await silentRetentionEndsWithItsSource()
             await silentSourcesDoNotReenterAfterVisit()
             await silentBackgroundSourcesAreNotAdmitted()
             await muteValidationAndNativeState()
@@ -177,7 +190,7 @@ struct SidebarMediaHarness {
         f.state.focusingTab = f.tabs[0]
         c.setSessions([f.state, b], presented: b)
         c.setActive(true, on: bSurface)
-        await tick()
+        await tick(350)
         precondition(c.backgroundSourceCount == 2 && !c.isSourceVisible,
                      "An inactive Space's focused media must remain a background source")
         precondition(c.item?.sessionID == ObjectIdentifier(f.state))
@@ -266,6 +279,81 @@ struct SidebarMediaHarness {
             await tick()
             precondition(outgoing.heights.last == 0 && incoming.heights.last == 0,
                          "Dismissal must still hide the card in every resident sidebar")
+        }
+    }
+
+    @MainActor
+    static func spaceSwitchBuffersNewBackgroundVideos() async {
+        for kind in [SidebarMediaController.Surface.Kind.docked, .floating] {
+            for deliversPiPEvent in [true, false] {
+                let f = Fixture([240, 241]); defer { f.stop() }
+                let c = f.controller, video = f.tabs[0]
+                let b = BrowserState(), blank = Tab(242)
+                b.tabs = [blank]; b.focusingTab = blank
+                f.state.focusingTab = video
+                c.setSessions([f.state, b], presented: f.state)
+                let aSurface = SidebarMediaController.Surface(session: f.state, kind: kind)
+                let bSurface = SidebarMediaController.Surface(session: b, kind: kind)
+                c.setActive(true, on: aSurface)
+                let probe = MediaPresentationProbe(controller: c, surface: bSurface)
+                await tick()
+                precondition(probe.heights.last == 0)
+
+                c.setSessions([f.state, b], presented: b)
+                c.setActive(true, on: bSurface)
+                await tick(80)
+                precondition(c.isRevalidating && c.backgroundSourceCount == 0)
+                precondition(probe.heights.allSatisfy { $0 == 0 },
+                             "A newly hidden video must not reserve card space while PiP is starting")
+                var pip = require(video.controls.snapshotValue)
+                pip["isPictureInPicture"] = true
+                if deliversPiPEvent { video.controls.emit(pip) }
+                else { video.controls.snapshotValue = pip }
+                await tick(300)
+                precondition(!c.isRevalidating && c.isSourceVisible)
+                precondition(probe.heights.allSatisfy { $0 == 0 },
+                             "PiP must prevent even a transient layout reservation, including a late observer event")
+
+                pip["isPictureInPicture"] = false
+                video.controls.emit(pip)
+                await tick()
+                precondition(probe.heights.last == 38, "Exiting PiP must restore the background card")
+
+                c.setSessions([f.state, b], presented: f.state)
+                c.setActive(true, on: aSurface)
+                await tick()
+                c.setSessions([f.state, b], presented: b)
+                c.setActive(true, on: bSurface)
+                await tick(80)
+                precondition(c.isRevalidating && probe.heights.last == 0)
+                await tick(300)
+                precondition(!c.isRevalidating && probe.heights.last == 38,
+                             "A video that does not enter PiP must become available after the buffer")
+
+                c.setSessions([f.state, b], presented: f.state)
+                c.setActive(true, on: aSurface)
+                c.setSessions([f.state, b], presented: b)
+                c.setActive(true, on: bSurface)
+                await tick(80)
+                c.setSessions([f.state, b], presented: f.state)
+                c.setActive(true, on: aSurface)
+                await tick(100)
+                c.setSessions([f.state, b], presented: b)
+                c.setActive(true, on: bSurface)
+                await tick(120)
+                precondition(c.isRevalidating && probe.heights.last == 0,
+                             "A cancelled buffer must not release a later Space switch's video")
+                await tick(200)
+                precondition(!c.isRevalidating && probe.heights.last == 38)
+
+                // Only PiP-capable videos need the grace period.
+                c.setSessions([f.state, b], presented: f.state)
+                pip["canEnterPictureInPicture"] = false
+                video.controls.emit(pip)
+                c.setSessions([f.state, b], presented: b)
+                await tick()
+                precondition(!c.isRevalidating && probe.heights.last == 38)
+            }
         }
     }
 
@@ -465,6 +553,117 @@ struct SidebarMediaHarness {
     }
 
     @MainActor
+    static func silentCardsSurviveCyclingAcrossSpaces() async {
+        for field in ["muted", "sourceSilent", "tabMuted", "volume"] {
+            let f = Fixture([961, 962, 963]); defer { f.stop() }
+            let otherSpace = BrowserState()
+            otherSpace.tabs = [Tab(964)]
+            otherSpace.focusingTab = otherSpace.tabs[0]
+            let c = f.controller, a = f.tabs[0], b = f.tabs[1]
+            let surface = SidebarMediaController.Surface(session: otherSpace, kind: .docked)
+            c.setSessions([f.state, otherSpace], presented: otherSpace)
+            c.setActive(true, on: surface)
+            await tick()
+            precondition(c.item?.tabId == a.guid && c.backgroundSourceCount == 2)
+            if field == "muted" {
+                c.toggleMute(for: require(c.item), from: surface)
+            } else {
+                var value = require(a.controls.snapshotValue)
+                value[field] = field == "volume" ? 0.0 : true
+                a.controls.emit(value)
+            }
+            a.isCurrentlyAudible = false
+            await tick()
+            for paused in [false, true] {
+                if paused { c.perform(.playPause, for: require(c.item), from: surface) }
+                let actions = a.controls.actions.count
+                c.cycleSource(for: require(c.item), from: surface)
+                await tick()
+                precondition(c.item?.tabId == b.guid && c.backgroundSourceCount == 2,
+                             "Cycling away must retain the silent card, including when paused: \(field)")
+                a.controls.emit(require(a.controls.snapshotValue))
+                c.cycleSource(for: require(c.item), direction: .previous, from: surface)
+                await tick()
+                precondition(c.item?.tabId == a.guid && c.backgroundSourceCount == 2,
+                             "The silent card must remain a valid cycle destination: \(field)")
+                precondition(a.controls.actions.count == actions,
+                             "Cycling must not alter the retained media's playback or mute state")
+            }
+            if field == "muted" {
+                c.toggleMute(for: require(c.item), from: surface)
+                precondition(c.item?.playback.isMuted == false,
+                             "Returning to the retained card must allow unmuting")
+            }
+        }
+    }
+
+    @MainActor
+    static func mutedCardSurvivesNewPlayer() async {
+        let f = Fixture([965, 966]); defer { f.stop() }
+        await tick()
+        let c = f.controller, a = f.tabs[0], b = Tab(967)
+        c.toggleMute(for: require(c.item), from: .docked)
+        f.state.tabs.append(b)
+        f.state.focusingTab = b
+        await tick()
+        b.controls.emit(snapshot("New player", token: "new-token", source: "new-source"))
+        b.isCurrentlyAudible = true
+        await tick()
+        f.state.focusingTab = f.tabs.last
+        await tick(1150)
+        precondition(c.item?.tabId == b.guid && c.backgroundSourceCount == 2,
+                     "A newer playing tab must not remove the previous muted card")
+        c.cycleSource(for: require(c.item), from: .docked)
+        await tick()
+        precondition(c.item?.tabId == a.guid && c.item?.playback.isMuted == true)
+        c.toggleMute(for: require(c.item), from: .docked)
+        precondition(c.item?.playback.isMuted == false && c.backgroundSourceCount == 2)
+    }
+
+    @MainActor
+    static func silentRetentionEndsWithItsSource() async {
+        for invalidation in 0..<10 {
+            let f = Fixture([968, 969, 970]); defer { f.stop() }
+            await tick()
+            let c = f.controller, a = f.tabs[0]
+            c.toggleMute(for: require(c.item), from: .docked)
+            c.cycleSource(for: require(c.item), from: .docked)
+            await tick()
+            precondition(c.item?.tabId == 969 && c.backgroundSourceCount == 2)
+            switch invalidation {
+            case 0: a.isLoading = true
+            case 1: a.url = "https://example.test/replaced"
+            case 2: a.setWebContentsWrapper(wrapper: FakeWrapper())
+            case 3: f.state.tabs.removeAll { $0 === a }
+            case 4: a.controls.emit(nil)
+            case 5:
+                var replacement = require(a.controls.snapshotValue)
+                replacement["sourceToken"] = "replacement-source"
+                a.controls.emit(replacement)
+            case 6:
+                f.state.focusingTab = a
+                await tick()
+                f.state.focusingTab = f.tabs.last
+            case 7:
+                c.cycleSource(for: require(c.item), from: .docked)
+                await tick()
+                c.dismissCurrent(for: require(c.item), from: .docked)
+            case 8:
+                f.enabled(false)
+                await tick()
+                f.enabled(true)
+            default:
+                f.state.splits = [FakeSplitGroup(first: a.guid, second: 970)]
+                await tick()
+                f.state.splits = []
+            }
+            await tick()
+            precondition(c.item?.tabId == 969 && c.backgroundSourceCount == 1,
+                         "Silent retention must end with source invalidation: \(invalidation)")
+        }
+    }
+
+    @MainActor
     static func silentSourcesDoNotReenterAfterVisit() async {
         for field in ["muted", "sourceSilent", "tabMuted", "volume"] {
             let f = Fixture([941, 942]); defer { f.stop() }
@@ -595,6 +794,7 @@ struct SidebarMediaHarness {
         value["volume"] = 0.8
         value["canSetVolume"] = true
         f.tabs[0].controls.emit(value)
+        f.tabs[0].controls.pageVolume = 0.8
         let controller = f.controller, item = require(controller.item)
         controller.volumeButtonClicked(for: item, from: .docked, optionPressed: false)
         precondition(controller.isVolumeExpanded && !f.tabs[0].isAudioMuted,
@@ -628,6 +828,80 @@ struct SidebarMediaHarness {
         let afterChange = f.tabs[0].controls.actions.count
         controller.setVolume(0, for: stale, from: .docked)
         precondition(f.tabs[0].controls.actions.count == afterChange)
+    }
+
+    @MainActor
+    static func volumeIsReadOnlyWhenOpened() async {
+        let f = Fixture([925, 926]); defer { f.stop() }
+        await tick()
+        let controls = f.tabs[0].controls, controller = f.controller
+        controls.pageVolume = 0.3
+        precondition(controls.volumeReadCount == 0 && controller.item?.playback.volume == nil)
+        controller.volumeButtonClicked(for: require(controller.item), from: .floating, optionPressed: false)
+        precondition(controls.volumeReadCount == 0, "An inactive surface must not query volume")
+        controls.delaysVolumeRead = true
+        controller.volumeButtonClicked(for: require(controller.item), from: .docked, optionPressed: false)
+        precondition(controller.isVolumeExpanded && controls.volumeReadCount == 1)
+        precondition(controller.item?.playback.volume == nil
+                     && controller.item?.playback.isLoadingVolume == true
+                     && controller.item?.playback.canSetVolume == false)
+        let actions = controls.actions.count
+        controller.setVolume(0.7, for: require(controller.item), from: .docked)
+        precondition(controls.actions.count == actions, "Writing must wait for the initial volume read")
+        controls.completeVolumeRead()
+        precondition(controller.item?.playback.volume == 0.3
+                     && controller.item?.playback.isLoadingVolume == false)
+        controls.pageVolume = 0.6
+        await tick(1150)
+        precondition(controls.volumeReadCount == 1 && controller.item?.playback.volume == 0.3,
+                     "Progress polling must use the cached volume without querying the page")
+        controls.appliedVolumeOverride = 0.45
+        controller.setVolume(0.5, for: require(controller.item), from: .docked)
+        precondition(controller.item?.playback.volume == 0.45 && controls.volumeReadCount == 1,
+                     "The setter reply must supply the applied value without an extra read")
+        controller.volumeButtonClicked(for: require(controller.item), from: .docked, optionPressed: false)
+        precondition(!controller.isVolumeExpanded && controls.volumeReadCount == 1)
+        controls.delaysVolumeRead = false
+        controls.pageVolume = 0.6
+        controller.volumeButtonClicked(for: require(controller.item), from: .docked, optionPressed: false)
+        precondition(controller.item?.playback.volume == 0.6 && controls.volumeReadCount == 2,
+                     "Reopening must read the current page volume once")
+        f.mode(.alwaysExpanded)
+        f.state.focusingTab = f.tabs[0]
+        await tick()
+        precondition(controller.isSourceVisible && !controller.isVolumeExpanded,
+                     "Visiting the source must close the volume row")
+        controls.pageVolume = 0.7
+        f.state.focusingTab = f.tabs[1]
+        await tick()
+        precondition(!controller.isSourceVisible && controller.isExpanded
+                     && !controller.isVolumeExpanded && controls.volumeReadCount == 2,
+                     "Returning must not redisplay a stale volume slider or query in the background")
+        controller.volumeButtonClicked(for: require(controller.item), from: .docked, optionPressed: false)
+        precondition(controller.isVolumeExpanded && controller.item?.playback.volume == 0.7
+                     && controls.volumeReadCount == 3,
+                     "Opening after a source visit must read the updated volume exactly once")
+        controls.emit(snapshot("New source", token: "new-volume-token", source: "new-volume-source"))
+        precondition(!controller.isVolumeExpanded && controller.item?.playback.volume == nil,
+                     "A replaced source must close the old volume row")
+        controls.pageVolume = nil
+        controller.volumeButtonClicked(for: require(controller.item), from: .docked, optionPressed: false)
+        precondition(!controller.isVolumeExpanded && controller.item?.playback.volume == nil,
+                     "An unsupported volume reply must not leave an empty row open")
+
+        let legacy = FakeWrapper()
+        legacy.fakeControls.lacksVolumeSelector = true
+        var state = snapshot()
+        state["volume"] = 0.8
+        state["canSetVolume"] = true
+        legacy.fakeControls.snapshotValue = state
+        let subscription = require(NativeMediaAdapter.Subscription(wrapper: legacy, fallbackTitle: "") { _ in })
+        let playback = require(subscription.snapshot(fallbackTitle: ""))
+        precondition(playback.volume == nil && !playback.canSetVolume,
+                     "An older Framework must not present browser gain as element volume")
+        precondition(!subscription.readVolume(expected: playback))
+        precondition(!subscription.setVolume(0.5, expected: playback) && legacy.fakeControls.actions.isEmpty)
+        subscription.close()
     }
 
     @MainActor

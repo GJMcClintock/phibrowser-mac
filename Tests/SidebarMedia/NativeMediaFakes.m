@@ -12,6 +12,7 @@
   if ((self = [super init])) {
     _recordedActions = [NSMutableArray array];
     _acceptsActions = YES;
+    _pageVolume = @1;
   }
   return self;
 }
@@ -19,6 +20,7 @@
 - (BOOL)isObserving { return _observer != nil; }
 - (BOOL)respondsToSelector:(SEL)selector {
   if (_lacksMuteSelector && selector == @selector(setMuted:expectedToken:)) return NO;
+  if (_lacksVolumeSelector && selector == @selector(readVolumeWithExpectedToken:)) return NO;
   return [super respondsToSelector:selector];
 }
 - (void)startObserving:(void (^)(NSDictionary<NSString *, id> * _Nullable))observer {
@@ -48,12 +50,33 @@
   [_recordedActions addObject:@{@"action": @(action), @"token": token, @"seconds": @(seconds)}];
   return _observer && _acceptsActions && [_snapshotValue[@"token"] isEqual:token];
 }
+- (BOOL)readVolumeWithExpectedToken:(NSString *)token {
+  NSAssert(NSThread.isMainThread, @"Volume reads must run on the main thread");
+  if (!_observer || !_acceptsActions || ![_snapshotValue[@"token"] isEqual:token]) return NO;
+  _volumeReadCount++;
+  NSMutableDictionary *value = [_snapshotValue mutableCopy];
+  [value removeObjectForKey:@"volume"];
+  value[@"canSetVolume"] = @NO;
+  value[@"volumePending"] = @YES;
+  [self emit:value];
+  if (!_delaysVolumeRead) [self completeVolumeRead];
+  return YES;
+}
+- (void)completeVolumeRead {
+  NSMutableDictionary *value = [_snapshotValue mutableCopy];
+  if (_pageVolume) value[@"volume"] = _pageVolume;
+  else [value removeObjectForKey:@"volume"];
+  value[@"canSetVolume"] = @(_pageVolume != nil);
+  value[@"volumePending"] = @NO;
+  [self emit:value];
+}
 - (BOOL)setVolume:(double)volume expectedToken:(NSString *)token {
   [_recordedActions addObject:@{@"volume": @(volume), @"token": token}];
   if (!_observer || !_acceptsActions || ![_snapshotValue[@"token"] isEqual:token]) return NO;
+  _pageVolume = _appliedVolumeOverride ?: @(volume);
   NSMutableDictionary *value = [_snapshotValue mutableCopy];
-  value[@"volume"] = @(volume);
-  _snapshotValue = value;
+  value[@"volume"] = _pageVolume;
+  [self emit:value];
   return YES;
 }
 - (BOOL)setMuted:(BOOL)muted expectedToken:(NSString *)token {
