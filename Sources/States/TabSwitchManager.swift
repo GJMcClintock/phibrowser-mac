@@ -32,7 +32,7 @@ final class TabSwitchManager {
         var selectedIndex: Int
         var isOverlayVisible: Bool
         var pendingRevealWorkItem: DispatchWorkItem?
-        var anchorModifiers: NSEvent.ModifierFlags
+        let anchorModifiers: NSEvent.ModifierFlags
     }
 
     init(browserState: BrowserState) {
@@ -104,15 +104,15 @@ final class TabSwitchManager {
 
     // MARK: - Session
 
-    func handleStep(_ direction: TabSwitchDirection) {
+    func handleStep(_ direction: TabSwitchDirection, initiatingKey: ShortcutsKey?) {
         if session != nil {
             advanceSession(direction)
         } else {
-            startSession(direction)
+            startSession(direction, initiatingKey: initiatingKey)
         }
     }
 
-    private func startSession(_ direction: TabSwitchDirection) {
+    private func startSession(_ direction: TabSwitchDirection, initiatingKey: ShortcutsKey?) {
         let candidates = buildCandidates()
         guard !candidates.isEmpty else { return }
 
@@ -132,10 +132,12 @@ final class TabSwitchManager {
             }
         }
 
-        let anchor = Self.computeAnchorModifiers()
+        // Freeze the initiating binding for this gesture. Shift can change
+        // direction but never prolongs the session after its hold keys release.
+        let anchor = initiatingKey?.modifiers.intersection([.command, .control, .option]) ?? []
 
         let revealWorkItem = DispatchWorkItem { [weak self] in
-            self?.revealOverlayIfAnchorStillDown()
+            self?.revealOverlayIfAnchorStillDown(modifiers: NSEvent.modifierFlags)
         }
         DispatchQueue.main.asyncAfter(
             deadline: .now() + TabSwitchMetrics.longPressThreshold,
@@ -150,6 +152,13 @@ final class TabSwitchManager {
             anchorModifiers: anchor
         )
         snapshotCache.removeAll()
+
+        // A menu invocation or a Shift-only navigation key has no hold key.
+        // Execute one step immediately instead of leaving an unfinishable session.
+        guard !anchor.isEmpty else {
+            commitSession()
+            return
+        }
 
         installFlagsMonitor()
         installWindowResignObserver()
@@ -237,17 +246,19 @@ final class TabSwitchManager {
 
     private func installFlagsMonitor() {
         flagsMonitor = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { [weak self] event in
-            guard let self, let anchor = self.session?.anchorModifiers else { return event }
-            guard let sessionWindow = self.browserState?.windowController?.window,
-                  event.window === sessionWindow || NSApp.keyWindow === sessionWindow else {
-                return event
-            }
-            let current = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-            if current.intersection(anchor).isEmpty {
-                self.commitSession()
-            }
+            self?.handleFlagsChanged(event)
             return event
         }
+    }
+
+    func handleFlagsChanged(_ event: NSEvent) {
+        guard event.type == .flagsChanged, let anchor = session?.anchorModifiers,
+              let sessionWindow = browserState?.windowController?.window,
+              event.window === sessionWindow
+                || (event.window == nil && NSApp.keyWindow === sessionWindow) else { return }
+        // Releasing any initiating hold key commits, even if another modifier
+        // remains down. Additional Shift/Caps Lock never extend that lifetime.
+        if event.modifierFlags.intersection(anchor) != anchor { commitSession() }
     }
 
     private func removeFlagsMonitor() {
@@ -290,26 +301,16 @@ final class TabSwitchManager {
 
     // MARK: - Overlay
 
-    private func revealOverlayIfAnchorStillDown() {
+    func revealOverlayIfAnchorStillDown(modifiers: NSEvent.ModifierFlags) {
         guard let anchor = session?.anchorModifiers else { return }
-        let current = NSEvent.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        guard !current.intersection(anchor).isEmpty else { return }
-        revealOverlay()
-    }
-
-    /// Intersection of forward/backward shortcut modifiers.
-    /// Shift is excluded so it can freely toggle direction without ending the session.
-    private static func computeAnchorModifiers() -> NSEvent.ModifierFlags {
-        let forwardMods = Shortcuts.key(for: .PHI_TAB_SWITCHER_FORWARD)?
-            .modifiers.intersection(.deviceIndependentFlagsMask) ?? []
-        let backwardMods = Shortcuts.key(for: .PHI_TAB_SWITCHER_BACKWARD)?
-            .modifiers.intersection(.deviceIndependentFlagsMask) ?? []
-
-        var common = forwardMods.intersection(backwardMods)
-        if common.isEmpty {
-            common = forwardMods.isEmpty ? backwardMods : forwardMods
+        let current = modifiers.intersection(.deviceIndependentFlagsMask)
+        if current.intersection(anchor) == anchor {
+            revealOverlay()
+        } else {
+            // A release can arrive before the monitor is installed. The
+            // delayed check must finish that session instead of stranding it.
+            commitSession()
         }
-        return common
     }
 
     private func revealOverlay() {

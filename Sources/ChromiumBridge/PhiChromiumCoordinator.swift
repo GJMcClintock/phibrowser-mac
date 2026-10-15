@@ -1933,11 +1933,11 @@ extension PhiChromiumCoordinator: PhiChromiumBridgeDelegate {
     func keyEquivalentOverride(forCommand commandId: Int32) -> [String : Any]? {
         let id = Int(commandId)
 
-        guard let state = Shortcuts.overrideState(for: id) else {
+        guard let state = Shortcuts.chromiumOverrideState(for: id) else {
             return nil
         }
         
-        if let key = state {
+        if let key = state.key {
             let menuKey = key.menuKeyEquivalent
             return [
                 "keyEquivalent": menuKey.characters,

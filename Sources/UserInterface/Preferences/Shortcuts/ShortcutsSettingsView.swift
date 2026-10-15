@@ -12,24 +12,32 @@ struct ShortcutsSettingsView: View {
     @FocusState private var isSearchFieldFocused: Bool
     
     private var filteredSections: [(category: String, subtitle: String?, items: [ShortcutItem])] {
-        guard !searchText.isEmpty else {
-            return viewModel.sections
-        }
-        
         let query = searchText.lowercased()
         return viewModel.sections.compactMap { section in
             let filteredItems = section.items.filter { item in
+                viewModel.matchesSearch(.command(item.command.rawValue)) && (query.isEmpty ||
                 item.name.lowercased().contains(query) ||
                 item.shortcutDisplay.lowercased().contains(query) ||
-                item.searchKeywords.contains(where: { $0.contains(query) })
+                item.aliases.contains { $0.displayString.lowercased().contains(query) } ||
+                item.searchKeywords.contains(where: { $0.contains(query) }))
             }
             
             return filteredItems.isEmpty ? nil : (category: section.category, subtitle: section.subtitle, items: filteredItems)
         }
     }
+
+    private var filteredReservedShortcuts: [ReservedShortcutItem] {
+        viewModel.reservedShortcuts.filter { item in
+            viewModel.matchesSearch(item.id) && (searchText.isEmpty ||
+                item.name.localizedStandardContains(searchText) ||
+                item.keys.contains { $0.displayString.localizedStandardContains(searchText) })
+        }
+    }
     
     var body: some View {
         let sections = filteredSections
+        let reserved = filteredReservedShortcuts
+        let isEmpty = sections.isEmpty && reserved.isEmpty
         
         return VStack(spacing: 0) {
             VStack {
@@ -52,6 +60,38 @@ struct ShortcutsSettingsView: View {
                     }
                     .buttonStyle(.bordered)
                 }
+
+                if let failure = viewModel.persistenceFailure {
+                    HStack(alignment: .top, spacing: 8) {
+                        Image(systemName: "exclamationmark.triangle")
+                            .foregroundStyle(.orange)
+                        Text(failure.message)
+                            .font(.system(size: 12))
+                            .fixedSize(horizontal: false, vertical: true)
+                        Spacer()
+                        if failure == .load {
+                            Button(NSLocalizedString("settings.shortcuts.persistence.retry", value: "Retry", comment: "Shortcuts settings - Retry reading the saved configuration")) {
+                                viewModel.retryLoadingShortcuts()
+                            }
+                        } else {
+                            Button(NSLocalizedString("settings.shortcuts.persistence.dismiss", value: "Dismiss", comment: "Shortcuts settings - Dismiss a save failure without changing any shortcuts")) {
+                                viewModel.dismissSaveFailure()
+                            }
+                        }
+                    }
+                    .padding(.vertical, 8)
+                }
+
+                if let message = viewModel.recordingMessage {
+                    HStack {
+                        Text(message).font(.system(size: 12)).fixedSize(horizontal: false, vertical: true)
+                        Spacer()
+                        Button(NSLocalizedString("settings.shortcuts.recording.dismiss", value: "Dismiss", comment: "Shortcuts settings - Dismiss a shortcut recording message")) {
+                            viewModel.recordingMessage = nil
+                        }
+                    }
+                    .padding(.vertical, 8)
+                }
                 
                 // Container with search bar and list
                 VStack(spacing: 0) {
@@ -67,8 +107,24 @@ struct ShortcutsSettingsView: View {
                             
                             TextField(NSLocalizedString("settings.shortcuts.searchField.placeholder", value: "Find shortcut keys", comment: "Shortcuts settings - Search field placeholder to find shortcuts"), text: $searchText)
                                 .textFieldStyle(.plain)
+                                .accessibilityIdentifier("shortcuts.search")
                                 .padding(.vertical, 6)
                                 .focused($isSearchFieldFocused)
+                            if let key = viewModel.searchedKey {
+                                Text(key.displayString).font(.system(size: 12, weight: .medium))
+                                Button(NSLocalizedString("settings.shortcuts.search.clearKeys", value: "Clear keys", comment: "Shortcuts settings - Remove the captured-key search filter")) {
+                                    viewModel.searchedKey = nil
+                                }
+                            }
+                            Button(viewModel.capture == .search
+                                   ? NSLocalizedString("settings.shortcuts.search.pressKeys", value: "Press keys…", comment: "Shortcuts settings - Waiting for a key combination to search without executing it")
+                                   : NSLocalizedString("settings.shortcuts.search.recordKeys", value: "Record keys", comment: "Shortcuts settings - Search for bindings by pressing their key combination")) {
+                                searchText = ""
+                                isSearchFieldFocused = false
+                                viewModel.capture = viewModel.capture == .search ? nil : .search
+                            }
+                            .accessibilityIdentifier("shortcuts.recordSearch")
+                            .padding(.trailing, 12)
                         }
                     }
                     // separator between searchbar and list
@@ -108,18 +164,11 @@ struct ShortcutsSettingsView: View {
                                                 handleAction(for: item, action: action)
                                             }
                                         )
+                                        .disabled(!viewModel.canEdit)
                                         .overlay(alignment: .bottom) {
                                             Rectangle()
                                                 .fill(Color(.separatorColor))
                                                 .frame(height: 1)
-                                        }
-                                        .overlay {
-                                            if viewModel.editingCommand == item.command {
-                                                KeyCaptureView { event in
-                                                    handleKeyCapture(event, for: item.command)
-                                                }
-                                                .allowsHitTesting(false)
-                                            }
                                         }
                                     }
                                 }
@@ -128,13 +177,29 @@ struct ShortcutsSettingsView: View {
                                 .listRowInsets(EdgeInsets(top: 0, leading: 4, bottom: 4, trailing: 4))
                                 .listRowSeparator(.hidden)
                             }
+                            if !reserved.isEmpty {
+                                Section {
+                                    ForEach(reserved) { item in
+                                        HStack {
+                                            Text(item.name)
+                                            Spacer()
+                                            Text(Array(Set(item.keys.map(\.displayString))).sorted().joined(separator: ", "))
+                                                .foregroundStyle(.secondary)
+                                        }
+                                        .font(.system(size: 12))
+                                        .padding(.vertical, 6)
+                                    }
+                                } header: {
+                                    Text(NSLocalizedString("settings.shortcuts.reservedSection", value: "Other active shortcuts (read-only)", comment: "Shortcuts settings - Active native and browser bindings that this settings page cannot reassign"))
+                                }
+                            }
                         }
                         .listStyle(.plain)
                         .listSectionSeparator(.hidden)
                         .scrollContentBackground(.hidden)
-                        .opacity(sections.isEmpty ? 0 : 1)
+                        .opacity(isEmpty ? 0 : 1)
                         
-                        if sections.isEmpty {
+                        if isEmpty {
                             Text(NSLocalizedString("settings.shortcuts.searchResults.emptyMessage", value: "No Results", comment: "Shortcuts settings - Empty state text when no shortcuts match search"))
                                 .font(.system(size: 13, weight: .medium))
                                 .foregroundColor(.secondary)
@@ -152,12 +217,34 @@ struct ShortcutsSettingsView: View {
             .padding(.vertical, 36)
             .padding(.horizontal, 36)
         }
-        .background(
-            CommandShortcutCaptureView { event in
-                handleGlobalShortcut(event)
+        .background {
+            if viewModel.capture != nil {
+                KeyCaptureView(onKeyEvent: viewModel.handleCaptureEvent,
+                               onCancel: { viewModel.capture = nil })
+                    .allowsHitTesting(false)
+            } else {
+                CommandShortcutCaptureView { event in
+                    handleGlobalShortcut(event)
+                }
+                .allowsHitTesting(false)
             }
-            .allowsHitTesting(false)
-        )
+        }
+        .onDisappear { viewModel.capture = nil }
+        .alert(NSLocalizedString("settings.shortcuts.reassignment.title", value: "Shortcut already in use", comment: "Shortcuts settings - Title when a recorded key is already owned by another action"),
+               isPresented: Binding(get: { viewModel.reassignment != nil }, set: { if !$0 { viewModel.reassignment = nil } }),
+               presenting: viewModel.reassignment) { pending in
+            if pending.canReassign {
+                Button(NSLocalizedString("settings.shortcuts.reassignment.confirm", value: "Reassign", comment: "Shortcuts settings - Assign the recorded key and disable all bindings of the conflicting commands")) {
+                    viewModel.confirmReassignment(pending)
+                }
+            }
+            Button(NSLocalizedString("settings.shortcuts.reassignment.cancel", value: "Cancel", comment: "Shortcuts settings - Keep all existing bindings without assigning the recorded key"), role: .cancel) {}
+        } message: { pending in
+            Text(String(format: pending.canReassign
+                        ? NSLocalizedString("settings.shortcuts.reassignment.message", value: "%@ is used by %@. Reassigning disables all shortcuts for those commands.", comment: "Shortcuts settings - Conflict confirmation; first placeholder is the recorded key, second is a list of command names")
+                        : NSLocalizedString("settings.shortcuts.reassignment.reserved", value: "%@ is used by %@. These shortcuts cannot be changed here. Choose a different key.", comment: "Shortcuts settings - Conflict with read-only bindings; first placeholder is the recorded key, second is their names"),
+                        pending.key.displayString, pending.names.joined(separator: ", ")))
+        }
     }
     
     private func handleAction(for item: ShortcutItem, action: ShortcutRowView.Action) {
@@ -169,28 +256,10 @@ struct ShortcutsSettingsView: View {
             if viewModel.editingCommand == item.command {
                 cancelEditing()
             } else {
+                isSearchFieldFocused = false
+                viewModel.recordingMessage = nil
                 viewModel.editingCommand = item.command
             }
-        }
-    }
-    
-    private func handleKeyCapture(_ event: NSEvent, for command: CommandWrapper) {
-        // ESC cancels recording
-        if event.keyCode == 53 {
-            cancelEditing()
-            return
-        }
-        
-        // Backspace (51) removes/disables the shortcut
-        if event.keyCode == 51 {
-            viewModel.disableShortcut(for: command)
-            cancelEditing()
-            return
-        }
-        
-        if let key = ShortcutsKey.recordingKey(for: event) {
-            viewModel.setCustomShortcut(for: command, key: key)
-            cancelEditing()
         }
     }
     
@@ -202,12 +271,12 @@ struct ShortcutsSettingsView: View {
     }
     
     private func handleGlobalShortcut(_ event: NSEvent) {
-        guard viewModel.editingCommand == nil else { return }
-        let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        if  modifiers.contains(.command),
+        guard viewModel.capture == nil else { return }
+        let modifiers = event.modifierFlags.intersection([.command, .control, .option, .shift])
+        if modifiers == .command,
             event.charactersIgnoringModifiers?.lowercased() == "f" {
             isSearchFieldFocused = true
-        } else if event.keyCode == 53 {
+        } else if event.keyCode == 53 && modifiers.isEmpty {
             // esc
             isSearchFieldFocused = false
         }
@@ -238,6 +307,13 @@ struct ShortcutRowView: View {
                         .font(.system(size: 11))
                         .foregroundColor(.yellow)
                 }
+                let aliases = item.aliases.filter { $0.menuKeyEquivalent != item.shortcutKey?.menuKeyEquivalent }
+                if !aliases.isEmpty {
+                    Text(String(format: NSLocalizedString("settings.shortcuts.aliases", value: "Also: %@", comment: "Shortcuts settings - Additional effective key combinations for the same command"),
+                                aliases.map(\.displayString).joined(separator: ", ")))
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                }
             }
             .frame(maxHeight: .infinity, alignment: .center)
             .padding(.vertical, 10)
@@ -250,6 +326,7 @@ struct ShortcutRowView: View {
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
+                .accessibilityIdentifier("shortcuts.restore.\(item.command.rawValue)")
             }
             
             Button(action: { handler(.editTapped) }) {
@@ -279,10 +356,12 @@ struct ShortcutRowView: View {
                     )
             }
             .buttonStyle(.plain)
+            .accessibilityIdentifier("shortcuts.record.\(item.command.rawValue)")
             .scaleEffect(isEditing ? 1.02 : 1.0)
             .animation(.easeInOut(duration: 0.1), value: isEditing)
         }
         .frame(minHeight: 42)
+        .accessibilityElement(children: .contain)
     }
 }
 
@@ -290,37 +369,66 @@ struct ShortcutRowView: View {
 
 struct KeyCaptureView: NSViewRepresentable {
     let onKeyEvent: (NSEvent) -> Void
+    let onCancel: () -> Void
     
     func makeNSView(context: Context) -> KeyCaptureNSView {
         let view = KeyCaptureNSView()
         view.onKeyEvent = onKeyEvent
+        view.onCancel = onCancel
         return view
     }
     
     func updateNSView(_ nsView: KeyCaptureNSView, context: Context) {
         nsView.onKeyEvent = onKeyEvent
+        nsView.onCancel = onCancel
     }
 }
 
-class KeyCaptureNSView: NSView {
+final class KeyCaptureNSView: NSView {
     var onKeyEvent: ((NSEvent) -> Void)?
+    var onCancel: (() -> Void)?
     private var eventMonitor: Any?
+    private var resignObserver: NSObjectProtocol?
+
+    override var acceptsFirstResponder: Bool { true }
     
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         
-        if window != nil {
-            startMonitoring()
-        } else {
-            stopMonitoring()
+        stopMonitoring()
+        guard let window else { return }
+        guard window.isKeyWindow, window.makeFirstResponder(self) else {
+            DispatchQueue.main.async { [weak self] in self?.onCancel?() }
+            return
         }
+        startMonitoring()
+        resignObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didResignKeyNotification, object: window, queue: .main
+        ) { [weak self] _ in
+            self?.stopMonitoring()
+            self?.onCancel?()
+        }
+    }
+
+    override func resignFirstResponder() -> Bool {
+        stopMonitoring()
+        DispatchQueue.main.async { [weak self] in self?.onCancel?() }
+        return super.resignFirstResponder()
+    }
+
+    func process(_ event: NSEvent) -> NSEvent? {
+        guard eventMonitor != nil, event.type == .keyDown, let window, window.isKeyWindow, NSApp.isActive,
+              event.window === window, window.firstResponder === self,
+              let onKeyEvent else { return event }
+        onKeyEvent(event)
+        return nil
     }
     
     private func startMonitoring() {
         stopMonitoring()
         eventMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            self?.onKeyEvent?(event)
-            return nil // Consume the event
+            guard let self else { return event }
+            return self.process(event)
         }
     }
     
@@ -328,6 +436,10 @@ class KeyCaptureNSView: NSView {
         if let monitor = eventMonitor {
             NSEvent.removeMonitor(monitor)
             eventMonitor = nil
+        }
+        if let resignObserver {
+            NotificationCenter.default.removeObserver(resignObserver)
+            self.resignObserver = nil
         }
     }
     
@@ -364,12 +476,19 @@ final class CommandShortcutCaptureNSView: NSView {
             stopMonitoring()
         }
     }
+
+    func process(_ event: NSEvent) -> NSEvent {
+        if event.type == .keyDown, let window, window.isKeyWindow,
+           NSApp.isActive, event.window === window {
+            onKeyEvent?(event)
+        }
+        return event
+    }
     
     private func startMonitoring() {
         stopMonitoring()
         eventMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            self?.onKeyEvent?(event)
-            return event
+            self?.process(event) ?? event
         }
     }
     

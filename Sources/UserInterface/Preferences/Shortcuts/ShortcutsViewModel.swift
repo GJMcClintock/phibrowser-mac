@@ -5,51 +5,139 @@
 
 import Foundation
 import Combine
+import AppKit
 class ShortcutsViewModel: ObservableObject {
+    enum Capture: Equatable {
+        case command(CommandWrapper)
+        case search
+    }
+
+    struct Reassignment: Identifiable {
+        let id = UUID()
+        let command: CommandWrapper
+        let key: ShortcutsKey
+        let owners: Set<ShortcutBinding.Owner>
+        let names: [String]
+        let canReassign: Bool
+        let configuration: [Int: ShortcutOverride]
+        let fileURL: URL?
+    }
+
+    enum PersistenceFailure {
+        case load, save
+
+        var message: String {
+            switch self {
+            case .load:
+                return NSLocalizedString("settings.shortcuts.persistence.loadFailed", value: "Saved shortcuts could not be read. Retry, or restore all shortcuts to keep a recovery copy and use the defaults.", comment: "Shortcuts settings - Configuration could not be loaded; edits are blocked until retry or explicit recovery")
+            case .save:
+                return NSLocalizedString("settings.shortcuts.persistence.saveFailed", value: "The change could not be saved. Your previous shortcuts are still active. Try the change again.", comment: "Shortcuts settings - A failed save leaves the previous shortcuts active")
+            }
+        }
+    }
+
     @Published var sections: [(category: String, subtitle: String?, items: [ShortcutItem])] = []
-    @Published var editingCommand: CommandWrapper?
+    @Published var capture: Capture?
+    @Published var searchedKey: ShortcutsKey?
+    @Published var reassignment: Reassignment?
+    @Published var recordingMessage: String?
+    @Published private(set) var reservedShortcuts: [ReservedShortcutItem] = []
     @Published var hiddenGroups: Set<Shortcuts.Group> = [.help, .bookmarks]
+    @Published private(set) var persistenceFailure: PersistenceFailure?
     private var cancellables = Set<AnyCancellable>()
+    private let additionalBindings: () -> [ShortcutBinding]
+    private(set) var inventory = ShortcutInventory(bindings: [])
+
+    var canEdit: Bool { persistenceFailure != .load }
+
+    var editingCommand: CommandWrapper? {
+        get {
+            if case .command(let command) = capture { return command }
+            return nil
+        }
+        set { capture = newValue.map(Capture.command) }
+    }
     
-    init() {
+    init(additionalBindings: @escaping () -> [ShortcutBinding] = Shortcuts.additionalBindings) {
+        self.additionalBindings = additionalBindings
         SpaceManager.shared.$spaces
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
                 self?.rebuildSections()
             }
             .store(in: &cancellables)
+        NotificationCenter.default.publisher(for: .shortcutsDidChange)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                guard let self else { return }
+                self.capture = nil
+                self.reassignment = nil
+                self.refreshLoadFailure()
+                self.rebuildSections()
+            }
+            .store(in: &cancellables)
+        refreshLoadFailure()
         rebuildSections()
     }
     
     func rebuildSections() {
+        let snapshot = Shortcuts.bindingInventory(additionalBindings: additionalBindings())
+        inventory = ShortcutInventory(bindings: snapshot.bindings.filter { binding in
+            binding.commandID.flatMap(CommandWrapper.init(rawValue:)).map(shouldShow) ?? true
+        })
         var newSections: [(category: String, subtitle: String?, items: [ShortcutItem])] = []
         
         Shortcuts.Group.allCases
             .filter { !hiddenGroups.contains($0) }
             .forEach { group in
-                let items = group.commands.compactMap { command -> ShortcutItem? in
-                    guard shouldShow(command) else { return nil }
-                    let key = Shortcuts.key(for: command)
-                    let conflictingCommands = findConflictingCommands(for: command, currentKey: key)
-                    
-                    return ShortcutItem(
-                        id: command,
-                        command: command,
-                        name: displayName(for: command),
-                        shortcutKey: key,
-                        shortcutDisplay: shortcutDisplay(for: command, key: key),
-                        isOverridden: Shortcuts.isOverridden(command),
-                        conflictingCommandNames: conflictingCommands.map { displayName(for: $0) },
-                        searchKeywords: searchKeywords(for: command)
-                    )
-                }
+                let items = group.commands.filter(shouldShow).map(makeItem)
                 
                 if !items.isEmpty {
                     newSections.append((category: group.title, subtitle: group.subtitle, items: items))
                 }
             }
         
+        // Discover remaining browser commands from the live tables. Keep saved
+        // commands available after disabling them removes their runtime binding.
+        let grouped = Set(Shortcuts.configurableCommands)
+        let discovered = Set(inventory.bindings.compactMap(\.commandID)
+            + Array(Shortcuts.configuration.overrides.keys))
+            .compactMap(CommandWrapper.init(rawValue:))
+            .filter { !grouped.contains($0) && !$0.isSystemShortcut && shouldShow($0)
+                && $0 != .IDC_SHOW_READING_MODE_KEYBOARD }
+            .sorted { $0.rawValue < $1.rawValue }
+        if !discovered.isEmpty {
+            newSections.append((category: NSLocalizedString(
+                "settings.shortcuts.group.otherBrowser", value: "Other Browser Commands",
+                comment: "Shortcuts settings - Additional customizable browser commands"),
+                subtitle: nil, items: discovered.map(makeItem)))
+        }
         sections = newSections
+        let editable = Set(sections.flatMap(\.items).map { ShortcutBinding.Owner.command($0.command.rawValue) })
+        let unlisted = Dictionary(grouping: inventory.bindings.filter {
+            guard !editable.contains($0.owner), case .command(let id) = $0.owner else { return false }
+            return CommandWrapper(rawValue: id)?.isSystemShortcut != true
+        }, by: \.owner)
+        reservedShortcuts = unlisted.keys.sorted { $0.precedes($1) }.map { owner in
+            ReservedShortcutItem(id: owner, name: displayName(for: owner),
+                                 keys: Array(Set(unlisted[owner, default: []].map(\.key)))
+                                    .sorted { $0.displayString < $1.displayString })
+        }
+    }
+
+    private func makeItem(_ command: CommandWrapper) -> ShortcutItem {
+        let bindings = inventory.bindings(for: command.rawValue)
+        // Chromium owns defaults for commands absent from Phi's default table.
+        // An explicit disable must never fall back to a stale runtime snapshot.
+        let key = Shortcuts.key(for: command) ?? (Shortcuts.isOverridden(command) ? nil : bindings.first?.key)
+        return ShortcutItem(
+            id: command, command: command, name: displayName(for: command),
+            shortcutKey: key, shortcutDisplay: shortcutDisplay(for: command, key: key),
+            isOverridden: Shortcuts.isOverridden(command),
+            conflictingCommandNames: findConflictingCommands(for: command).map { displayName(for: $0) },
+            searchKeywords: searchKeywords(for: command),
+            aliases: Array(Set(bindings.map(\.key))).sorted { $0.displayString < $1.displayString }
+        )
     }
 
     private func shortcutDisplay(
@@ -86,29 +174,16 @@ class ShortcutsViewModel: ObservableObject {
         }
     }
     
-    private func findConflictingCommands(for command: CommandWrapper, currentKey: ShortcutsKey?) -> [CommandWrapper] {
-        guard let currentKey = currentKey else { return [] }
-        
-        var conflicts: [CommandWrapper] = []
-        
-        Shortcuts.DefaultShortcuts.keys.forEach { otherCommand in
-            guard otherCommand != command else { return }
-            guard shouldShow(otherCommand) else { return }
-            if (Shortcuts.Group.kiosk.commands.contains(command)
-                && otherCommand.isUnavailableInKiosk)
-                || (command.isUnavailableInKiosk
-                    && Shortcuts.Group.kiosk.commands.contains(otherCommand)) {
-                return
-            }
-            if let otherKey = Shortcuts.key(for: otherCommand),
-               otherKey.menuKeyEquivalent == currentKey.menuKeyEquivalent {
-                conflicts.append(otherCommand)
-            }
-        }
-        return conflicts
+    private func findConflictingCommands(for command: CommandWrapper) -> [ShortcutBinding.Owner] {
+        let owners = Set(inventory.bindings(for: command.rawValue).flatMap { binding in
+            inventory.conflicts(for: command.rawValue, key: binding.key,
+                                in: binding.scope).map(\.owner)
+        })
+        return owners.sorted { $0.precedes($1) }
     }
 
     private func shouldShow(_ command: CommandWrapper) -> Bool {
+        guard !Shortcuts.disabledShortcutCommands.contains(command) else { return false }
         guard let index = command.spaceSelectionIndex else {
             return true
         }
@@ -128,6 +203,82 @@ class ShortcutsViewModel: ObservableObject {
         return command.localizedShortcutTitle
     }
 
+    private func displayName(for owner: ShortcutBinding.Owner) -> String {
+        let command = owner.commandID.flatMap(CommandWrapper.init(rawValue:))
+        if let command, Shortcuts.configurableCommands.contains(command) {
+            return displayName(for: command)
+        }
+        if let title = inventory.bindings.first(where: { $0.owner == owner && $0.title?.isEmpty == false })?.title {
+            return title
+        }
+        if let command { return displayName(for: command) }
+        return NSLocalizedString("settings.shortcuts.reservedOwner", value: "Reserved browser shortcut", comment: "Shortcuts settings - An active browser binding that cannot be customized in this version")
+    }
+
+    func matchesSearch(_ owner: ShortcutBinding.Owner) -> Bool {
+        guard let searchedKey else { return true }
+        return inventory.occupants(of: searchedKey).contains { $0.owner == owner }
+    }
+
+    func handleCaptureEvent(_ event: NSEvent) {
+        guard event.type == .keyDown, let capture else { return }
+        let action = ShortcutsKey.recordingAction(for: event)
+        if capture == .search {
+            if action != .cancel { searchedKey = ShortcutsKey.eventKeys(for: event)?.canonical }
+            self.capture = nil
+            return
+        }
+        guard case .command(let command) = capture else { return }
+        switch action {
+        case .cancel:
+            self.capture = nil
+        case .disable:
+            disableShortcut(for: command)
+        case .key(let key):
+            requestCustomShortcut(for: command, key: key)
+        case .unsupported:
+            recordingMessage = event.keyCode == 53
+                ? NSLocalizedString("settings.shortcuts.recording.escapeModifiers", value: "Escape shortcuts require Command or Control.", comment: "Shortcuts settings - macOS menu matching does not support Escape with only Shift or Option")
+                : NSLocalizedString("settings.shortcuts.recording.unsupported", value: "Use a modifier key. Letters and symbols require Command, Control, or Option.", comment: "Shortcuts settings - Recording rejected an unmodified key or a Shift-only printable key to preserve normal typing")
+        }
+    }
+
+    func requestCustomShortcut(for command: CommandWrapper, key: ShortcutsKey) {
+        capture = nil
+        recordingMessage = nil
+        rebuildSections()
+        let owners = Set(inventory.conflicts(for: command.rawValue, key: key,
+                                            in: command.shortcutScope).map(\.owner))
+        guard !owners.isEmpty else {
+            setCustomShortcut(for: command, key: key)
+            return
+        }
+        let configurable = Set(sections.flatMap(\.items).map { $0.command.rawValue })
+        reassignment = Reassignment(
+            command: command, key: key, owners: owners,
+            names: owners.sorted { $0.precedes($1) }.map { displayName(for: $0) },
+            canReassign: owners.allSatisfy { $0.commandID.map(configurable.contains) ?? false },
+            configuration: Shortcuts.configuration.overrides,
+            fileURL: Shortcuts.configuration.fileURL
+        )
+    }
+
+    func confirmReassignment(_ pending: Reassignment?) {
+        guard let pending, pending.canReassign else { return }
+        reassignment = nil
+        rebuildSections()
+        let currentOwners = Set(inventory.conflicts(for: pending.command.rawValue,
+                                                   key: pending.key, in: pending.command.shortcutScope).map(\.owner))
+        guard currentOwners == pending.owners,
+              Shortcuts.configuration.overrides == pending.configuration,
+              Shortcuts.configuration.fileURL == pending.fileURL else {
+            recordingMessage = NSLocalizedString("settings.shortcuts.reassignment.changed", value: "Shortcuts changed while you were reviewing them. Record the shortcut again to review the current conflicts.", comment: "Shortcuts settings - A stale conflict confirmation was canceled without changing any bindings")
+            return
+        }
+        apply(Shortcuts.setOverride(.custom(pending.key), for: pending.command,
+                                   disabling: pending.owners.compactMap(\.commandID)))
+    }
+
     private func searchKeywords(for command: CommandWrapper) -> [String] {
         var keywords = command.searchKeywords
         keywords.append(displayName(for: command))
@@ -142,24 +293,47 @@ class ShortcutsViewModel: ObservableObject {
     }
     
     func setCustomShortcut(for command: CommandWrapper, key: ShortcutsKey) {
-        Shortcuts.override(key, for: command)
-        rebuildSections()
+        apply(Shortcuts.setOverride(.custom(key), for: command))
     }
     
     /// Disables the shortcut by storing an explicit empty override.
     func disableShortcut(for command: CommandWrapper) {
-        Shortcuts.override(nil, for: command, remove: false)
-        rebuildSections()
+        apply(Shortcuts.setOverride(.disabled, for: command))
     }
     
     /// Restores the default shortcut for the command.
     func restoreDefaultShortcut(for command: CommandWrapper) {
-        Shortcuts.override(nil, for: command, remove: true)
-        rebuildSections()
+        apply(Shortcuts.setOverride(nil, for: command))
     }
     
     func restoreAllShortcuts() {
-        Shortcuts.restoreOverrides()
+        apply(Shortcuts.restoreOverrides())
+    }
+
+    func retryLoadingShortcuts() {
+        apply(Shortcuts.reloadOverrides())
+    }
+
+    func dismissSaveFailure() {
+        if persistenceFailure == .save { persistenceFailure = nil }
+    }
+
+    private func refreshLoadFailure() {
+        if Shortcuts.configuration.loadError != nil {
+            persistenceFailure = .load
+        } else if persistenceFailure == .load {
+            persistenceFailure = nil
+        }
+    }
+
+    private func apply(_ result: Result<Void, Error>) {
+        switch result {
+        case .success:
+            persistenceFailure = nil
+        case .failure:
+            persistenceFailure = Shortcuts.configuration.loadError == nil ? .save : .load
+        }
+        editingCommand = nil
         rebuildSections()
     }
 }
@@ -169,6 +343,40 @@ private extension CommandWrapper {
         switch self {
         case .IDC_OPTIONS:
             return NSLocalizedString("settings.shortcuts.command.openSettings", value: "Settings", comment: "Shortcuts settings - Command title for opening Phi settings")
+        case .IDC_EXIT:
+            return NSLocalizedString("settings.shortcuts.command.quitApp", value: "Quit Phi", comment: "Shortcuts settings - Command title for quitting Phi")
+        case .IDC_MOVE_TAB_NEXT:
+            return NSLocalizedString("settings.shortcuts.command.moveTabRight", value: "Move Tab Right", comment: "Shortcuts settings - Title of a browser shortcut")
+        case .IDC_MOVE_TAB_PREVIOUS:
+            return NSLocalizedString("settings.shortcuts.command.moveTabLeft", value: "Move Tab Left", comment: "Shortcuts settings - Title of a browser shortcut")
+        case .IDC_SHOW_AVATAR_MENU:
+            return NSLocalizedString("settings.shortcuts.command.showProfiles", value: "Show Profiles Menu", comment: "Shortcuts settings - Title of a browser shortcut")
+        case .IDC_FOCUS_NEXT_PANE:
+            return NSLocalizedString("settings.shortcuts.command.focusNextPane", value: "Focus Next Pane", comment: "Shortcuts settings - Title of a browser shortcut")
+        case .IDC_FOCUS_PREVIOUS_PANE:
+            return NSLocalizedString("settings.shortcuts.command.focusPreviousPane", value: "Focus Previous Pane", comment: "Shortcuts settings - Title of a browser shortcut")
+        case .IDC_FOCUS_INACTIVE_POPUP_FOR_ACCESSIBILITY:
+            return NSLocalizedString("settings.shortcuts.command.focusPopup", value: "Focus Open Popup", comment: "Shortcuts settings - Title of a browser shortcut")
+        case .IDC_SHOW_READING_MODE_KEYBOARD:
+            return NSLocalizedString("settings.shortcuts.command.showReadingMode", value: "Show Reading Mode", comment: "Shortcuts settings - Title of a browser shortcut")
+        case .IDC_ADD_NEW_TAB_TO_GROUP:
+            return NSLocalizedString("settings.shortcuts.command.addTabToGroup", value: "Add New Tab to Group", comment: "Shortcuts settings - Title of a browser shortcut")
+        case .IDC_CREATE_NEW_TAB_GROUP:
+            return NSLocalizedString("settings.shortcuts.command.createTabGroup", value: "Create New Tab Group", comment: "Shortcuts settings - Title of a browser shortcut")
+        case .IDC_CLOSE_TAB_GROUP:
+            return NSLocalizedString("settings.shortcuts.command.closeTabGroup", value: "Close Tab Group", comment: "Shortcuts settings - Title of a browser shortcut")
+        case .IDC_FOCUS_NEXT_TAB_GROUP:
+            return NSLocalizedString("settings.shortcuts.command.focusNextTabGroup", value: "Focus Next Tab Group", comment: "Shortcuts settings - Title of a browser shortcut")
+        case .IDC_FOCUS_PREV_TAB_GROUP:
+            return NSLocalizedString("settings.shortcuts.command.focusPreviousTabGroup", value: "Focus Previous Tab Group", comment: "Shortcuts settings - Title of a browser shortcut")
+        case .IDC_DEBUG_TOGGLE_TABLET_MODE:
+            return NSLocalizedString("settings.shortcuts.command.toggleTabletMode", value: "Toggle Tablet Mode", comment: "Shortcuts settings - Title of a browser shortcut")
+        case .IDC_DEBUG_PRINT_VIEW_TREE:
+            return NSLocalizedString("settings.shortcuts.command.printViewTree", value: "Print View Tree", comment: "Shortcuts settings - Title of a browser shortcut")
+        case .IDC_DEBUG_PRINT_VIEW_TREE_DETAILS:
+            return NSLocalizedString("settings.shortcuts.command.printViewTreeDetails", value: "Print View Tree Details", comment: "Shortcuts settings - Title of a browser shortcut")
+        case .IDC_OPEN_FILE:
+            return NSLocalizedString("settings.shortcuts.command.openFile", value: "Open File…", comment: "Shortcuts settings - Command title for opening a local file")
         case .IDC_NEW_TAB:
             return NSLocalizedString("settings.shortcuts.command.newTab", value: "New Tab", comment: "Shortcuts settings - Command title for opening a new tab")
         case .IDC_NEW_WINDOW:
@@ -213,6 +421,8 @@ private extension CommandWrapper {
             return NSLocalizedString("settings.shortcuts.command.stopLoading", value: "Stop", comment: "Shortcuts settings - Command title for stopping the current page from loading")
         case .IDC_RELOAD:
             return NSLocalizedString("settings.shortcuts.command.reloadPage", value: "Reload Page", comment: "Shortcuts settings - Command title for reloading the current page")
+        case .IDC_RELOAD_BYPASSING_CACHE:
+            return NSLocalizedString("settings.shortcuts.command.forceReload", value: "Force Reload Page", comment: "Shortcuts settings - Reload the page without using cached content")
         case .IDC_ZOOM_NORMAL:
             return NSLocalizedString("settings.shortcuts.command.resetZoom", value: "Zoom Normal", comment: "Shortcuts settings - Command title for restoring the default page zoom level")
         case .IDC_ZOOM_PLUS:
@@ -307,8 +517,15 @@ struct ShortcutItem: Identifiable {
     let isOverridden: Bool
     let conflictingCommandNames: [String]
     let searchKeywords: [String]
+    var aliases: [ShortcutsKey] = []
     
     var hasConflict: Bool {
         !conflictingCommandNames.isEmpty
     }
+}
+
+struct ReservedShortcutItem: Identifiable {
+    let id: ShortcutBinding.Owner
+    let name: String
+    let keys: [ShortcutsKey]
 }

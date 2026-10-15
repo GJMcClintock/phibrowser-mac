@@ -64,6 +64,8 @@
 		375C663B2EFB925F00885D78 /* IvyEpic-Regular.otf in Copy Fonts */ = {isa = PBXBuildFile; fileRef = 375C66362EFB923C00885D78 /* IvyEpic-Regular.otf */; };
 		375F11D0305ABE47005EF5E8 /* AllDownloadsListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 375F11CF305ABE47005EF5E8 /* AllDownloadsListView.swift */; };
 		37604F632F14C52300B9FB37 /* DefaultColors.swift in Sources */ = {isa = PBXBuildFile; fileRef = 37604F622F14C52300B9FB37 /* DefaultColors.swift */; };
+		376088DC307F95A8007FCE33 /* ShortcutConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 376088DB307F95A8007FCE33 /* ShortcutConfiguration.swift */; };
+		37608B0E307F9B6A007FCE33 /* ShortcutInventory.swift in Sources */ = {isa = PBXBuildFile; fileRef = 37608B0D307F9B6A007FCE33 /* ShortcutInventory.swift */; };
 		376193532F4EB8630094A78E /* SystemUtils.swift in Sources */ = {isa = PBXBuildFile; fileRef = 376193522F4EB8630094A78E /* SystemUtils.swift */; };
 		376195412F5149C40094A78E /* HeaderExtensionsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 376195402F5149C40094A78E /* HeaderExtensionsView.swift */; };
 		376195432F5149C90094A78E /* HeaderTrailingArea.swift in Sources */ = {isa = PBXBuildFile; fileRef = 376195422F5149C90094A78E /* HeaderTrailingArea.swift */; };
@@ -885,6 +887,8 @@
 		375C66362EFB923C00885D78 /* IvyEpic-Regular.otf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "IvyEpic-Regular.otf"; sourceTree = "<group>"; };
 		375F11CF305ABE47005EF5E8 /* AllDownloadsListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AllDownloadsListView.swift; sourceTree = "<group>"; };
 		37604F622F14C52300B9FB37 /* DefaultColors.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DefaultColors.swift; sourceTree = "<group>"; };
+		376088DB307F95A8007FCE33 /* ShortcutConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortcutConfiguration.swift; sourceTree = "<group>"; };
+		37608B0D307F9B6A007FCE33 /* ShortcutInventory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortcutInventory.swift; sourceTree = "<group>"; };
 		376193522F4EB8630094A78E /* SystemUtils.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemUtils.swift; sourceTree = "<group>"; };
 		376195402F5149C40094A78E /* HeaderExtensionsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeaderExtensionsView.swift; sourceTree = "<group>"; };
 		376195422F5149C90094A78E /* HeaderTrailingArea.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeaderTrailingArea.swift; sourceTree = "<group>"; };
@@ -1831,6 +1835,8 @@
 				37C1B0E12ED80CFB00DD4496 /* ShortcutsSettingViewController.swift */,
 				37C1B0E62ED851CE00DD4496 /* ShortcutsViewModel.swift */,
 				37C1B1142ED98B6000DD4496 /* README.md */,
+				37608B0D307F9B6A007FCE33 /* ShortcutInventory.swift */,
+				376088DB307F95A8007FCE33 /* ShortcutConfiguration.swift */,
 			);
 			path = Shortcuts;
 			sourceTree = "<group>";
@@ -3790,6 +3796,8 @@
 				8EEBD8A72FAC9425008CBD9A /* SidebarGroupDropResolver.swift in Sources */,
 				375B2D8C2ED408270053FECC /* AccountUserDefaults.swift in Sources */,
 				37C1B0D82ED6DCBD00DD4496 /* Shortcuts.swift in Sources */,
+				37608B0E307F9B6A007FCE33 /* ShortcutInventory.swift in Sources */,
+				376088DC307F95A8007FCE33 /* ShortcutConfiguration.swift in Sources */,
 				B0F370DA2E433F0E000B51F9 /* OverlayWindowController.swift in Sources */,
 				A7E1C0020000000000000002 /* PageOverlayView.swift in Sources */,
 				CCBF8FA22E698A7400B9A99E /* SpaceSessionControllersManager.swift in Sources */,

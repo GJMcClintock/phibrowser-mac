@@ -21,9 +21,19 @@
   a secondary native lookup candidate for previously stored non-Latin overrides.
 - `ShortcutsKey.menuKeyEquivalent` projects the stored identity into the form
   AppKit and Chromium menu matching expect.
-- `Shortcuts+Custom.swift` owns effective-key lookup, overrides, persistence,
-  change notification, and menu rebuild requests. It does not normalize events.
-- `ShortcutsViewModel` owns settings presentation and conflict reporting.
+- `EventKeys.matches` and `matchingRank` share execution matching between the
+  central dispatcher and Peek/Reader. Canonical candidates precede legacy
+  candidates; exact stored bindings precede menu-equivalent bindings. Equal
+  ranks in the dispatcher resolve by command ID, independent of dictionary order.
+- `Shortcuts` owns one `ShortcutConfiguration` value. The configuration loads,
+  validates, and atomically saves explicit overrides; it has no UI or Chromium
+  dependencies. `Shortcuts+Custom.swift` provides effective-key lookup, change
+  notification, and menu rebuild requests. It does not normalize events.
+- `ShortcutInventory` is a derived snapshot of effective bindings, with command
+  or native-selector ownership, source, and window scope. It is not a second
+  configuration store. Conflict detection and captured-key search use it.
+- `ShortcutsViewModel` owns settings presentation, recording state, persistence
+  errors, and a pending reassignment confirmation.
 - `CommandDispatcher` owns pre-Chromium interception for Kiosk-only commands
   and the commands listed in `phiInterceptedCommands`. Other commands continue
   through Chromium.
@@ -42,26 +52,29 @@ lookup boundary.
 Recording and native dispatch resolve an event in this order:
 
 1. Build the semantic key from `charactersIgnoringModifiers`. Physical Tab is
-   normalized to `"\t"`, Delete to Backspace, and supported modifiers are limited
-   to Command, Option, Shift, and Control.
-2. If `charactersIgnoringModifiers` is empty or non-ASCII and `characters`
+   normalized to `"\t"` and Delete to Backspace. Retain Command, Option, Shift,
+   Control, and a held Function modifier. Discard the automatic Function bit
+   attached to navigation/function-key characters (`U+F700` through `U+F747`).
+2. For Command alone on the number row, use the physical digit except on
+   Dvorak Left/Right. The raw device-independent modifier mask must be exactly
+   Command, matching Chromium's exclusions for Caps Lock, keypad and Fn flags.
+3. For Chromium's Command-QWERTY input sources, use the Carbon `kVK_ANSI_*`
+   physical identity for every modifier combination, including Control/Option
+   without Command. This covers the 26 letters, 10 digits and 11 punctuation
+   keys on the main ANSI keyboard, including their Shift-produced characters.
+4. Otherwise, if `charactersIgnoringModifiers` is empty or non-ASCII and `characters`
    contains one printable ASCII character, use that AppKit menu equivalent as
-   the canonical character.
-3. Handle the same observed AppKit exceptions as Chromium for Apple Hebrew
-   Cmd-Q and Arabic PC/AZERTY Shift-Cmd-V. Both event strings are ASCII in these
-   cases, so the input-source identifier is required to disambiguate them from
-   intentional ASCII layout mappings.
-4. For the same Command-QWERTY input sources recognized by Chromium, use the
-   Carbon `kVK_ANSI_*` physical identity while Command is held. This covers the
-   26 letters, 10 digits, and 11 punctuation keys on the main ANSI keyboard,
-   including their Shift-produced characters.
+   the canonical character. This fallback also handles Chromium's observed
+   Apple Hebrew Cmd-Q and Arabic PC/AZERTY Shift-Cmd-V exceptions; their two
+   ASCII event strings require the input-source identifier to disambiguate them.
 5. If no verified Latin identity is available, retain the semantic key.
 
 Ordinary ASCII-to-ASCII differences do not trigger a physical fallback. This
 preserves semantic layouts such as Dvorak instead of treating every differing
-character as a QWERTY key. Chromium's explicit Command-QWERTY layouts are the
-exception and use the same main-keyboard printable mapping in both Phi and
-Chromium. Other punctuation remains layout-defined.
+character as a QWERTY key. The explicit Command-QWERTY and Command-only number-row
+rules above are the exceptions. Other punctuation remains layout-defined.
+Existing semantic overrides remain native legacy candidates; their JSON has no
+original layout/key-code metadata, so no speculative persistence migration runs.
 
 The Hebrew and Arabic handling recognizes known Apple input-source families and
 observed event shapes. It is not a guarantee for every third-party input method,
@@ -78,7 +91,8 @@ AppKit menu identity:     P + Command
 ```
 
 `menuKeyEquivalent` performs this projection by uppercasing a printable
-character and removing Shift from the modifier mask. Control characters and
+character and removing Shift from the modifier mask, except when a held Fn
+requires Shift to remain in Chromium's mask. Control characters and
 function keys retain Shift; for example, Shift-Tab remains `"\t" + Shift`.
 
 Shifted punctuation must store the character AppKit actually reports. For
@@ -88,6 +102,14 @@ The settings view presents those two defaults as the familiar physical-key label
 `Cmd-Shift-[` and `Cmd-Shift-]`; that presentation exception does not change the
 stored or executable identity.
 
+Fn plus an ordinary character is distinct from that character without Fn.
+Native matching retains that distinction, preventing a different chord from
+firing. New recordings reject held-Fn combinations because AppKit only accepts
+Fn on system-provided menu items. Navigation/function keys remain supported;
+their automatic Fn event flag is not a held modifier. Carbon's global-hotkey
+adapter also rejects held-Fn combinations instead of registering a different
+chord with Fn silently removed.
+
 The Chromium bridge, native menu writers, conflict detection, and native
 equivalent matching must all use this projected identity. Display and JSON
 persistence continue to use the stored identity.
@@ -96,11 +118,21 @@ persistence continue to use the stored identity.
 
 ### Recording
 
-1. `CommandShortcutCaptureView` captures an `NSEvent`.
-2. `ShortcutsSettingsView` calls `ShortcutsKey.recordingKey(for:)`.
-3. `ShortcutsViewModel` passes the canonical key to `Shortcuts.override`.
-4. `Shortcuts+Custom` saves the override, rebuilds the native intercepted-command
-   map, posts `shortcutsDidChange`, and requests a Chromium main-menu rebuild.
+1. `KeyCaptureView` captures events only while it is the first responder of its
+   owning key window. Leaving that context cancels recording. The separate
+   `CommandShortcutCaptureView` only handles settings search shortcuts.
+2. `ShortcutsViewModel` interprets `ShortcutsKey.recordingAction(for:)`. Plain
+   Escape cancels and plain Backspace disables. Modified keys are bindings;
+   Escape requires Command or Control. Shift-only printable keys are rejected.
+3. Captured-key search reads the inventory without saving or executing a command.
+   Editing checks every applicable owner and requests confirmation for conflicts.
+   Read-only owners cannot be reassigned here.
+4. Confirmation passes the displayed snapshot and rechecks its owners, account
+   URL, and configuration. `Shortcuts.setOverride(_:for:disabling:)` saves the
+   target and disabled conflicting commands in one atomic transaction.
+5. After a successful changed configuration, `Shortcuts` refreshes the native
+   intercepted-command map and Chromium menu. `shortcutsDidChange` also notifies
+   open settings of loading or saving failures without publishing failed writes.
 
 Unmodified keys are not recorded. A non-Latin event is stored and displayed with
 a canonical Latin character only when AppKit supplies a verified ASCII equivalent
@@ -125,11 +157,72 @@ of the execution paths cannot reproduce.
   `AppController+Menu`, `Shortcuts.updateShortcut`, and tab context menus apply
   `menuKeyEquivalent` directly.
 
+An intercepted Phi binding owns its event once it applies to the receiving
+window and feature context. A transiently unavailable action (for example,
+Copy URL with no copyable selection) still consumes that event, preventing a
+different hidden Chromium command from running. Unsupported window contexts,
+disabled features, and absent indexed Space targets do not claim the event.
+Action dispatch keeps its separate success result for non-keyboard callers.
+Kiosk uses the common Copy URL, Share, Reader, and Save for Later handlers that
+its native menus and toolbar already expose; browser-only actions remain scoped.
+
+### Tab Switcher Gestures
+
+The initiating effective binding supplies a gesture's Command/Control/Option
+hold keys. The manager freezes them until the gesture ends; the other direction's
+binding and later configuration changes do not replace them. Shift changes the
+binding or direction but never prolongs the gesture. Releasing any initiating
+hold key commits the selection. Menu invocations and bindings without hold keys
+perform one immediate step.
+
+The delayed reveal rechecks the same hold keys and commits if their release was
+missed before monitoring began. Explicit events from another window are ignored;
+window or application deactivation cancels without activating a candidate.
+Chromium's separate Ctrl-Tab cycling commands remain suppressed, including after
+reassignment or disablement, as described below.
+
+### Product-Disabled Shortcut Commands
+
+`Shortcuts.disabledShortcutCommands` in `Shortcuts+Custom.swift` is the single
+configuration point for commands whose keyboard bindings Phi does not support.
+Add a `CommandWrapper` entry there to suppress its default and every saved custom
+binding, omit it from settings and conflicts, and export an explicit disabled
+override to Chromium's main-menu and hidden accelerator tables. The existing
+Chromium Ctrl-Tab suppression uses the same policy.
+
+The policy disables bindings by command ID, not by key combination. Released
+keys can be assigned to other supported commands. Saved overrides are retained
+but ignored for disabled commands; restoring defaults cannot bypass the policy.
+Non-keyboard command entry points and menu item visibility are unchanged.
+
 ### Display and Conflicts
 
-- Settings display is rendered from the effective stored `ShortcutsKey`.
+- Settings display uses the effective stored `ShortcutsKey`, or the live browser
+  binding for a default owned exclusively by Chromium.
 - Conflict detection compares `menuKeyEquivalent`, because representationally
   different keys can execute as the same AppKit shortcut.
+- The inventory includes configurable commands without defaults, overrides,
+  actual menu items, and the Framework's `shortcutBindings` snapshot. Chromium
+  reads its actual hidden and delayed tables; Phi does not duplicate those keys.
+  Each command's effective aliases participate in both directions of a conflict.
+- Conflict scopes distinguish browser, Kiosk and non-browser windows. Close Tab
+  applies only in browser/Kiosk contexts. When Chromium's stable Close Tab row
+  temporarily executes the default Close Window action in a non-browser window,
+  the inventory retains Close Window as its actual owner with a non-browser-only
+  scope. It stays discoverable and conflicts with app-wide bindings, without
+  falsely conflicting with the browser's default Close Tab. Explicit overlapping
+  custom close bindings still conflict in both directions.
+- Standard macOS editing/window services and native selectors remain in the
+  conflict inventory but are omitted from settings. They cannot be reassigned.
+- Force Reload and Move Tab Left/Right are editable in their normal groups.
+  Other recognized browser commands are discovered from the runtime inventory
+  and saved overrides, including disabled overrides. Their default labels come
+  from the runtime bindings when Phi has no default; no Chromium key table is
+  duplicated. Unknown command IDs remain named read-only owners.
+  Reassignment disables all bindings of each conflicting command, not just the
+  alias that happened to match. The confirmation explains that scope.
+- Uppercase menu equivalents display Shift explicitly; navigation and function
+  keys have readable labels. Presentation does not change execution identity.
 - Select Previous/Next Tab use command-specific labels for their shifted bracket
   defaults while conflict detection continues to use `{` and `}`.
 
@@ -150,6 +243,14 @@ Peek also uses `PHI_KIOSK_OPEN_IN_SPACE` for "Open as Tab" while its content
 has focus in the active browser window and is not eclipsed by the omnibox.
 The binding is read from the same configuration, including overrides and
 disabling, and invokes the existing Peek expansion action.
+
+Peek and Reader consume the effective `IDC_CLOSE_TAB` binding only while their
+visible content (including docked DevTools) owns focus in the key window. This
+closes the overlay and protects its origin tab. Extra modifiers, disabled keys,
+and the separate Close Window command retain their normal routing. Plain Escape
+also closes the overlay, except while DevTools owns focus; modified Escape is
+handled only when explicitly bound. Their navigation, Reader toggle, address-bar,
+and Peek expansion checks use the same menu-equivalent matching as dispatch.
 
 For example, changing or disabling `IDC_OPEN_FILE` does not change Kiosk's
 Cmd-O binding. The destination Space uses the existing toolbar target resolver,
@@ -198,6 +299,28 @@ Kiosk-only group. When its global-shortcut preference is enabled,
 system-wide hotkey can take precedence before window interception, so assigning
 the same key to a Kiosk-only command still constitutes a conflict.
 
+The registrar resolves printable keys through the current OS keyboard layout
+and the shared `ShortcutsKey.eventKeys` matcher. It registers all physical aliases
+of the best canonical identity, including shifted punctuation and numeric-keypad
+aliases. Legacy layout candidates are used only when no canonical candidate
+exists. Navigation/control keys use fixed hardware codes. A missing layout does
+not silently substitute ANSI for a printable binding. Input-source changes and
+`shortcutsDidChange` refresh the registration through the same path.
+
+Registration requests exclusive ownership so another application's existing
+hotkey is reported as a conflict, rather than accepting a registration whose
+events may be suppressed. Registration is all-or-nothing across those aliases. If any registration fails,
+the registrar removes successful aliases and reports failure. Failed cleanup
+retains its handles for retry and prevents action dispatch. Rebinding allocates
+new hotkey IDs, so queued events from an old registration cannot open a window.
+Disabling, rebinding, and invalidation also cancel pending activation actions.
+
+The global-shortcut preference expresses intent; `KioskGlobalShortcutRegistrar`
+owns the runtime status. Navigation settings distinguishes registered,
+unassigned, unsupported, and failed states instead of treating the enabled
+preference as proof of registration. A shortcut or input-source change retries
+registration; toggling the preference off and on provides an explicit retry.
+
 ## Chromium Shortcut and Command Dispatch Overview
 
 - Chromium's original menu and shortcut definitions live in:
@@ -213,14 +336,26 @@ the same key to a Kiosk-only command still constitutes a conflict.
     accelerator, executes non-overridable commands, or dispatches to the host.
   - `CommandForKeyEvent()` checks the main menu and then Chromium's synthetic
     hidden shortcuts.
+  - A native-selector match has `from_main_menu=true` and `NO_COMMAND`. It must
+    reach AppKit's original target/action, not become an IDC command merely
+    because its tag is positive. This owner suppresses hidden and delayed
+    fallback in post handling and renderer redispatch.
+  - Phi's ownership lookup includes disabled menu matches. They return no
+    executable command ID and reach AppKit validation. Ordinary enabled-only
+    menu lookup and the high/normal extension priority gates remain separate.
   - `postPerformKeyEquivalent` performs additional redispatch work.
-- Cmd-W / Shift-Cmd-W switch behavior:
+- Close-command roles across window contexts:
   - `PhiAppController::updateMenuItemKeyEquivalents` adjusts Close Tab / Close
     Window title, tag, and action before matching.
-  - While no tabbed browser window is key it parks the Shift-Cmd-W row hidden
-    with tag 0 and no action. The native main-menu hook re-runs on the live
-    menu, so it must never delete hidden rows: without a Shift-Cmd-W row the
-    swap stops and Cmd-W stays on Close Window for the rest of the session.
+  - Menu construction assigns stable `phi.closeTab` / `phi.closeWindow`
+    identifiers. Lookup never infers command identity from a configured key
+    or a tag that has temporarily changed with the window context.
+  - With both default close keys, a non-tabbed window still uses Cmd-W to
+    close itself. With a custom or disabled close binding, Close Tab is hidden
+    and Close Window retains its own configured key. Returning to a tabbed
+    browser restores both original command roles without changing either key.
+  - Hidden close rows have tag 0 and no action. The native main-menu hook must
+    retain them so their original roles can be restored on a window change.
 
 ## Phi Integration Points
 
@@ -234,6 +369,10 @@ the same key to a Kiosk-only command still constitutes a conflict.
     hidden shortcut items share `PhiApplyKeyEquivalentOverride`, which asks
     `keyEquivalentOverrideForCommand:` for each command override.
   - No override returns `nil` and preserves Chromium's default.
+    The separate `IDC_CYCLE_TO_NEXT_TAB/PREV_TAB` pair is an explicit exception:
+    Phi always clears it because its Tab Switcher owns Ctrl-Tab navigation.
+    Rebinding or disabling the switcher must not revive another cycling engine.
+    The independent `IDC_SELECT_*` commands retain their own configuration.
   - An explicit disable returns an empty key equivalent and zero modifiers.
   - An assigned override returns `ShortcutsKey.menuKeyEquivalent`, never the raw
     stored character/modifier pair.
@@ -244,8 +383,16 @@ the same key to a Kiosk-only command still constitutes a conflict.
   - The same rebuild refreshes cached hidden key equivalents from their defaults
     before applying current overrides, so rebinding, disabling, and restoring a
     shortcut take effect without restarting the browser.
-  - `PhiAppController::mainMenuRebuilt` restores the File menu delegate, rebuilds
-    History/Bookmark/Tab MenuBridge content, and updates dynamic key equivalents.
+  - `PhiAppController::mainMenuRebuilt` restores the File menu delegate and
+    updates the close-menu roles. Before replacement, `mainMenuWillRebuild`
+    clears History's old item map and detaches History/Tab delegates and
+    observers while their old menus are still installed.
+  - After replacement, the existing History/Tab bridge types are recreated
+    for the loaded profile/browser when browser access is allowed. Tab
+    restoration prefers the controller's current browser, including a hosted
+    presentation, over a separate collection's last-active window.
+  - Bookmarks remain owned by the native main-menu observer, which reattaches
+    its delegate and rebuilds its contents when the main menu changes.
 - Native-menu synchronization:
   - `Shortcuts.updateShortcut(for:)` projects both an effective override and the
     corresponding Phi default. Menu items outside `DefaultShortcuts` are left
@@ -271,6 +418,18 @@ the same key to a Kiosk-only command still constitutes a conflict.
 - Entry with a null key: explicitly disabled.
 - Entry with a key: custom override.
 
+In memory these are absence, `ShortcutOverride.disabled`, and `.custom(key)`.
+The store writes a candidate before replacing its in-memory value; a failed
+write leaves the previous runtime bindings and file intact. Unknown command IDs
+survive unrelated edits. Legacy records with an omitted key also mean disabled.
+
+Missing files use defaults. Read errors, malformed JSON, and duplicate command
+records block edits instead of silently becoming an empty configuration.
+Same-account loading failures retain the last valid in-memory state; switching
+accounts first clears the previous account's overrides. Explicit recovery copies
+the original file to a unique recovery path before saving defaults. Failed
+backup or reset writes preserve the original contents.
+
 The file is decoded exactly as stored. Phi does not migrate a legacy character
 during load because persisted data contains neither the original physical key
 code nor the input-source identity needed for a reliable conversion.
@@ -289,6 +448,8 @@ normal conflict comparison without guessing at old data.
 - Native identity, recording, persistence, and conflict reporting:
   - `Sources/UserInterface/Preferences/Shortcuts/Shortcuts.swift`
   - `Sources/UserInterface/Preferences/Shortcuts/Shortcuts+Custom.swift`
+  - `Sources/UserInterface/Preferences/Shortcuts/ShortcutConfiguration.swift`
+  - `Sources/UserInterface/Preferences/Shortcuts/ShortcutInventory.swift`
   - `Sources/UserInterface/Preferences/Shortcuts/ShortcutsSettingsView.swift`
   - `Sources/UserInterface/Preferences/Shortcuts/ShortcutsViewModel.swift`
   - `Sources/CommandDispatcher/CommandDispatcher.swift`
@@ -308,6 +469,14 @@ normal conflict comparison without guessing at old data.
   - `docs/mac/about_hotkeys_and_keycodes.md` in the Chromium source tree.
 - Representative tests:
   - `Tests/PhiBrowserTests/PhiBrowserTests.swift`
+  - `Tests/PhiBrowserTests/ShortcutConfigurationTests.swift`
+  - `Tests/PhiBrowserTests/ShortcutInventoryTests.swift`
+  - `Tests/PhiBrowserTests/ShortcutInventoryIntegrationTests.swift`
+  - `Tests/PhiBrowserTests/ShortcutSettingsPersistenceTests.swift`
+  - `Tests/PhiBrowserTests/ShortcutNativeMenuIntegrationTests.swift`
+  - `Tests/PhiBrowserUITests/ShortcutSettingsUITests.swift`
+  - `Tests/PhiBrowserUITests/ShortcutMenuOwnershipUITests.swift`
+  - `Tests/PhiBrowserUITests/ShortcutUITestEnvironment.swift`
 
 ## Phi Extension-Bridged Commands
 
@@ -323,32 +492,87 @@ lives in the extension, so the native selector broadcasts a message.
   `tabId`. Each tab owns a Sidecar WebContents, so this targets exactly the
   focused tab.
 - `validateUserInterfaceItem(_:)` enables it only while focus is in an enabled
-  AI sidebar. When disabled, normal key-equivalent processing can continue.
+  AI sidebar. Its menu binding remains owned when unavailable; AppKit validation
+  prevents execution without substituting an unrelated hidden command.
 - The extension listens on `chrome.phinomenonPrivate.onAppMessage`. See the
   ai-extension repository's `docs/sidecar-new-conversation-shortcut.md`.
 
+## Product Defaults and User Overrides
+
+Phi-specific defaults replace selected Chromium bindings before user overrides
+are applied. The Phi Framework omits these entries from its default tables:
+
+| Phi action | Product key | Replaced Chromium default |
+| --- | --- | --- |
+| New Kiosk Window | Command-Option-N | Add Tab to New Split View |
+| Copy URL | Command-Shift-C | Inspect alias; Command-Option-C remains |
+| Next / Previous Space | Command-Option-Right / Left | Next / Previous Tab aliases; Control-PageDown / PageUp and Command-Shift-Bracket remain |
+| Reader View | Command-Option-R | Chromium Reading Mode keyboard binding |
+| Toggle Sidebar | Command-S | Save Page |
+
+The commands and their other bindings remain available. This is a product
+baseline, not a user disable stored in `CustomShortcuts.json`, and it does not
+change when the corresponding Phi action is rebound or disabled. Restoring
+defaults therefore never revives an inherited Chromium action on these keys.
+Kiosk/Peek-only keys such as Command-O keep their separate contextual behavior.
+
+The existing override bridge still applies explicit user bindings to retained
+menu and hidden entries. User-created collisions continue through normal
+conflict detection and reassignment. Do not suppress every Phi-versus-Chromium
+conflict or filter these entries only in the settings UI: matching, exported
+inventory, menu labels and conflict detection must use the same effective keys.
+A matching Framework build is required; an older Framework still exports its
+older defaults and settings truthfully reports those collisions.
+
 ## Verification Boundaries
 
-Shortcut unit tests use synthetic `NSEvent` values to cover representative
-Cyrillic, Hebrew, Arabic, ASCII-layout, Command-QWERTY printable,
-Shift-printable, and Tab cases. Tests pass explicit input-source identifiers so
-their results do not depend on the developer's active keyboard layout. They
-verify the normalization and identity rules, but do not replace live testing of
-every macOS input source,
-real `NSMenuItem` tracking, Chromium hidden accelerators, settings UI rendering,
-or legacy JSON compatibility.
+Model tests use synthetic `NSEvent` values to cover representative Cyrillic,
+Hebrew, Arabic, ASCII-layout, Command-QWERTY, shifted-printable, and Tab cases.
+Paired integration tests also select real OS input sources, restore the previous
+source, and compare fixture events with the loaded Framework's menu matcher.
+This establishes matcher agreement for those fixtures, not physical typing or
+IME composition behavior for every input source.
 
-Kiosk shortcut tests cover independent bindings, rebinding, disabling,
-restoration, and conflict reporting across window contexts. They exercise
-matching helpers and settings data, not real window dispatch, Space menu
-tracking, or Carbon hotkey precedence; those require runtime verification.
+Native integration tests exercise the companion dispatcher, close-menu roles,
+menu bridge replacement, overlay handlers, and window-scoped Phi actions.
+Settings and ownership UI tests isolate file storage with `--user-data-dir`,
+but still share Canary's UserDefaults and Keychain, including the app-group
+access-token store. Guest startup clears those credential stores. Run these
+suites only in a dedicated signed-out test session; never use a personal
+signed-in Canary session. They require the explicit
+`TEST_RUNNER_PHI_SHORTCUT_GUEST_TESTS=1` environment variable when invoking
+`xcodebuild` and otherwise skip before creating or launching the application.
+This opt-in acknowledges the environment requirement; it does not add account
+isolation. Their input-source preflight requires a directly selected keyboard
+layout, such as ABC or U.S., before XCTest synthesizes keys. It reads the active source without changing
+system settings. An input method causes an explicit skip, which is not a
+shortcut pass; this avoids the test host's input-method restoration interrupting
+keyboard tests with System Settings. IME composition needs separate acceptance.
+
+Reader UI cases additionally require the installed Reader extension and a
+loopback HTTP server rooted at `Tests/Shortcuts/fixtures`. Pass
+`TEST_RUNNER_PHI_SHORTCUT_READER_FIXTURE_URL=http://127.0.0.1:8767/reader-article.html`
+to `xcodebuild` to opt in. Without that environment variable they skip before
+launching Phi. A file URL does not exercise Reader's HTTP(S) content script.
+
+Chromium C++ test sources are separate from these native tests; compiling the
+Framework does not execute that C++ test suite.
+
+Global Kiosk tests resolve OS keyboard-layout data through the shared matcher,
+inject registration and cleanup failures, and verify status/activation
+lifecycle. A separate Carbon integration case reserves a temporary test chord
+to verify real conflict, recovery, and release. The ownership UI suite also
+activates Finder, invokes a custom global chord, checks Phi/Kiosk foreground
+presentation, then disables the binding and verifies that the old chord no
+longer activates Phi. These cases do not establish physical typing or live
+input-source-switching behavior for every keyboard layout.
 
 ## Notes
 
 - Never write a raw stored `ShortcutsKey` directly to an `NSMenuItem`; use
   `menuKeyEquivalent`.
 - Do not overwrite original menu actions or targets when applying an override.
-- After rebuilding the main menu, keep Cmd-W / Shift-Cmd-W items compatible with
-  `updateMenuItemKeyEquivalents` lookup and routing.
+- After rebuilding the main menu, retain the stable close-command identifiers
+  and hidden rows used by `updateMenuItemKeyEquivalents`.
 - To let Cmd-W on non-browser windows fall back to system `performClose:`, return
   unhandled for those windows or remove the Close Tab binding.

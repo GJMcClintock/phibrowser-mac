@@ -1709,6 +1709,10 @@ typedef NS_ENUM(NSInteger, PhiGhostMaterializeOutcome) {
 // Asks Chromium to rebuild the main menu after shortcut settings change.
 - (void)requestRebuildMainMenu;
 
+// Main thread only. Effective hidden aliases, including WebContents-only ones.
+// Each entry contains commandId, keyEquivalent, modifierFlags, and source.
+- (NSArray<NSDictionary<NSString*, id>*>*)shortcutBindings;
+
 /// Whether UMA metrics + crash reporting is enabled — the state of the
 /// "Help improve Phi's features and performance" toggle in chrome://settings.
 /// Reflects the effective consent value (Phi defaults this to ON until the

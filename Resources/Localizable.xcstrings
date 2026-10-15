@@ -1,6 +1,490 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+  "settings.shortcuts.command.forceReload": {
+    "comment": "Shortcuts settings - Reload the page without using cached content",
+    "extractionState": "manual",
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Force Reload Page"
+        }
+      }
+    }
+  },
+  "settings.shortcuts.group.otherBrowser": {
+    "comment": "Shortcuts settings - Additional customizable browser commands",
+    "extractionState": "manual",
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Other Browser Commands"
+        }
+      }
+    }
+  },
+    "settings.navigations.kiosk.globalShortcut.registered": {
+      "comment": "Navigations settings - Status shown after the global Kiosk shortcut is successfully registered",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This shortcut is available in other apps."
+          }
+        }
+      }
+    },
+    "settings.navigations.kiosk.globalShortcut.unassigned": {
+      "comment": "Navigations settings - Status shown when global Kiosk activation is enabled but its shortcut is unassigned",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Assign a New Kiosk Window shortcut in Shortcuts."
+          }
+        }
+      }
+    },
+    "settings.navigations.kiosk.globalShortcut.unsupported": {
+      "comment": "Navigations settings - Status shown when the assigned Kiosk shortcut cannot be registered with the current keyboard layout",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This shortcut is not supported globally with the current keyboard layout. Choose another shortcut."
+          }
+        }
+      }
+    },
+    "settings.navigations.kiosk.globalShortcut.failed": {
+      "comment": "Navigations settings - Status shown after the system rejects a global shortcut operation, with recovery guidance",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The global shortcut is unavailable. Choose another shortcut, or turn this setting off and on to retry."
+          }
+        }
+      }
+    },
+    "settings.shortcuts.command.moveTabRight" : {
+      "comment": "Shortcuts settings - Title of a browser shortcut",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Move Tab Right"
+          }
+        }
+      }
+    },
+    "settings.shortcuts.command.moveTabLeft" : {
+      "comment": "Shortcuts settings - Title of a browser shortcut",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Move Tab Left"
+          }
+        }
+      }
+    },
+    "settings.shortcuts.command.showProfiles" : {
+      "comment": "Shortcuts settings - Title of a browser shortcut",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Profiles Menu"
+          }
+        }
+      }
+    },
+    "settings.shortcuts.command.focusNextPane" : {
+      "comment": "Shortcuts settings - Title of a browser shortcut",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Focus Next Pane"
+          }
+        }
+      }
+    },
+    "settings.shortcuts.command.focusPreviousPane" : {
+      "comment": "Shortcuts settings - Title of a browser shortcut",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Focus Previous Pane"
+          }
+        }
+      }
+    },
+    "settings.shortcuts.command.focusPopup" : {
+      "comment": "Shortcuts settings - Title of a browser shortcut",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Focus Open Popup"
+          }
+        }
+      }
+    },
+    "settings.shortcuts.command.showReadingMode" : {
+      "comment": "Shortcuts settings - Title of a browser shortcut",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Reading Mode"
+          }
+        }
+      }
+    },
+    "settings.shortcuts.command.addTabToGroup" : {
+      "comment": "Shortcuts settings - Title of a browser shortcut",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add New Tab to Group"
+          }
+        }
+      }
+    },
+    "settings.shortcuts.command.createTabGroup" : {
+      "comment": "Shortcuts settings - Title of a browser shortcut",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Create New Tab Group"
+          }
+        }
+      }
+    },
+    "settings.shortcuts.command.closeTabGroup" : {
+      "comment": "Shortcuts settings - Title of a browser shortcut",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close Tab Group"
+          }
+        }
+      }
+    },
+    "settings.shortcuts.command.focusNextTabGroup" : {
+      "comment": "Shortcuts settings - Title of a browser shortcut",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Focus Next Tab Group"
+          }
+        }
+      }
+    },
+    "settings.shortcuts.command.focusPreviousTabGroup" : {
+      "comment": "Shortcuts settings - Title of a browser shortcut",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Focus Previous Tab Group"
+          }
+        }
+      }
+    },
+    "settings.shortcuts.command.toggleTabletMode" : {
+      "comment": "Shortcuts settings - Title of a browser shortcut",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toggle Tablet Mode"
+          }
+        }
+      }
+    },
+    "settings.shortcuts.command.printViewTree" : {
+      "comment": "Shortcuts settings - Title of a browser shortcut",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Print View Tree"
+          }
+        }
+      }
+    },
+    "settings.shortcuts.command.printViewTreeDetails" : {
+      "comment": "Shortcuts settings - Title of a browser shortcut",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Print View Tree Details"
+          }
+        }
+      }
+    },
+    "settings.shortcuts.recording.escapeModifiers" : {
+      "comment": "Shortcuts settings - Explains which modifiers can be used when recording Escape",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Escape shortcuts require Command or Control."
+          }
+        }
+      }
+    },
+    "settings.shortcuts.reservedOwner": {
+      "comment": "Shortcuts settings - An active browser binding that cannot be customized in this version",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reserved browser shortcut"
+          }
+        }
+      }
+    },
+    "settings.shortcuts.recording.unsupported": {
+      "comment": "Shortcuts settings - Recording rejected an unmodified key or a Shift-only printable key to preserve normal typing",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use a modifier key. Letters and symbols require Command, Control, or Option."
+          }
+        }
+      }
+    },
+    "settings.shortcuts.reassignment.changed": {
+      "comment": "Shortcuts settings - A stale conflict confirmation was canceled without changing any bindings",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shortcuts changed while you were reviewing them. Record the shortcut again to review the current conflicts."
+          }
+        }
+      }
+    },
+    "settings.shortcuts.recording.dismiss": {
+      "comment": "Shortcuts settings - Dismiss a shortcut recording message",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dismiss"
+          }
+        }
+      }
+    },
+    "settings.shortcuts.search.clearKeys": {
+      "comment": "Shortcuts settings - Remove the captured-key search filter",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clear keys"
+          }
+        }
+      }
+    },
+    "settings.shortcuts.search.pressKeys": {
+      "comment": "Shortcuts settings - Waiting for a key combination to search without executing it",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Press keys…"
+          }
+        }
+      }
+    },
+    "settings.shortcuts.search.recordKeys": {
+      "comment": "Shortcuts settings - Search for bindings by pressing their key combination",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Record keys"
+          }
+        }
+      }
+    },
+    "settings.shortcuts.reservedSection": {
+      "comment": "Shortcuts settings - Active native and browser bindings that this settings page cannot reassign",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Other active shortcuts (read-only)"
+          }
+        }
+      }
+    },
+    "settings.shortcuts.reassignment.title": {
+      "comment": "Shortcuts settings - Title when a recorded key is already owned by another action",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shortcut already in use"
+          }
+        }
+      }
+    },
+    "settings.shortcuts.reassignment.confirm": {
+      "comment": "Shortcuts settings - Assign the recorded key and disable all bindings of the conflicting commands",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reassign"
+          }
+        }
+      }
+    },
+    "settings.shortcuts.reassignment.cancel": {
+      "comment": "Shortcuts settings - Keep all existing bindings without assigning the recorded key",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancel"
+          }
+        }
+      }
+    },
+    "settings.shortcuts.reassignment.message": {
+      "comment": "Shortcuts settings - Conflict confirmation; first placeholder is the recorded key, second is a list of command names",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ is used by %@. Reassigning disables all shortcuts for those commands."
+          }
+        }
+      }
+    },
+    "settings.shortcuts.reassignment.reserved": {
+      "comment": "Shortcuts settings - Conflict with read-only bindings; first placeholder is the recorded key, second is their names",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ is used by %@. These shortcuts cannot be changed here. Choose a different key."
+          }
+        }
+      }
+    },
+    "settings.shortcuts.aliases": {
+      "comment": "Shortcuts settings - Additional effective key combinations for the same command",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Also: %@"
+          }
+        }
+      }
+    },
+    "settings.shortcuts.command.quitApp": {
+      "comment": "Shortcuts settings - Command title for quitting Phi",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quit Phi"
+          }
+        }
+      }
+    },
+    "settings.shortcuts.command.openFile": {
+      "comment": "Shortcuts settings - Command title for opening a local file",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open File…"
+          }
+        }
+      }
+    },
+    "settings.shortcuts.persistence.loadFailed": {
+      "comment": "Shortcuts settings - Configuration could not be loaded; edits are blocked until retry or explicit recovery",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saved shortcuts could not be read. Retry, or restore all shortcuts to keep a recovery copy and use the defaults."
+          }
+        }
+      }
+    },
+    "settings.shortcuts.persistence.saveFailed": {
+      "comment": "Shortcuts settings - A failed save leaves the previous shortcuts active",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The change could not be saved. Your previous shortcuts are still active. Try the change again."
+          }
+        }
+      }
+    },
+    "settings.shortcuts.persistence.retry": {
+      "comment": "Shortcuts settings - Retry reading the saved configuration",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Retry"
+          }
+        }
+      }
+    },
+    "settings.shortcuts.persistence.dismiss": {
+      "comment": "Shortcuts settings - Dismiss a save failure without changing any shortcuts",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dismiss"
+          }
+        }
+      }
+    },
     "" : {
 
     },

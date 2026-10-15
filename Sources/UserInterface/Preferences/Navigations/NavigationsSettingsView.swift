@@ -24,6 +24,7 @@ struct NavigationsSettingsView: View {
 
     @State private var kioskShortcutDescription =
         NavigationsSettingsView.currentKioskShortcutDescription
+    @State private var kioskShortcutStatus = AppController.shared?.kioskGlobalShortcutStatus ?? .disabled
 
     var body: some View {
         ScrollView(.vertical) {
@@ -46,6 +47,7 @@ struct NavigationsSettingsView: View {
                             title: Self.globalShortcutTitle(
                                 shortcutDescription: kioskShortcutDescription
                             ),
+                            description: Self.globalShortcutStatusDescription(kioskShortcutStatus),
                             isOn: $openKioskWithGlobalShortcut,
                             onChange: {
                                 AppController.shared?
@@ -135,6 +137,27 @@ struct NavigationsSettingsView: View {
             NotificationCenter.default.publisher(for: .shortcutsDidChange)
         ) { _ in
             kioskShortcutDescription = Self.currentKioskShortcutDescription
+        }
+        .onReceive(NotificationCenter.default.publisher(for: KioskGlobalShortcutRegistrar.statusDidChangeNotification)) { _ in
+            kioskShortcutStatus = AppController.shared?.kioskGlobalShortcutStatus ?? .disabled
+        }
+        .onAppear {
+            kioskShortcutDescription = Self.currentKioskShortcutDescription
+            kioskShortcutStatus = AppController.shared?.kioskGlobalShortcutStatus ?? .disabled
+        }
+    }
+
+    static func globalShortcutStatusDescription(_ status: KioskGlobalShortcutRegistrar.Status) -> String? {
+        switch status {
+        case .disabled: return nil
+        case .registered:
+            return NSLocalizedString("settings.navigations.kiosk.globalShortcut.registered", value: "This shortcut is available in other apps.", comment: "Navigations settings - Status shown after the global Kiosk shortcut is successfully registered")
+        case .unassigned:
+            return NSLocalizedString("settings.navigations.kiosk.globalShortcut.unassigned", value: "Assign a New Kiosk Window shortcut in Shortcuts.", comment: "Navigations settings - Status shown when global Kiosk activation is enabled but its shortcut is unassigned")
+        case .unsupported:
+            return NSLocalizedString("settings.navigations.kiosk.globalShortcut.unsupported", value: "This shortcut is not supported globally with the current keyboard layout. Choose another shortcut.", comment: "Navigations settings - Status shown when the assigned Kiosk shortcut cannot be registered with the current keyboard layout")
+        case .failed:
+            return NSLocalizedString("settings.navigations.kiosk.globalShortcut.failed", value: "The global shortcut is unavailable. Choose another shortcut, or turn this setting off and on to retry.", comment: "Navigations settings - Status shown after the system rejects a global shortcut operation, with recovery guidance")
         }
     }
 

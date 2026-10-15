@@ -86,6 +86,8 @@ enum CommandWrapper: Int, Equatable {
     case IDC_NEW_TAB_TO_RIGHT        = 35024
     case IDC_SELECT_NEXT_TAB         = 34016
     case IDC_SELECT_PREVIOUS_TAB     = 34017
+    case IDC_CYCLE_TO_NEXT_TAB        = 34062
+    case IDC_CYCLE_TO_PREV_TAB        = 34063
     case IDC_SELECT_TAB_0            = 34018
     case IDC_SELECT_TAB_1            = 34019
     case IDC_SELECT_TAB_2            = 34020
@@ -103,6 +105,23 @@ enum CommandWrapper: Int, Equatable {
     case IDC_WINDOW_CLOSE_TABS_TO_RIGHT = 35022
     case IDC_MOVE_TAB_TO_NEW_WINDOW  = 34056
     case IDC_TAB_SEARCH              = 52500
+
+    // Additional browser bindings discovered from the Chromium shortcut inventory.
+    case IDC_MOVE_TAB_NEXT = 34032
+    case IDC_MOVE_TAB_PREVIOUS = 34033
+    case IDC_SHOW_AVATAR_MENU = 40134
+    case IDC_FOCUS_NEXT_PANE = 39004
+    case IDC_FOCUS_PREVIOUS_PANE = 39005
+    case IDC_FOCUS_INACTIVE_POPUP_FOR_ACCESSIBILITY = 39007
+    case IDC_SHOW_READING_MODE_KEYBOARD = 40303
+    case IDC_ADD_NEW_TAB_TO_GROUP = 34100
+    case IDC_CREATE_NEW_TAB_GROUP = 34101
+    case IDC_CLOSE_TAB_GROUP = 34104
+    case IDC_FOCUS_NEXT_TAB_GROUP = 34102
+    case IDC_FOCUS_PREV_TAB_GROUP = 34103
+    case IDC_DEBUG_TOGGLE_TABLET_MODE = 52510
+    case IDC_DEBUG_PRINT_VIEW_TREE = 52511
+    case IDC_DEBUG_PRINT_VIEW_TREE_DETAILS = 52512
 
     // Help
     case IDC_FEEDBACK                = 40008
@@ -146,7 +165,12 @@ enum CommandWrapper: Int, Equatable {
     case IDS_EDIT_CHECK_DOCUMENT_MAC = 145
 }
 
-struct ShortcutsKey: Hashable {
+struct ShortcutsKey: Hashable, Codable {
+    enum RecordingAction: Equatable {
+        case cancel, disable, unsupported
+        case key(ShortcutsKey)
+    }
+
     struct EventKeys {
         let canonical: ShortcutsKey
         let legacy: ShortcutsKey?
@@ -156,6 +180,22 @@ struct ShortcutsKey: Hashable {
                 return [canonical, legacy]
             }
             return [canonical]
+        }
+
+        /// Canonical identity wins over legacy input-source compatibility;
+        /// within each identity, an exact stored binding wins over a menu
+        /// equivalent such as legacy Command-Plus without an explicit Shift.
+        func matchingRank(for shortcut: ShortcutsKey) -> Int? {
+            for (index, key) in matchingKeys.enumerated() {
+                if key == shortcut { return index * 2 }
+                if key.menuKeyEquivalent == shortcut.menuKeyEquivalent { return index * 2 + 1 }
+            }
+            return nil
+        }
+
+        func matches(_ shortcut: ShortcutsKey?) -> Bool {
+            guard let shortcut else { return false }
+            return matchingRank(for: shortcut) != nil
         }
     }
 
@@ -169,6 +209,7 @@ struct ShortcutsKey: Hashable {
         .option,
         .shift,
         .control,
+        .function,
     ]
 
     /// Chromium's Command-QWERTY layouts resolve shortcuts from the physical
@@ -216,8 +257,8 @@ struct ShortcutsKey: Hashable {
             UInt16(kVK_ANSI_Slash): ("/", "?"),
         ]
 
-    /// Chromium switches these layouts to physical ANSI/QWERTY printable keys
-    /// while Command is held.
+    /// Chromium projects these layouts to physical ANSI/QWERTY printable keys
+    /// for every shortcut modifier combination, including non-Command chords.
     private static let commandQWERTYInputSourceIdentifiers: Set<String> = [
         "com.apple.keylayout.DVORAK-QWERTYCMD",
         "com.apple.keylayout.Dhivehi-QWERTY",
@@ -227,6 +268,10 @@ struct ShortcutsKey: Hashable {
 
     let characters: String
     let modifiersRaw: UInt
+
+    var modifiers: NSEvent.ModifierFlags {
+        NSEvent.ModifierFlags(rawValue: modifiersRaw)
+    }
 
     init(characters: String, modifiers: NSEvent.ModifierFlags) {
         self.characters = characters
@@ -240,7 +285,10 @@ struct ShortcutsKey: Hashable {
             return MenuKeyEquivalent(characters: characters, modifiers: menuModifiers)
         }
 
-        menuModifiers.remove(.shift)
+        // Chromium retains Shift when Function is a real held modifier on a
+        // printable key. Navigation/function-key event flags are filtered at
+        // capture, so their automatic Function bit never reaches this identity.
+        if !menuModifiers.contains(.function) { menuModifiers.remove(.shift) }
         return MenuKeyEquivalent(
             characters: characters.uppercased(),
             modifiers: menuModifiers
@@ -253,7 +301,14 @@ struct ShortcutsKey: Hashable {
         for event: NSEvent,
         inputSourceIdentifier: String? = currentInputSourceIdentifier
     ) -> EventKeys? {
-        let modifiers = event.modifierFlags.intersection(supportedModifierFlags)
+        var modifiers = event.modifierFlags.intersection(supportedModifierFlags)
+        if let character = event.charactersIgnoringModifiers?.utf16.first {
+            if (NSUpArrowFunctionKey...NSModeSwitchFunctionKey).contains(Int(character)) {
+                modifiers.remove(.function)
+            }
+        } else {
+            modifiers.remove(.function)
+        }
         let semanticKey = semanticEventKey(for: event, modifiers: modifiers)
         let latinKey = latinEventKey(
             for: event,
@@ -273,14 +328,38 @@ struct ShortcutsKey: Hashable {
         for event: NSEvent,
         inputSourceIdentifier: String? = currentInputSourceIdentifier
     ) -> ShortcutsKey? {
+        if event.keyCode == 53 && event.modifierFlags.intersection([.command, .control]).isEmpty {
+            return nil
+        }
         guard let key = eventKeys(
             for: event,
             inputSourceIdentifier: inputSourceIdentifier
         )?.canonical,
-              key.modifiersRaw != 0 else {
+              key.modifiersRaw != 0,
+              // AppKit only accepts Function on system-provided menu items.
+              // Keep it in event matching to prevent fallback to a different
+              // chord, but do not promise a new binding ordinary menus reject.
+              !key.modifiers.contains(.function),
+              !(key.modifiers == .shift && key.isPrintableMenuCharacter) else {
             return nil
         }
         return key
+    }
+
+    static func recordingAction(
+        for event: NSEvent,
+        inputSourceIdentifier: String? = currentInputSourceIdentifier
+    ) -> RecordingAction {
+        guard event.type == .keyDown else { return .unsupported }
+        let modifiers = event.modifierFlags.intersection(supportedModifierFlags)
+        if modifiers.isEmpty {
+            if event.keyCode == 53 { return .cancel }
+            if event.keyCode == 51 { return .disable }
+        }
+        guard let key = recordingKey(for: event, inputSourceIdentifier: inputSourceIdentifier) else {
+            return .unsupported
+        }
+        return .key(key)
     }
 
     static func resolvedInputSourceIdentifier(
@@ -342,6 +421,26 @@ struct ShortcutsKey: Hashable {
         modifiers: NSEvent.ModifierFlags,
         inputSourceIdentifier: String?
     ) -> ShortcutsKey? {
+        // Chromium applies this rule to Command alone, before discarding Caps
+        // Lock, Numeric Pad and Function flags. Preserve that precise boundary.
+        let isOneHandedDvorak = inputSourceIdentifier == "com.apple.keylayout.Dvorak-Right"
+            || inputSourceIdentifier == "com.apple.keylayout.Dvorak-Left"
+        if !isOneHandedDvorak,
+           event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command,
+           let digit = qwertyNonLetterByANSIKeyCode[event.keyCode]?.unshifted,
+           digit.utf8.count == 1, let value = digit.utf8.first, (48...57).contains(value) {
+            return ShortcutsKey(characters: digit, modifiers: modifiers)
+        }
+
+        // The Framework's Command-QWERTY branch runs after its semantic/ASCII
+        // fallback and wins for all modifiers. Apply it first here because this
+        // resolver returns the selected identity rather than mutating a string.
+        if let inputSourceIdentifier,
+           commandQWERTYInputSourceIdentifiers.contains(inputSourceIdentifier),
+           let character = commandQWERTYCharacter(keyCode: event.keyCode, shifted: modifiers.contains(.shift)) {
+            return ShortcutsKey(characters: normalizedCharacters(character), modifiers: modifiers)
+        }
+
         let charactersIgnoringModifiers = event.charactersIgnoringModifiers ?? ""
         let usesNonASCIICharacters = charactersIgnoringModifiers.utf16.first
             .map { $0 > 0x7F } == true
@@ -349,8 +448,6 @@ struct ShortcutsKey: Hashable {
         // so script inspection alone cannot identify them.
         let usesHebrewLayout = inputSourceIdentifier?
             .hasPrefix("com.apple.keylayout.Hebrew") == true
-        let usesCommandQWERTYLayout = inputSourceIdentifier
-            .map(commandQWERTYInputSourceIdentifiers.contains) == true
 
         // Some non-Latin layouts expose the menu-equivalent Latin character
         // through `characters` while `charactersIgnoringModifiers` stays local.
@@ -385,25 +482,7 @@ struct ShortcutsKey: Hashable {
             }
         }
 
-        // Match Chromium's main-keyboard Command-QWERTY projection while
-        // Command is held. This is deliberately source-qualified; applying
-        // physical QWERTY to a normal Dvorak or non-Latin layout would change
-        // semantic shortcuts.
-        // TODO: Chromium applies this projection for every modifier combination.
-        // Non-Command custom IDC shortcuts can therefore mismatch on these rare
-        // layouts; mirror Chromium if Phi needs to support that configuration.
-        guard modifiers.contains(.command),
-              usesCommandQWERTYLayout,
-              let qwertyCharacter = commandQWERTYCharacter(
-                keyCode: event.keyCode,
-                shifted: modifiers.contains(.shift)
-              ) else {
-            return nil
-        }
-        return ShortcutsKey(
-            characters: normalizedCharacters(qwertyCharacter),
-            modifiers: modifiers
-        )
+        return nil
     }
 
     private static func commandQWERTYCharacter(
@@ -429,27 +508,14 @@ struct ShortcutsKey: Hashable {
         return characters.lowercased()
     }
 
-    /// Resolves the Carbon virtual key used by system-wide hot-key
-    /// registration. Printable shortcuts use the same ANSI identities as the
-    /// Chromium shortcut bridge; AppKit function-key characters are mapped to
-    /// their corresponding hardware keys.
-    var carbonVirtualKeyCode: UInt32? {
-        let normalized = characters.lowercased()
-        if let keyCode = Self.qwertyLetterByANSIKeyCode.first(where: {
-            $0.value == normalized
-        })?.key {
-            return UInt32(keyCode)
-        }
-        if let keyCode = Self.qwertyNonLetterByANSIKeyCode.first(where: {
-            $0.value.unshifted == characters || $0.value.shifted == characters
-        })?.key {
-            return UInt32(keyCode)
-        }
-
+    /// Layout-independent Carbon keys. Printable keys are resolved against
+    /// the active layout by the global-hotkey adapter, never by reversing ANSI.
+    var carbonSpecialKeyCode: UInt32? {
         switch characters {
         case " ": return UInt32(kVK_Space)
         case "\t": return UInt32(kVK_Tab)
         case "\r": return UInt32(kVK_Return)
+        case "\u{1B}": return UInt32(kVK_Escape)
         case String(format: "%c", NSBackspaceCharacter):
             return UInt32(kVK_Delete)
         case "\u{F700}": return UInt32(kVK_UpArrow)
@@ -486,7 +552,7 @@ struct ShortcutsKey: Hashable {
         }
     }
 
-    private var isPrintableMenuCharacter: Bool {
+    var isPrintableMenuCharacter: Bool {
         guard characters.unicodeScalars.count == 1,
               let scalar = characters.unicodeScalars.first else {
             return false
@@ -500,6 +566,7 @@ extension Shortcuts {
     static let DefaultShortcuts: [CommandWrapper: ShortcutsKey] = [
         // App
         .IDC_OPTIONS: .init(characters: ",", modifiers: .command),
+        .IDC_EXIT: .init(characters: "q", modifiers: .command),
 
         // File
         .IDC_NEW_TAB: .init(characters: "t", modifiers: .command),
@@ -598,9 +665,8 @@ extension Shortcuts {
         .PHI_SELECT_SPACE_8: .init(characters: "9", modifiers: .control),
         .PHI_FARRINGDON_TOGGLE: .init(characters: "g", modifiers: [.control, .shift]),
         .PHI_COPY_URL: .init(characters: "c", modifiers: [.command, .shift]),
-        // Safari's Reader shortcut is Cmd-Shift-R, which Chromium already
-        // binds to hard reload. Cmd-Opt-R keeps Reader View next to the
-        // reload family without displacing it.
+        // Phi owns Cmd-Option-R for Reader View. The Phi Framework omits
+        // Chromium's reading-mode alias; Cmd-Shift-R remains hard reload.
         .PHI_TOGGLE_READER: .init(characters: "r", modifiers: [.command, .option]),
         .PHI_NEW_KIOSK_WINDOW: .init(characters: "n", modifiers: [.command, .option]),
         .PHI_NEW_INCOGNITO_SPACE: .init(characters: "n", modifiers: [.control, .shift]),

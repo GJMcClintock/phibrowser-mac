@@ -9,10 +9,19 @@ import XCTest
 @MainActor
 final class TabSwitchManagerTests: XCTestCase {
     private var tempDirectories: [URL] = []
+    private var states: [BrowserState] = []
+    private var stores: [LocalStore] = []
 
-    override func tearDownWithError() throws {
-        for directory in tempDirectories {
-            try? FileManager.default.removeItem(at: directory)
+    override func tearDown() async throws {
+        for state in states { state.tabSwitchManager.cancelSession() }
+        states.removeAll()
+        let drained = expectation(description: "Tab history fixture callbacks drained")
+        DispatchQueue.main.async { DispatchQueue.main.async { drained.fulfill() } }
+        await fulfillment(of: [drained], timeout: 2)
+        for store in stores { try await store.closeForAccountDirectoryRemoval() }
+        stores.removeAll()
+        for directory in tempDirectories where FileManager.default.fileExists(atPath: directory.path) {
+            try FileManager.default.removeItem(at: directory)
         }
         tempDirectories.removeAll()
     }
@@ -24,7 +33,10 @@ final class TabSwitchManagerTests: XCTestCase {
         tempDirectories.append(directory)
         let store = LocalStore(account: Account(userID: UUID().uuidString),
                                storeDirectoryURL: directory)
+        stores.append(store)
+        tempDirectories.append(store.account.userDataStorage)
         let state = BrowserState(windowId: 7, localStore: store, profileId: "Default")
+        states.append(state)
         state.tabs = [makeTab(1), makeTab(2)]
         state.updateNormalTabs()
         if recordInitialVisits {

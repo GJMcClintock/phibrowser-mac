@@ -1060,6 +1060,10 @@ import PostHog
         kioskGlobalShortcutRegistrar.setEnabled(enabled)
     }
 
+    var kioskGlobalShortcutStatus: KioskGlobalShortcutRegistrar.Status {
+        kioskGlobalShortcutRegistrar.status
+    }
+
     @MainActor
     var shouldSuppressPostLoginRegularWindowForPendingKioskOpen: Bool {
         pendingHotKioskPresentationInFlight
