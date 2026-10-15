@@ -1477,8 +1477,8 @@ class WebContentContainerViewController: NSViewController {
     }
 
     /// Lets the surface's view and the reconcile go once the slide ends, or
-    /// sooner when a tab switch, the panel's close or content fullscreen cuts
-    /// it short. Does nothing unless held.
+    /// sooner when a tab switch, the current tab's close, the panel's close or
+    /// content fullscreen cuts it short. Does nothing unless held.
     private func releaseContentSurfaceHold() {
         guard let contentSurfaceHosting, contentSurfaceHosting.isHeld else { return }
         contentSurfaceHosting.isHeld = false

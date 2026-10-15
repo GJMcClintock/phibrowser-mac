@@ -62,6 +62,7 @@ and separate Profiles. Exercise expanded and floating sidebar modes.
 | Extension window APIs | Focus, initial geometry and requested fullscreen display match the addressed browser window |
 | Fullscreen and crash pages | Switching away withdraws session-owned presentation and leaves the AppKit fullscreen that Space's page put the shell in (the user's own fullscreen — the green button, View › Enter Full Screen and its ⌃⌘F, which go to AppKit, not Chromium — stays; a browser fullscreen Chromium requests for a Space belongs to that Space and stays on a switch too; a quit from a page in fullscreen reopens windowed); actions still target that session |
 | Dock reopen and capture | Reopen selects a valid visible shell; capture reflects the requested session's presented content |
+| Window title | The Window menu, the Dock menu and Mission Control list the shell under the presented Space's active tab title, following tab switches, navigations and Space switches; a Space whose Browser is not up yet, or one on the placeholder page after its last tab closes, shows its Space name, and the tab opened there takes over |
 | Content surface | Pages, split panes, the AI Chat panel, docked and undocked DevTools and the placeholder page keep their corners, borders and gap colors; Peek, Reader, the extension side panel, content fullscreen, Kiosk windows, a tab dragged to another window, and the crash page, login, agent and progress overlays work, Peek, Reader, the side panel and Kiosk windows showing blank until their first frame when hidden and shown again (chromium ADR 0016); warm switches (to a recent tab, the fifth to twelfth most recent, a resized window, after five idle minutes or a Space switch), rapid switch cycles, cross-site navigation, entering, leaving and switching within a split, and switching from a tab with docked DevTools to a tab never shown show no blank frame and no other tab's page; a switch to a tab that has not painted keeps the previous page for at most four frames, then shows the page-area backdrop until its first frame; "Add Tab to New Split View" keeps the other pane shown; closing the active tab keeps the closed page on screen until its successor appears (chromium ADR 0014, close clone), and a cold successor that has not painted four frames after the mount shows the page-area backdrop until its first frame; a standalone Incognito window behaves the same on its switches and closes |
 
 OS permission state, camera/microphone availability and account eligibility are
@@ -109,10 +110,14 @@ oldest loses its frame, as does a tab idle for more than five minutes.
 Switching back to one, its renderer usually draws a new frame before the
 mount, as Chromium makes the tab visible on activation; a frame later than
 four frames after the mount shows the page-area backdrop until it lands.
-While the AI Chat panel or the extension side panel slides, the AI Chat
-panel moves with its split item and a page stays inside its card, as self-drawn
-ones do: the client tells the surface each web view's rect and visible part
-on every pass (ADR 0010, "Radii, stacking, position and clip").
+While the AI Chat panel slides, it moves with its split item and a page
+stays inside its card, as self-drawn ones do: the client tells the surface
+each web view's rect and visible part on every pass (ADR 0010, "Radii,
+stacking, position and clip"). While the extension side panel slides in,
+the page goes on under the incoming panel at its old size, the client
+holding the surface's view and telling it nothing until the slide ends
+(ADR 0010); meanwhile the page card's right corners show square, a residual
+accepted with review finding M24.
 
 The feature is on by default. Run the content-surface row as is, then once
 with `--disable-features=PhiContentSurface` as a smoke test: no crash, and no
