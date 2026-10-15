@@ -301,6 +301,11 @@ class WebContentContainerViewController: NSViewController {
     /// synchronously and layout tests can assert the end state.
     static var panelSlideAnimationsDisabledForTesting = false
 
+    /// Test seam: the panel slide-in's duration, so a test can keep the
+    /// slide running while it cuts it short, or see it end; nil keeps
+    /// AppKit's.
+    static var panelSlideDurationForTesting: TimeInterval?
+
     /// True when a panel attach/detach should settle immediately instead of
     /// sliding: the test seam is on, or there is no window to animate in.
     private var skipsPanelSlideAnimation: Bool {
@@ -1716,6 +1721,9 @@ class WebContentContainerViewController: NSViewController {
         pausedController?.setContentFrameSyncPausedForPanelTransition(true)
         holdContentSurfaceForPanelSlide()
         NSAnimationContext.runAnimationGroup({ context in
+            if let duration = Self.panelSlideDurationForTesting {
+                context.duration = duration
+            }
             context.allowsImplicitAnimation = true
             panelView.translatesAutoresizingMaskIntoConstraints = false
             remakeContentLayout()

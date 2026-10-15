@@ -18,6 +18,7 @@ final class ContentSurfaceHostingTests: XCTestCase {
     private var windows: [NSWindow] = []
 
     override func tearDownWithError() throws {
+        WebContentContainerViewController.panelSlideDurationForTesting = nil
         windows.forEach { $0.close() }
         windows.removeAll()
         for directory in tempDirectories {
@@ -94,24 +95,121 @@ final class ContentSurfaceHostingTests: XCTestCase {
         XCTAssertEqual(fixture.sends.count, sendCount)
     }
 
+    // MARK: - Extension side panel slide
+
+    /// The extension side panel slides in by a Core Animation group, which
+    /// puts the page's host at its end frame at once: the surface's view
+    /// stays at its frame and no change to the page is told until the slide
+    /// ends.
+    func testASidePanelSlideHoldsTheSurfaceAndSendsNothing() throws {
+        WebContentContainerViewController.panelSlideDurationForTesting = 60
+        let fixture = try makeFixture()
+        let surfaceFrame = fixture.surfaceView.frame
+        let sendCount = fixture.sends.count
+
+        fixture.slideInSidePanel()
+        // The slide pauses the page's frame sync; a page laid out wider
+        // meanwhile changes its rect, which a pass not held would send.
+        fixture.webView.setFrameSize(NSSize(width: fixture.webView.frame.width + 200,
+                                            height: fixture.webView.frame.height))
+        RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+
+        XCTAssertTrue(fixture.hosting.isHeld)
+        XCTAssertTrue(fixture.surfaceView.translatesAutoresizingMaskIntoConstraints)
+        XCTAssertEqual(fixture.surfaceView.frame, surfaceFrame)
+        XCTAssertEqual(fixture.sends.count, sendCount, "the page was told during the slide")
+    }
+
+    func testTheSlideEndReleasesTheHold() throws {
+        WebContentContainerViewController.panelSlideDurationForTesting = 0.05
+        let fixture = try makeFixture()
+        let sendCount = fixture.sends.count
+
+        fixture.slideInSidePanel()
+        XCTAssertTrue(fixture.hosting.isHeld, "precondition: the slide holds")
+        let deadline = Date().addingTimeInterval(2)
+        while fixture.hosting.isHeld, Date() < deadline {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.01))
+        }
+        RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+
+        XCTAssertFalse(fixture.hosting.isHeld)
+        XCTAssertFalse(fixture.surfaceView.translatesAutoresizingMaskIntoConstraints)
+        XCTAssertGreaterThan(fixture.sends.count, sendCount, "the settled page was not told")
+    }
+
+    func testATabSwitchReleasesTheHold() throws {
+        try assertCuttingTheSlideShortReleasesTheHold { $0.state.focusingTab = $0.otherTab }
+    }
+
+    func testClosingTheCurrentTabReleasesTheHold() throws {
+        try assertCuttingTheSlideShortReleasesTheHold { fixture in
+            fixture.state.tabs = [fixture.otherTab]
+            fixture.state.updateNormalTabs()
+        }
+    }
+
+    func testClosingTheSidePanelReleasesTheHold() throws {
+        try assertCuttingTheSlideShortReleasesTheHold { $0.container.detachExtensionSidePanel() }
+    }
+
+    func testContentFullscreenReleasesTheHold() throws {
+        try assertCuttingTheSlideShortReleasesTheHold { fixture in
+            let overlay = NSView(frame: fixture.container.view.bounds)
+            fixture.container.view.addSubview(overlay)
+            fixture.container.lendContentSurface(to: overlay)
+        }
+    }
+
     // MARK: - Helpers
 
+    /// The slide is long enough that only `interrupt` can end it.
+    private func assertCuttingTheSlideShortReleasesTheHold(
+        _ interrupt: (Fixture) -> Void,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws {
+        WebContentContainerViewController.panelSlideDurationForTesting = 60
+        let fixture = try makeFixture()
+        fixture.slideInSidePanel()
+        XCTAssertTrue(fixture.hosting.isHeld, "precondition: the slide holds", file: file, line: line)
+
+        interrupt(fixture)
+        RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+
+        XCTAssertFalse(fixture.hosting.isHeld, file: file, line: line)
+        XCTAssertFalse(fixture.surfaceView.translatesAutoresizingMaskIntoConstraints,
+                       "the surface's view is not back on its constraints", file: file, line: line)
+    }
+
+    @MainActor
     private final class Fixture {
+        let state: BrowserState
         let container: WebContentContainerViewController
         let window: NSWindow
         let page: PageColorTestWebContentWrapper
         /// Held here: a wrapper's `nativeView` is weak.
         let webView: NSView
+        /// A second tab, not shown.
+        let otherTab: Tab
+        let surfaceView: NSView
         let hosting: ContentSurfaceHosting
+        private let sidePanel = PageColorTestWebContentWrapper(urlString: "chrome-extension://panel/")
+        private let sidePanelView = NSView()
         var sends: [(address: NSObject, hosting: ContentSurfaceHosting.Hosting)] = []
 
-        init(container: WebContentContainerViewController, window: NSWindow,
-             page: PageColorTestWebContentWrapper, webView: NSView, hosting: ContentSurfaceHosting) {
+        init(state: BrowserState, container: WebContentContainerViewController, window: NSWindow,
+             page: PageColorTestWebContentWrapper, webView: NSView, otherTab: Tab,
+             surfaceView: NSView, hosting: ContentSurfaceHosting) {
+            self.state = state
             self.container = container
             self.window = window
             self.page = page
             self.webView = webView
+            self.otherTab = otherTab
+            self.surfaceView = surfaceView
             self.hosting = hosting
+            sidePanel.nativeView = sidePanelView
         }
 
         func lastSent() -> ContentSurfaceHosting.Hosting? {
@@ -122,6 +220,13 @@ final class ContentSurfaceHostingTests: XCTestCase {
         func flipped(_ rect: NSRect) -> NSRect {
             NSRect(x: rect.minX, y: window.frame.height - rect.maxY,
                    width: rect.width, height: rect.height)
+        }
+
+        /// Opens an extension side panel, which slides in, the window being on screen.
+        func slideInSidePanel() {
+            container.attachExtensionSidePanel(BrowserState.ExtensionSidePanelState(
+                extensionId: "test-extension", displayName: "Test Extension", iconPNG: nil,
+                wrapper: sidePanel))
         }
     }
 
@@ -140,7 +245,8 @@ final class ContentSurfaceHostingTests: XCTestCase {
         let page = PageColorTestWebContentWrapper(urlString: "https://page.example/")
         page.nativeView = webView
         let tab = Tab(guid: 2400, url: page.urlString, isActive: true, index: 0, webContentView: page)
-        state.tabs = [tab]
+        let otherTab = Tab(guid: 2401, url: "https://other.example/", isActive: false, index: 1)
+        state.tabs = [tab, otherTab]
         state.updateNormalTabs()
         state.focusingTab = tab
 
@@ -160,11 +266,13 @@ final class ContentSurfaceHostingTests: XCTestCase {
         }
         _ = try XCTUnwrap(webView.window, "the page was never mounted")
 
-        state.adoptContentSurface(NSView())
+        let surfaceView = NSView()
+        state.adoptContentSurface(surfaceView)
         let hosting = try XCTUnwrap(container.contentSurfaceHostingForTesting)
-        let fixture = Fixture(container: container, window: window, page: page, webView: webView,
+        let fixture = Fixture(state: state, container: container, window: window, page: page,
+                              webView: webView, otherTab: otherTab, surfaceView: surfaceView,
                               hosting: hosting)
-        hosting.sendForTesting = { [unowned fixture] in fixture.sends.append(($0, $1)) }
+        hosting.sendForTesting = { [weak fixture] in fixture?.sends.append(($0, $1)) }
         // Whatever framework the host links.
         hosting.takesPlacement = true
         RunLoop.main.run(until: Date().addingTimeInterval(0.1))
