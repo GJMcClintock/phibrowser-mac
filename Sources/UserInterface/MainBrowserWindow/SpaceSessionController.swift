@@ -28,6 +28,9 @@ class SpaceSessionController: NSWindowController {
     /// slot's shared `ShellWindow`, which every session of the slot presents
     /// into in turn. nil in legacy mode, where `window` IS the Chromium window.
     private(set) var hostedChromiumWindow: NSWindow?
+    /// Hosted mode: hands the hidden Chromium window's title on to the shell
+    /// while this session is presented; see `observeChromiumWindowTitle()`.
+    private var chromiumTitleObservation: NSKeyValueObservation?
     /// Hosted mode: a session built ahead of its Browser. The slot creates
     /// one per Space it presents, keyed by a window id reserved from
     /// Chromium's session-id generator, so the Swift side of the Space —
@@ -387,6 +390,7 @@ class SpaceSessionController: NSWindowController {
     /// presented, and the content tree, which `presentInShell()` installs.
     private func setupHostedSession() {
         observeChromiumWindowClose()
+        observeChromiumWindowTitle()
         browserState.themeContext.themeAppearancePublisher
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _, _ in
@@ -413,6 +417,24 @@ class SpaceSessionController: NSWindowController {
                                                selector: #selector(myWindowWillClose(_:)),
                                                name: NSWindow.willCloseNotification,
                                                object: chromiumWindow)
+    }
+
+    /// Chromium titles the hidden window after its active tab, but only the
+    /// shell is on screen, and the shell is what the Dock menu, the Window
+    /// menu and Mission Control list. The slot sets the title when it
+    /// presents a session; this keeps it current through tab switches and
+    /// navigations, and catches up a dormant session presented before its
+    /// Browser arrived.
+    private func observeChromiumWindowTitle() {
+        guard let chromiumWindow = hostedChromiumWindow else { return }
+        chromiumTitleObservation = chromiumWindow.observe(\.title, options: [.initial]) {
+            [weak self] _, _ in
+            MainActor.assumeIsolated {
+                guard let self, self.isPresented, let window = self.window,
+                      let title = self.hostedChromiumWindow?.title else { return }
+                window.title = title
+            }
+        }
     }
 
     /// Builds and hosts the dormant session's tree hidden, so a first switch
@@ -443,6 +465,7 @@ class SpaceSessionController: NSWindowController {
         ChromiumLauncher.sharedInstance().bridge?
             .setWebContentsOwnsMouseDown(true, windowId: Int64(windowId))
         observeChromiumWindowClose()
+        observeChromiumWindowTitle()
         SpaceSessionControllersManager.shared.noteChromiumWindowAttached(self)
         if isPresented {
             (window as? ShellWindow)?.commandTargetWindow = chromiumWindow

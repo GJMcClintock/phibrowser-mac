@@ -9606,7 +9606,11 @@ final class SpaceWindowSlot: ObservableObject {
         }
         visibleController = controller
         restoredSiblingsAwaitingPresent.remove(controller.spaceId)
-        shell.window.title = manager?.spaces.first(where: { $0.spaceId == controller.spaceId })?.name ?? "Phi"
+        // The shell is the window on screen, so it carries the presented
+        // Browser's title (its active tab's), which the Dock menu and the
+        // Window menu list. A dormant session has no Browser yet.
+        shell.window.title = controller.hostedChromiumWindow?.title
+            ?? manager?.spaces.first(where: { $0.spaceId == controller.spaceId })?.name ?? "Phi"
         Self.setRestoredSiblingConcealedIfSupported(false, windowId: Int64(controller.windowId))
         if !awaitsInitialChromiumShow {
             if shell.window.isMiniaturized {
