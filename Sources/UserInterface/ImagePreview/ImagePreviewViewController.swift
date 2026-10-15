@@ -6,9 +6,7 @@
 import AppKit
 import Combine
 import SnapKit
-#if DEBUG
 import UniformTypeIdentifiers
-#endif
 
 private enum LiquidGlassAdaptor {
     private static let fallbackCornerRadius = LiquidGlassCompatible.webContentInnerComponentsCornerRadius
@@ -64,10 +62,19 @@ private final class CircularHoverButton: NSView {
         set {
             button.isEnabled = newValue
             button.alphaValue = newValue ? 1.0 : 0.4
+            if !newValue {
+                hoverLayer.backgroundColor = NSColor.clear.cgColor
+            }
         }
     }
 
-    init(symbolName: String, accessibilityDescription: String, diameter: CGFloat = 28) {
+    init(
+        symbolName: String,
+        accessibilityDescription: String,
+        diameter: CGFloat = 28,
+        symbolPointSize: CGFloat = 14,
+        contentVerticalOffset: CGFloat = 0
+    ) {
         self.diameter = diameter
         super.init(frame: .zero)
 
@@ -77,7 +84,7 @@ private final class CircularHoverButton: NSView {
         hoverLayer.backgroundColor = NSColor.clear.cgColor
         layer?.addSublayer(hoverLayer)
 
-        let config = NSImage.SymbolConfiguration(pointSize: 14, weight: .semibold)
+        let config = NSImage.SymbolConfiguration(pointSize: symbolPointSize, weight: .semibold)
         button.image = NSImage(systemSymbolName: symbolName, accessibilityDescription: accessibilityDescription)?
             .withSymbolConfiguration(config)
         button.isBordered = false
@@ -93,7 +100,8 @@ private final class CircularHoverButton: NSView {
             make.width.height.equalTo(diameter)
         }
         button.snp.makeConstraints { make in
-            make.edges.equalToSuperview()
+            make.leading.trailing.equalToSuperview()
+            make.top.bottom.equalToSuperview().offset(contentVerticalOffset)
         }
     }
 
@@ -120,6 +128,7 @@ private final class CircularHoverButton: NSView {
     }
 
     override func mouseEntered(with event: NSEvent) {
+        guard isButtonEnabled else { return }
         NSAnimationContext.runAnimationGroup { ctx in
             ctx.duration = 0.15
             hoverLayer.backgroundColor = NSColor.labelColor.withAlphaComponent(0.08).cgColor
@@ -148,6 +157,7 @@ final class ImagePreviewViewController: NSViewController {
     private let state: BrowserImagePreviewState
     private let showsPanelFrame: Bool
     private var cancellables = Set<AnyCancellable>()
+    private var isExporting = false
     var onOpenInWindow: (() -> Void)?
     var onClose: (() -> Void)?
 
@@ -156,6 +166,17 @@ final class ImagePreviewViewController: NSViewController {
     private let nextButton: CircularHoverButton
     private let zoomOutButton: CircularHoverButton
     private let zoomInButton: CircularHoverButton
+    private let exportButton = CircularHoverButton(
+        symbolName: "arrow.down.to.line",
+        accessibilityDescription: NSLocalizedString(
+            "imagePreview.exportButtonAccessibilityLabel",
+            value: "Export Image",
+            comment: "Image preview - Tooltip and accessibility label for saving the current image to a file"
+        ),
+        diameter: 24,
+        symbolPointSize: 12,
+        contentVerticalOffset: -1
+    )
     private let openInWindowButton = CircularHoverButton(
         symbolName: "arrow.up.forward.square",
         accessibilityDescription: NSLocalizedString(
@@ -172,11 +193,13 @@ final class ImagePreviewViewController: NSViewController {
     private let leftNavStack = NSStackView()
     private let rightNavStack = NSStackView()
     private let bottomToolbarStack = NSStackView()
+    private let exportButtonStack = NSStackView()
     private let centerOverlayStack = NSStackView()
 
     private let leftNavigation: NSView
     private let rightNavigation: NSView
     private let bottomToolbar: NSView
+    private let exportControl: NSView
 
     init(state: BrowserImagePreviewState, showsPanelFrame: Bool = true) {
         self.showsPanelFrame = showsPanelFrame
@@ -211,6 +234,7 @@ final class ImagePreviewViewController: NSViewController {
         Self.configureNavStack(leftNavStack)
         Self.configureNavStack(rightNavStack)
         Self.configureBottomToolbarStack(bottomToolbarStack)
+        Self.configureNavStack(exportButtonStack)
         Self.configureCenterOverlayStack(centerOverlayStack)
 
         let navigationCornerRadius = SystemUtils.isMacOS26OrLater ? 28 : Self.fallbackNavigationCornerRadius
@@ -219,6 +243,7 @@ final class ImagePreviewViewController: NSViewController {
         self.leftNavigation = LiquidGlassAdaptor.wrappingContent(leftNavStack, cornerRadius: navigationCornerRadius)
         self.rightNavigation = LiquidGlassAdaptor.wrappingContent(rightNavStack, cornerRadius: navigationCornerRadius)
         self.bottomToolbar = LiquidGlassAdaptor.wrappingContent(bottomToolbarStack, cornerRadius: bottomToolbarCornerRadius)
+        self.exportControl = LiquidGlassAdaptor.wrappingContent(exportButtonStack, cornerRadius: bottomToolbarCornerRadius)
 
         self.state = state
         super.init(nibName: nil, bundle: nil)
@@ -231,6 +256,9 @@ final class ImagePreviewViewController: NSViewController {
         zoomOutButton.action = #selector(zoomOutFromToolbar)
         zoomInButton.target = self
         zoomInButton.action = #selector(zoomInFromToolbar)
+        exportButton.target = self
+        exportButton.action = #selector(exportImage)
+        exportButton.isButtonEnabled = false
         openInWindowButton.target = self
         openInWindowButton.action = #selector(openInWindow)
     }
@@ -261,6 +289,7 @@ final class ImagePreviewViewController: NSViewController {
         bottomToolbarStack.addArrangedSubview(zoomOutButton)
         bottomToolbarStack.addArrangedSubview(zoomPercentLabel)
         bottomToolbarStack.addArrangedSubview(zoomInButton)
+        exportButtonStack.addArrangedSubview(exportButton)
         centerOverlayStack.addArrangedSubview(statusLabel)
         centerOverlayStack.addArrangedSubview(retryButton)
 
@@ -378,6 +407,7 @@ final class ImagePreviewViewController: NSViewController {
         view.addSubview(leftNavigation)
         view.addSubview(rightNavigation)
         view.addSubview(bottomToolbar)
+        view.addSubview(exportControl)
         openInWindowButton.isHidden = onOpenInWindow == nil
         view.addSubview(openInWindowButton)
 
@@ -426,6 +456,12 @@ final class ImagePreviewViewController: NSViewController {
             }
         }
 
+        exportControl.snp.makeConstraints { make in
+            make.leading.equalTo(bottomToolbar.snp.trailing).offset(8)
+            make.centerY.equalTo(bottomToolbar)
+            make.width.height.equalTo(bottomToolbar.snp.height)
+        }
+
         scrollView.onZoomChanged = { [weak self] scale, fitScale, minScale in
             guard let self else { return }
             state.updateZoom(scale: scale, fitScale: fitScale, minScale: minScale)
@@ -466,6 +502,7 @@ final class ImagePreviewViewController: NSViewController {
     }
 
     private func render(loadState: ImagePreviewLoadState) {
+        updateExportButton()
         switch loadState {
         case .idle:
             scrollView.clear()
@@ -516,6 +553,97 @@ final class ImagePreviewViewController: NSViewController {
 
     @objc private func openInWindow() {
         onOpenInWindow?()
+    }
+
+    private func updateExportButton() {
+        if case .loaded = state.loadState {
+            exportButton.isButtonEnabled = !isExporting
+        } else {
+            exportButton.isButtonEnabled = false
+        }
+    }
+
+    static func suggestedExportFilename(for item: ImagePreviewItem, contentType: UTType?) -> String {
+        let fallback = NSLocalizedString(
+            "imagePreview.exportFallbackFilename",
+            value: "Image",
+            comment: "Image preview - Default export filename when the image has no usable name"
+        )
+        let name = [item.suggestedFilename, item.source.url?.lastPathComponent, item.title]
+            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .first { !$0.isEmpty } ?? fallback
+        let filename = ReaderExportService.sanitizedBaseName(title: name, fallbackName: fallback)
+        guard let contentType, let preferredExtension = contentType.preferredFilenameExtension else {
+            return filename
+        }
+        let providedExtension = (filename as NSString).pathExtension
+        if UTType(filenameExtension: providedExtension) == contentType {
+            return filename
+        }
+        let base = (filename as NSString).deletingPathExtension
+        return "\(base).\(preferredExtension)"
+    }
+
+    @objc private func exportImage() {
+        guard !isExporting,
+              case .loaded(let asset) = state.loadState,
+              let item = state.activeItem else { return }
+
+        let panel = NSSavePanel()
+        panel.canCreateDirectories = true
+        panel.nameFieldStringValue = Self.suggestedExportFilename(for: item, contentType: asset.contentType)
+        if let contentType = asset.contentType {
+            panel.allowedContentTypes = [contentType]
+        }
+        isExporting = true
+        updateExportButton()
+        // Capture the loaded bytes before the panel opens, independently of later navigation.
+        let data = asset.originalData
+        let completion: (NSApplication.ModalResponse) -> Void = { [weak self] response in
+            guard response == .OK, let url = panel.url else {
+                self?.isExporting = false
+                self?.updateExportButton()
+                return
+            }
+            Task { @MainActor [weak self] in
+                defer {
+                    self?.isExporting = false
+                    self?.updateExportButton()
+                }
+                do {
+                    try await Task.detached(priority: .userInitiated) {
+                        try data.write(to: url, options: .atomic)
+                    }.value
+                } catch {
+                    if let self {
+                        self.presentExportError(error)
+                    } else {
+                        NSApp.presentError(error)
+                    }
+                }
+            }
+        }
+        if let window = view.window {
+            panel.beginSheetModal(for: window, completionHandler: completion)
+        } else {
+            panel.begin(completionHandler: completion)
+        }
+    }
+
+    private func presentExportError(_ error: Error) {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = NSLocalizedString(
+            "imagePreview.exportFailed",
+            value: "Could not export the image",
+            comment: "Image preview - Error shown when writing the exported image file fails"
+        )
+        alert.informativeText = error.localizedDescription
+        if let window = view.window, window.isVisible {
+            alert.beginSheetModal(for: window)
+        } else {
+            NSApp.presentError(error)
+        }
     }
 
 #if DEBUG

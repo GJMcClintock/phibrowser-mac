@@ -46931,6 +46931,42 @@
         }
       }
     },
+    "imagePreview.exportButtonAccessibilityLabel" : {
+      "comment" : "Image preview - Tooltip and accessibility label for saving the current image to a file",
+      "extractionState" : "extracted_with_value",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Export Image"
+          }
+        }
+      }
+    },
+    "imagePreview.exportFailed" : {
+      "comment" : "Image preview - Error shown when writing the exported image file fails",
+      "extractionState" : "extracted_with_value",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Could not export the image"
+          }
+        }
+      }
+    },
+    "imagePreview.exportFallbackFilename" : {
+      "comment" : "Image preview - Default export filename when the image has no usable name",
+      "extractionState" : "extracted_with_value",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Image"
+          }
+        }
+      }
+    },
     "imagePreview.loadingStatus" : {
       "comment" : "Image preview loading",
       "extractionState" : "extracted_with_value",
