@@ -98,6 +98,25 @@ struct InvalidationTests {
         print("PASS parser: fragmented CR/LF/BOM, incomplete/unknown frames, validation and bounds")
     }
 
+    /// The first Chromium commit of an account Profile another device has just registered
+    /// names a namespace this Mac has not mapped; Phi hints, mapped Profiles and Profiles
+    /// whose envelope does not open here never do.
+    static func unmappedProfileHintTests() throws {
+        func hint(_ namespace: String, _ types: [Int] = [5]) -> PhiSyncInvalidation {
+            PhiSyncInvalidation(namespace: namespace, dataTypes: types, sourceClientID: "cache-guid")
+        }
+        let mapped: Set = ["u-default", "u-work"]
+        let find = { (hints: [PhiSyncInvalidation]) in
+            PhiSyncInvalidation.unmappedProfileUUID(in: hints, mapped: mapped, ignoring: ["u-sealed"])
+        }
+        try expect(find([hint("chromium:phi", [2000]), hint("chromium:u-default"), hint("chromium:u-work")]) == nil,
+                   "A mapped Profile or Phi hint read as a new account Profile")
+        try expect(find([hint("chromium:u-sealed")]) == nil, "An undecryptable account Profile triggers a pass on every commit")
+        try expect(find([hint("chromium:phi", [2001]), hint("chromium:u-default"), hint("chromium:u-new"), hint("chromium:u-other")]) == "u-new",
+                   "A newly registered account Profile was not found")
+        print("PASS unmapped Profile hint: only a namespace with no mapping and an envelope that opens here counts")
+    }
+
     @MainActor
     static func schedulerTests() async throws {
         let transport = Transport()
@@ -251,6 +270,59 @@ struct InvalidationTests {
         print("PASS pairing: immediate ordered catch-up, unchanged-gate deduplication and retirement")
     }
 
+    /// Sync now reaches the coordinator through the helper's "phi" participant: a manual
+    /// catch-up joins a pending SSE catch-up or a pull in flight instead of starting its own,
+    /// and the participant refuses once `isRunning` is false.
+    @MainActor
+    static func manualCatchUpTests() async throws {
+        let transport = Transport()
+        let state = PullState()
+        var config = PhiSyncInvalidationCoordinator.Configuration()
+        config.tickInterval = 3600
+        config.coalescingInterval = 0.2
+        config.retryDelay = { _ in 0.01 }
+        let coordinator = PhiSyncInvalidationCoordinator(configuration: config, now: { 100 },
+            stream: { receive in try await transport.run(receive: receive) },
+            pull: { demand in
+                state.demands.append(demand)
+                if state.block { await withCheckedContinuation { state.releasePull = $0 } }
+            })
+        defer { coordinator.stop(); state.releasePull?.resume() }
+        try expect(!coordinator.isRunning, "A new coordinator claimed to run")
+        coordinator.start()
+        try await eventually("Initial catch-up") { state.demands.count == 1 }
+        try await eventually("Connection") { await transport.count == 1 }
+
+        try await transport.send("event: ready\ndata: {}\n\n")
+        coordinator.requestCatchUp()
+        try await eventually("Joined catch-up missing") { state.demands.count == 2 }
+        try await Task.sleep(nanoseconds: 300_000_000)
+        try expect(state.demands == [.catchUp, .catchUp], "Manual catch-up did not join the pending SSE catch-up")
+
+        state.block = true
+        coordinator.requestCatchUp()
+        try await eventually("Blocking pull did not start") { state.releasePull != nil }
+        coordinator.requestCatchUp(); coordinator.requestCatchUp()
+        state.block = false
+        let release = state.releasePull; state.releasePull = nil; release?.resume()
+        try await eventually("Follow-up pull missing") { state.demands.count == 4 }
+        try await Task.sleep(nanoseconds: 300_000_000)
+        try expect(state.demands.count == 4 && state.demands.last == .catchUp,
+                   "Manual catch-ups during a pull did not collapse into one follow-up")
+
+        // Sync now survives coalescing with automatic catch-ups and marks only its own pull.
+        coordinator.requestCatchUp(); coordinator.requestCatchUp(requested: true); coordinator.requestCatchUp()
+        try await eventually("Requested catch-up missing") { state.demands.count == 5 }
+        try expect(state.demands.last == .requestedCatchUp, "Sync now was dispatched as an automatic catch-up")
+        coordinator.requestCatchUp()
+        try await eventually("Automatic catch-up after Sync now missing") { state.demands.count == 6 }
+        try expect(state.demands.last == .catchUp, "The Sync now mark leaked into a later catch-up")
+
+        coordinator.stop()
+        try expect(!coordinator.isRunning, "Stopped coordinator still reports running")
+        print("PASS manual catch-up: joins a pending SSE catch-up and a pull in flight; stopped coordinator refuses")
+    }
+
     @MainActor
     static func unavailableServerTests() async throws {
         let transport = RejectedTransport()
@@ -364,8 +436,10 @@ struct InvalidationTests {
     static func main() async {
         do {
             try parserTests()
+            try unmappedProfileHintTests()
             try await schedulerTests()
             try await pairingCatchUpTests()
+            try await manualCatchUpTests()
             try await unavailableServerTests()
             try await httpTests()
             guard CommandLine.arguments.count == 2 else { throw Failure.assertion("Missing loopback fixture URL") }

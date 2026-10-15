@@ -120,6 +120,10 @@ final class ExtensionMessageRouter {
             return nil
         }
 
+        register(type: "notification.show") { context in
+            NotificationCardManager.shared.handleAgentRequest(context: context)
+        }
+
         register(type: "imagePreview") { context in
             ImagePreviewMessageHandler.handle(context)
             return nil  // The handler replies after presentation or validation failure.
@@ -279,8 +283,7 @@ final class ExtensionMessageRouter {
         // Mirage runs the save itself and reports back; the app keeps the
         // toast (window chrome) and the authenticated video-gist call.
         register(type: "saveForLater.saveResult") { context in
-            SaveForLaterService.handleSaveResult(context)
-            return "{}"
+            return SaveForLaterService.handleSaveResult(context)
         }
         register(type: "saveForLater.toast") { context in
             SaveForLaterService.handleToast(context)
@@ -333,6 +336,9 @@ final class ExtensionMessageRouter {
         }
         register(type: "agentSpace.ping") { context in
             return AgentSpaceRouter.handlePing(context: context)
+        }
+        register(type: "agentSpace.app.info") { context in
+            return AgentSpaceRouter.handleAppInfo(context: context)
         }
         register(type: "agentSpace.handoff") { context in
             return AgentSpaceRouter.handleHandoff(context: context)

@@ -23,6 +23,33 @@ struct PhiBrowserProfile: Hashable, Identifiable {
 }
 
 /// One default-search-provider candidate for a profile, projected from
+/// How a Profile deletion takes part in sync (docs/sync.md, "Profile deletion and rename").
+enum ProfileDeletionSync {
+    /// No sync involvement: the user-data backup rollback, and callers not yet migrated.
+    case none
+    /// The user deleted the Profile: record the intent first, delete it on every synced device.
+    case userAction
+    /// A remote tombstone deletes it here: nothing is recorded or published.
+    case remoteTombstone
+}
+
+/// Why `ProfileManager.deleteProfile` failed.
+enum ProfileDeletionFailure: Error {
+    /// A reason from the bridge or the chat-archive journal, shown as-is; nil when none was given.
+    case reason(String?)
+    /// The sync deletion record could not be saved, so nothing was deleted. The caller owns the
+    /// user-facing text.
+    case sync(PhiProfileDeletionError)
+
+    /// The reason text, for callers that only log it.
+    var reasonText: String? {
+        switch self {
+        case .reason(let text): return text
+        case .sync(let error): return String(describing: error)
+        }
+    }
+}
+
 /// Chromium's TemplateURLService. `id` is the engine's stable sync GUID — the
 /// wire identity used to set the default.
 struct SearchEngineInfo: Identifiable, Hashable {
@@ -51,12 +78,19 @@ struct ProfileExtensionInfo: Identifiable, Hashable {
 /// CRUD goes through the bridge (`createProfileWithDisplayName:completion:`,
 /// `deleteProfile:completion:`); after each mutation the manager refreshes
 /// its cache so subscribers see the new shape. Lazy profile loading
-/// (`ensureProfileLoaded:`) is driven from `SpaceManager.activate` and
+/// (`ensureProfileLoaded:`) is driven from `SpaceManager.activate` and, for
+/// sync, from `SyncProfileLoader` (docs/sync.md, "Profile loading"); it
 /// doesn't change the published list.
 final class ProfileManager: ObservableObject {
     static let shared = ProfileManager()
 
     @Published private(set) var profiles: [PhiBrowserProfile] = []
+    /// True once a bridge read has returned a complete, non-empty Profile list; never
+    /// reset. Until then `profiles` is empty because nothing has been read, not because
+    /// there is nothing to sync, so sync admits no round before it
+    /// (docs/sync.md, "Enrollment and setup"). Set before `profiles` is assigned,
+    /// so a `$profiles` subscriber (which runs before the value is stored) reads it true.
+    private(set) var isProfileListEnumerated = false
     private var archiveObservers: [NSObjectProtocol] = []
     private var archiveTimer: Timer?
     private var archiveInFlight = false
@@ -84,25 +118,46 @@ final class ProfileManager: ObservableObject {
 
     // MARK: - Read
 
+    static let listDidChange = Notification.Name("ProfileManager.listDidChange")
+
+    /// Complete, read-only bridge projection. Unlike refresh(), this does not
+    /// persist names or drain the chat archive journal.
+    static func readProfiles() -> [PhiBrowserProfile]? {
+        guard let bridge = ChromiumLauncher.sharedInstance().bridge else { return nil }
+        let raw = bridge.listProfiles()
+        let decoded = raw.compactMap(Self.decode(_:))
+        guard !decoded.isEmpty, decoded.count == raw.count else { return nil }
+        return decoded
+    }
+
     /// Pulls the latest profile list from the bridge. Synchronous and
     /// cheap (Chromium-side just reads from in-memory ProfileAttributesStorage).
     /// Safe to call repeatedly on the main thread.
     @discardableResult
     func refresh() -> Bool {
-        guard let bridge = ChromiumLauncher.sharedInstance().bridge else {
-            // Bridge not up yet at very early launch; `profiles` stays empty
-            // and the first post-launch `refresh()` (driven by any UI that
-            // needs profiles) will populate it.
-            return false
-        }
-        let raw = bridge.listProfiles()
-        let decodedProfiles = raw.compactMap(Self.decode(_:))
         // An incomplete bridge response must not look like Profile deletion.
-        guard !decodedProfiles.isEmpty, decodedProfiles.count == raw.count else { return false }
+        guard let decodedProfiles = Self.readProfiles() else { return false }
+        isProfileListEnumerated = true
+        let identityChanged = Set(profiles.map(\.profileId)) != Set(decodedProfiles.map(\.profileId))
         profiles = decodedProfiles
+        if identityChanged {
+            NotificationCenter.default.post(name: Self.listDidChange, object: self)
+        }
         persistDisplayNamesToLocalStore(decodedProfiles)
         drainChatArchives()
         return true
+    }
+
+    /// The sync Profile loader's periodic recheck (docs/sync.md, "Profile loading"):
+    /// the same bridge read as `refresh()`, but `profiles` is assigned only when the
+    /// decoded list differs (a Profile loading or unloading is the change it exists to
+    /// see), and none of `refresh()`'s side effects run. An unchanged list publishes
+    /// nothing, so observing views do not re-evaluate every recheck.
+    func refreshIfChanged() {
+        guard let decodedProfiles = Self.readProfiles() else { return }
+        isProfileListEnumerated = true
+        guard decodedProfiles != profiles else { return }
+        profiles = decodedProfiles
     }
 
     /// Convenience lookup — nil if the basename isn't known. Most callers
@@ -217,14 +272,48 @@ final class ProfileManager: ObservableObject {
     /// Successful deletion starts best-effort memory cleanup for the original
     /// account. Completion reports Chromium deletion; cleanup failures are logged.
     /// Import rollback disables memory cleanup and conversation archival.
+    ///
+    /// `sync` other than `.none` also stops the Profile's Chromium sync before the deletion and,
+    /// once Chromium has committed it, removes the Profile's rows from the local store. A
+    /// `.userAction` deletion of a mapped Profile first persists its intent in the sync deletion
+    /// journal and fails without deleting anything when that write fails; the engine then
+    /// publishes the tombstone (docs/sync.md, "Profile deletion and rename").
     @MainActor
     func deleteProfile(_ profileId: String,
                        removeMemories: Bool = true,
                        archiveConversations: Bool = true,
-                       completion: @escaping (Bool, String?) -> Void) {
+                       sync: ProfileDeletionSync = .none,
+                       completion: @escaping (Bool, ProfileDeletionFailure?) -> Void) {
         guard let bridge = ChromiumLauncher.sharedInstance().bridge else {
-            completion(false, "bridge unavailable")
+            completion(false, .reason("bridge unavailable"))
             return
+        }
+        let syncState = PhiSpaceSyncState.shared
+        let syncUuid: String?
+        switch sync {
+        case .none:
+            syncUuid = nil
+        case .userAction:
+            do {
+                syncUuid = try syncState.beginLocalProfileDeletion(localProfileId: profileId)
+            } catch {
+                AppLogError("[ProfileManager] could not persist the sync deletion intent")
+                completion(false, .sync(error as? PhiProfileDeletionError ?? .intentNotSaved))
+                return
+            }
+        case .remoteTombstone:
+            syncUuid = nil
+            syncState.withdrawProfileKey?(profileId)
+        }
+        /// Undoes the sync preparation above when the deletion does not happen.
+        func cancelSync() {
+            switch sync {
+            case .none: break
+            case .userAction:
+                if let syncUuid { syncState.cancelLocalProfileDeletion(syncUuid: syncUuid, localProfileId: profileId) }
+            case .remoteTombstone:
+                syncState.restoreProfileKey?(profileId)
+            }
         }
         let memoryService = removeMemories ? try? SiteMemoryService.currentAccount() : nil
         let journal = archiveConversations ? AccountController.shared.account.map(Self.chatArchiveJournal) : nil
@@ -233,12 +322,17 @@ final class ProfileManager: ObservableObject {
             // Persist before the irreversible browser operation, even with AI off.
             pending = try journal?.prepare(profileId: profileId)
         } catch {
+            cancelSync()
             AppLogError("[ProfileChatArchive] could not persist deletion intent")
-            completion(false, NSLocalizedString("profiles.archive.prepareFailed",
+            completion(false, .reason(NSLocalizedString("profiles.archive.prepareFailed",
                 value: "Could not save the conversation recovery record. Please try again.",
-                comment: "Profile deletion - Error when the local recovery record could not be saved before deleting a profile"))
+                comment: "Profile deletion - Error when the local recovery record could not be saved before deleting a profile")))
             return
         }
+        // The account whose sync state and local rows this deletion belongs to. The Chromium
+        // deletion is async; if the account changes meanwhile, the bookkeeping below must not land
+        // in the new account (the original account's journal entry reconciles it later).
+        let account = AccountController.shared.localDataAccount
         bridge.deleteProfile(profileId) { [weak self] success, error in
             DispatchQueue.main.async {
                 if let pending, let journal {
@@ -246,6 +340,26 @@ final class ProfileManager: ObservableObject {
                     catch { AppLogError("[ProfileChatArchive] could not persist deletion result") }
                 }
                 self?.refresh()
+                if success, sync != .none, AccountController.shared.localDataAccount !== account {
+                    AppLogWarn("[ProfileManager] account changed during profile deletion; leaving the sync record for the original account to reconcile")
+                    // Otherwise the original account would read the deletion as still in flight
+                    // until a restart and never publish its tombstone.
+                    if let syncUuid { syncState.abandonLocalProfileDeletion(syncUuid: syncUuid) }
+                } else if success, sync != .none {
+                    Task { @MainActor in
+                        if let account {
+                            await Self.removeLocalRows(ofDeletedProfile: profileId, account: account,
+                                                       alsoHiddenSyncUuids: [])
+                        }
+                        if let syncUuid {
+                            syncState.recordLocalProfileDeletion(syncUuid: syncUuid, localProfileId: profileId)
+                        } else {
+                            syncState.finishProfileKeyWithdrawal?(profileId)
+                        }
+                    }
+                } else if !success {
+                    cancelSync()
+                }
                 if success, removeMemories {
                     if let memoryService {
                         Task {
@@ -259,8 +373,30 @@ final class ProfileManager: ObservableObject {
                         AppLogWarn("[ProfileManager] Skipped memory cleanup for deleted profile \(profileId): account unavailable")
                     }
                 }
-                completion(success, error)
+                completion(success, success ? nil : .reason(error))
             }
+        }
+    }
+
+    /// Removes what a deleted Profile leaves in the local store (docs/sync.md, "Profile deletion
+    /// and rename"): the Spaces still bound to it that a remote deletion soft-deleted (hidden),
+    /// with their content -- they are account-deleted already, and once the sync table is reset
+    /// nothing would hide them any more -- then its Profile-scoped pinned rows and `ProfileModel`
+    /// row. Best effort and idempotent: the sync engine runs it again after a crash.
+    /// `alsoHiddenSyncUuids`: Spaces hidden in the pull page being landed, whose table is written
+    /// only after this runs (empty for a user's deletion).
+    @MainActor
+    static func removeLocalRows(ofDeletedProfile profileId: String, account: Account,
+                                alsoHiddenSyncUuids: Set<String>) async {
+        let bound = account.localStorage.getAllSpaces().filter { $0.profileId == profileId }.map(\.spaceId)
+        let hidden = PhiSpaceSyncState.shared.remotelyDeletedSpaceIds(
+            among: bound, alsoHiddenSyncUuids: alsoHiddenSyncUuids).sorted()
+        do {
+            try await account.localStorage.deleteProfileRowCascadeThrowing(profileId: profileId,
+                                                                          hiddenSpaceIds: hidden)
+            for spaceId in hidden { SpaceManager.shared.clearThemeRecords(forSpaceId: spaceId) }
+        } catch {
+            AppLogWarn("[ProfileManager] could not remove the deleted profile's local rows")
         }
     }
 

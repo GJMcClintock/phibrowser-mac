@@ -23,6 +23,9 @@ protocol ExtensionMessagingProtocol {
     ///   - type: The message type
     ///   - payload: The JSON payload string
     func broadcast(type: String, payload: String)
+
+    /// Send an event only to the authenticated external-agent session.
+    func broadcastToAgent(type: String, payload: String, principalId: String)
 }
 
 final class ExtensionMessaging: @MainActor ExtensionMessagingProtocol {
@@ -61,6 +64,26 @@ final class ExtensionMessaging: @MainActor ExtensionMessagingProtocol {
             AgentDirectChannelRegistry.shared.broadcast(type: type, payloadJson: payload)
             _ = ChromiumLauncher.sharedInstance().bridge?
                 .broadcastMessageToExtensions(withType: type, payload: payload)
+        }
+    }
+
+    /// Delivers to the browser's extensions only, never to direct agent
+    /// channels. For events that carry user content (a page being saved, a
+    /// note the user typed) and have no task driver to scope them to.
+    @MainActor
+    func broadcastToExtensions(type: String, payload: String) {
+        DispatchQueue.main.async {
+            _ = ChromiumLauncher.sharedInstance().bridge?
+                .broadcastMessageToExtensions(withType: type, payload: payload)
+        }
+    }
+
+    /// Agent card decisions never cross the extension broadcast channel.
+    @MainActor
+    func broadcastToAgent(type: String, payload: String, principalId: String) {
+        DispatchQueue.main.async {
+            AgentDirectChannelRegistry.shared.broadcast(
+                type: type, payloadJson: payload, principalId: principalId)
         }
     }
 

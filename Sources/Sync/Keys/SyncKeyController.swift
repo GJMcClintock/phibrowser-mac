@@ -8,7 +8,9 @@ import Foundation
 
 extension Notification.Name {
     /// Posted at the end of EVERY `SyncKeyController.resolveMappings()` pass,
-    /// the ones that bail out early included, and by `clearResolved()`. The
+    /// the ones that bail out early included, by `clearResolved()`, and as
+    /// `.held` when a Profile leaves `profileIdsBeingCreated` without an adopt
+    /// (no pass follows that one). The
     /// single hook that says "the profile mapping picture may have changed" --
     /// today nothing broadcasts that and the Devices pane polls a closure every
     /// 3 s.
@@ -21,7 +23,8 @@ extension Notification.Name {
     static let phiProfileMappingsDidResolve = Notification.Name("phiProfileMappingsDidResolve")
 
     /// Posted by `ensureLocalProfilesForAccount()` immediately before EVERY
-    /// return, `.failed` and `.skipped` included. userInfo:
+    /// return, `.failed` and `.skipped` included, except a round that the
+    /// controller's `retire()` stopped: that one returns `.failed` silently. userInfo:
     ///   outcome:      "unchanged" | "changed" | "skipped" | "failed"
     ///   created:      Int   // profiles actually created + adopted this round
     ///   skippedUuids: Int   // account uuids left unclaimed this round
@@ -88,6 +91,15 @@ final class SyncKeyController {
     var requiresReconfiguration: Bool { markerStore?.load().requiresReconfiguration == true || runtimeRequiresReconfiguration() }
 
     private let isPairingComplete: @MainActor () -> Bool
+    /// `ProfileManager.isProfileListEnumerated`: until the list has been read once, an
+    /// empty `localProfilesProvider()` answer says nothing about which Profiles exist, so
+    /// the unmapped evidence is not pruned against it (docs/sync.md, "Enrollment and setup").
+    private let isProfileListEnumerated: @MainActor () -> Bool
+    /// The drained account's Profile entities (`PhiSpaceSyncState.accountProfileEntityView`).
+    /// Auto-create and the registration wait follow it rather than the key registry, which never
+    /// forgets a deleted Profile (docs/sync.md, "Enrollment and setup"). The closure answers nil
+    /// before the first full replay. A nil closure (tests, unwired construction) applies no gating.
+    private let profileEntityView: (@MainActor () -> AccountProfileEntityView?)?
     private let deviceKeyRotator: (any DeviceKeyRotating)?
     private let engineDefaults: UserDefaults
     private let spaceStateStore: (any PhiSpaceSyncStateStore)?
@@ -127,7 +139,8 @@ final class SyncKeyController {
         /// controller is the initial `false, false`: never a measurement at all.
         case held
         /// `clearResolved()`: the key layer is gone (locked ARK, sign-out,
-        /// teardown, a startup unlock that threw), both predicates were reset to
+        /// teardown, a startup unlock that threw before the account key was held, a
+        /// 404 for this device), both predicates were reset to
         /// `false`, and they mean UNKNOWN.
         case cleared
     }
@@ -162,12 +175,70 @@ final class SyncKeyController {
     func noteUndecryptableRemote(_ uuid: String) { undecryptableRemoteUuids.insert(uuid) }
     func noteDecryptableRemote(_ uuid: String) { undecryptableRemoteUuids.remove(uuid) }
 
+    /// Extra account defaults §3.6 has already demoted to ordinary profiles and
+    /// logged (docs/sync.md, "Profile pairing and the default profile"), so the
+    /// default-identity conflict is logged once per uuid, not every round.
+    private var loggedDefaultConflictUuids: Set<String> = []
+
+    /// Best-effort `"default"` flag backfill (docs/sync.md, "Profile pairing and
+    /// the default profile"). Single-flight like the passes below. A uuid enters
+    /// `confirmedDefaultFlagUuids` once its envelope is known to carry this Mac's
+    /// flag, so later passes do not GET it every 60 s; the entry is keyed by
+    /// profileId -> uuid, so a changed mapping re-checks. Failures are logged once
+    /// per uuid and retried by the next pass.
+    private(set) var defaultFlagBackfillTask: Task<Void, Never>?
+    private var confirmedDefaultFlagUuids: [String: String] = [:]
+    private var loggedDefaultFlagFailureUuids: Set<String> = []
+
+    // MARK: - Profile mapping pause inputs (docs/sync.md, "Enrollment and setup")
+    //
+    // Read the way the two pairing predicates above are read: every write lands
+    // before the `.phiProfileMappingsDidResolve` that announces it, so an observer
+    // of that notification sees one consistent picture. `SyncProfileMappingPause`
+    // turns them into a decision; nothing here pauses anything.
+
+    /// The local Profiles whose mapping this controller knows to be absent on the
+    /// server: a lookup found the envelope of their persisted mapping gone (404),
+    /// or a MEASURED pass left them without a resolved account Profile. Evidence,
+    /// not a per-pass answer: a held pass adds what it proved and erases nothing,
+    /// so a 404 followed by a failed re-registration keeps pausing although the
+    /// persisted mapping still exists. A Profile leaves only when a pass or an
+    /// adopt resolves it, or when it no longer exists locally. `clearResolved()`
+    /// keeps it while the account key is still available (a failed startup
+    /// unlock proves nothing about the server's Profiles) and empties it once the
+    /// key is gone or the controller is retired.
+    private(set) var knownUnmappedProfileIds: Set<String> = []
+
+    /// How the last pass ended: measured, held by a transient failure (a later
+    /// pass can fix it), or refused definitively (the user has to act). Nil until
+    /// a pass has run, and again after `clearResolved()`.
+    private(set) var lastMappingsPassResult: SyncProfileMappingPassResult?
+
+    /// Status-only category of the failure behind `lastMappingsPassResult`: nil
+    /// when the last pass succeeded, before any pass, and after `clearResolved()`.
+    /// Nothing decides anything on it; the pause's reason comes from the result.
+    private(set) var lastMappingsFailureCategory: SyncProfileMappingFailureCategory?
+
+    /// Local Profiles this controller created (§3.6's auto-create, the pairing
+    /// wizard's "create local") and has not finished adopting. The pause ignores
+    /// them until the adopt has finished or failed.
+    private(set) var profileIdsBeingCreated: Set<String> = []
+
+    /// The worst failure of the most recent auto-create round, nil when it failed
+    /// nothing. A measured pass that still leaves a Profile unmapped reports it:
+    /// an account Profile that auto-create could not claim is what keeps that
+    /// Profile's registration waiting.
+    private var lastAutoCreateFailure: SyncProfileMappingPassResult?
+    private var lastAutoCreateFailureCategory: SyncProfileMappingFailureCategory?
+
     init(manager: AccountKeyManager, approvals: DeviceApprovalService, profileKeys: ProfileKeyManager,
          spaceKeys: SpaceSyncMappingManager? = nil,
          localProfilesProvider: @escaping () -> [(profileId: String, displayName: String)],
          notifyChromium: @escaping () -> Void,
          profileCreator: any LocalProfileCreating = ProfileManager.shared,
          isPairingComplete: @escaping @MainActor () -> Bool = { ProfilePairingGate.shared.isPaired },
+         isProfileListEnumerated: @escaping @MainActor () -> Bool = { true },
+         profileEntityView: (@MainActor () -> AccountProfileEntityView?)? = nil,
          retirePhiSync: @escaping (Bool) -> Void = { _ in },
          invalidateEnrollment: @escaping () throws -> Void = {},
          deviceKeyRotator: (any DeviceKeyRotating)? = nil,
@@ -180,8 +251,12 @@ final class SyncKeyController {
          verifyCursorDeletion: @escaping () throws -> Void = {},
          isCurrentAccount: @escaping () -> Bool = { true },
          runtimeRequiresReconfiguration: @escaping () -> Bool = { false },
-         runtimeRemovalPending: @escaping () -> Bool = { false }) {
+         runtimeRemovalPending: @escaping () -> Bool = { false },
+         unlockRetryDelay: @escaping (Int) -> Duration = SyncKeyController.defaultUnlockRetryDelay) {
         self.isPairingComplete = isPairingComplete
+        self.unlockRetryDelay = unlockRetryDelay
+        self.isProfileListEnumerated = isProfileListEnumerated
+        self.profileEntityView = profileEntityView
         self.manager = manager
         self.approvals = approvals
         self.profileKeys = profileKeys
@@ -204,10 +279,53 @@ final class SyncKeyController {
         self.clearAllSyncIds = clearAllSyncIds
     }
 
+    /// While true, `profileSyncInfo` answers nil for every Profile; setting it
+    /// back hands out the same values again, because resolution and the cache
+    /// carry on underneath. Withdrawing a key stops a Chromium engine without
+    /// clearing its metadata (docs/sync.md, "Chromium account and key
+    /// lifecycle"). Plain state: its owner decides when to set it and pings
+    /// Chromium itself.
+    var chromiumKeysWithdrawn = false
+
+    /// Local Profiles being deleted (docs/sync.md, "Chromium account and key lifecycle"). Their key
+    /// is withdrawn and a mapping pass neither resolves nor registers them, so a deleted Profile's
+    /// basename cannot keep or regain a key and its absence never reads as "unmapped".
+    private(set) var profileIdsBeingDeleted: Set<String> = []
+    /// Mapping pass sequence: incremented as each pass starts. A withdrawal records the current
+    /// value, so a pass that was already running when the key was withdrawn (its start is not
+    /// later than the withdrawal) cannot put the key back, even when the deletion finished and
+    /// left `profileIdsBeingDeleted` before the pass resumed.
+    private var passSequence: UInt64 = 0
+    private var withdrawnAtPass: [String: UInt64] = [:]
+    /// Every account Profile uuid the key registry listed at its last successful read. The registry
+    /// never forgets a uuid, so the sync engine resolves any Profile tombstone's tag from it
+    /// (docs/sync.md, "Profile entity"). Empty until the first read this process.
+    private(set) var lastAccountProfileUuids: Set<String> = []
+
+    /// Stops Chromium sync for one Profile before it is deleted.
+    func withdrawProfileKey(profileId: String) {
+        profileIdsBeingDeleted.insert(profileId)
+        withdrawnAtPass[profileId] = passSequence
+        if resolved.removeValue(forKey: profileId) != nil { notifyChromium() }
+    }
+
+    /// The deletion failed: the Profile stays, so the next pass resolves its key again.
+    func restoreProfileKey(profileId: String) {
+        guard profileIdsBeingDeleted.remove(profileId) != nil else { return }
+        withdrawnAtPass[profileId] = nil
+        Task { @MainActor [weak self] in await self?.resolveMappings() }
+    }
+
+    /// The deletion committed; the Profile is gone from the local list. `withdrawnAtPass` keeps
+    /// the entry until a pass prunes it, so a pass that was suspended meanwhile cannot restore it.
+    func finishProfileKeyWithdrawal(profileId: String) {
+        profileIdsBeingDeleted.remove(profileId)
+    }
+
     /// Hot path: the bridge delegate calls this on every Chromium pull.
     /// Dictionary read only — no I/O, no crypto.
     func profileSyncInfo(forProfileId profileId: String) -> (uuid: String, passphrase: String)? {
-        guard isPairingComplete() else { return nil }
+        guard isPairingComplete(), !chromiumKeysWithdrawn else { return nil }
         return resolved[profileId]
     }
 
@@ -333,6 +451,10 @@ final class SyncKeyController {
             throw NativeSyncResetError.cleanupFailed
         }
         PhiSpaceSyncState.shared.refreshCaches(from: PhiSpaceSyncTable())
+        // The Profile deletion journal describes the cursors just cleared.
+        if let intents = PhiSpaceSyncState.shared.profileDeletionIntentStore, !intents.save([:]) {
+            throw NativeSyncResetError.cleanupFailed
+        }
         markerStore?.deleteFile()
         guard markerStore?.load().requiresReconfiguration != true else {
             throw NativeSyncResetError.cleanupFailed
@@ -342,32 +464,127 @@ final class SyncKeyController {
     }
 
     /// Startup/login entry: unlock without UI, then resolve mappings and ping.
-    /// `.needsJoin` / `.notSignedIn` leave the cache empty — the Devices pane
-    /// remains the place where joining/bootstrap UI happens.
+    /// The Profile-list follow-up enters here too. `.needsJoin` / `.notSignedIn`
+    /// leave the cache empty — the Devices pane remains the place where
+    /// joining/bootstrap UI happens.
     ///
-    /// Any outcome other than `.unlocked` (including a thrown, possibly
-    /// transient, failure) CLEARS the cache rather than leaving it standing.
-    /// This direction is deliberately the opposite of `resolveMappings()`'s
-    /// transient handling: here the unknown state fails *closed* (Chromium
-    /// pulls nil and the sync gate shuts), which is always safe. In
-    /// `resolveMappings()` the same uncertainty would fail *open* — minting a
-    /// fresh UUID over a live mapping — so there it must be preserved instead.
+    /// While the ARK is NOT held, any outcome other than `.unlocked` (including
+    /// a thrown, possibly transient, failure) CLEARS the cache rather than
+    /// leaving it standing: the unknown state fails *closed* (Chromium pulls nil
+    /// and the sync gate shuts), and the first successful unlock announces
+    /// `.phiAccountKeyDidUnlock`, so a later trigger retries. A thrown failure
+    /// in that state also schedules its own retry (`scheduleUnlockRetry`): the
+    /// only other triggers are the launch-time login refresh and a Profile-list
+    /// change, so a launch with the key service unreachable otherwise stayed
+    /// locked after the connection returned (every round `gated`, every Chromium
+    /// Profile `notUnlocked`, Sync Now refused; PR #181 acceptance, 2026-10-12).
+    ///
+    /// Once the ARK is held that retry no longer exists (the notification fires
+    /// only on the nil -> unlocked transition), so a transient failure would
+    /// withdraw the keys until the next Profile-list change. A throw (offline,
+    /// timeout, 5xx, Keychain) or a 401 (`.notSignedIn`: sign-out retires the
+    /// controller, so a live one has a token blip) therefore keeps the cache and
+    /// runs `resolveMappings()`, which holds rather than clears on its own
+    /// transient failures. Only `.needsJoin` still clears: a 404 with no parked
+    /// registration is the definitive answer that this device's envelope is gone
+    /// (remote revocation, server reset).
+    ///
+    /// Single-flight, like `resolveMappings()`: see `silentUnlockTask`.
     func silentUnlockAndResolve() async {
+        guard !isRetired else { return }
+        silentUnlockPending = true
+        if let running = silentUnlockTask {
+            // One more pass after the current one, then return with every other
+            // waiter: the startup caller starts sync after this await, so it must
+            // mean "a pass that saw my state has finished".
+            await running.value
+            return
+        }
+        let task = Task { @MainActor [weak self] in
+            while let self, self.silentUnlockPending {
+                self.silentUnlockPending = false
+                await self.silentUnlockAndResolveOnce()
+            }
+            // No suspension between the loop's last check and this write (see
+            // `resolveMappings()`).
+            self?.silentUnlockTask = nil
+        }
+        silentUnlockTask = task
+        await task.value
+    }
+
+    private func silentUnlockAndResolveOnce() async {
         guard !isRetired else { return }
         let result: UnlockResult
         do {
             result = try await manager.unlockAtStartup()
         } catch {
-            clearResolved()  // transient (offline etc.) — a later trigger retries
+            // The unlock is an `await`; the account may have gone away inside it (review A11).
+            guard !isRetired else { return }
+            guard manager.currentARK != nil else {
+                clearResolved()  // transient (offline etc.) — fails closed until the retry below unlocks
+                scheduleUnlockRetry(after: error)
+                return
+            }
+            AppLogWarn("[phi-sync] silent unlock failed with the account key held; keeping resolved keys (\(PhiSyncLog.describe(error)))")
+            await resolveMappings()
             return
         }
-        // The unlock is an `await`; the account may have gone away inside it (review A11).
         guard !isRetired else { return }
-        guard result == .unlocked else {
+        // Any answer from the key service settles the retry: `.unlocked` is what it waited
+        // for, and `.needsJoin` / `.notSignedIn` are definitive (a join or a sign-in re-enters
+        // here through the pane and the login notifications).
+        cancelUnlockRetry()
+        switch result {
+        case .unlocked:
+            break
+        case .needsJoin:
+            // The only branch that withdraws keys while the account key is held, so it
+            // leaves a trace: nothing in `clearResolved()` logs (acceptance 2026-10-10).
+            if manager.currentARK != nil {
+                AppLogWarn("[phi-sync] silent unlock found no envelope for this device; withdrawing resolved keys")
+            }
             clearResolved()
             return
+        case .notSignedIn:
+            guard manager.currentARK != nil else {
+                clearResolved()
+                return
+            }
+            AppLogWarn("[phi-sync] silent unlock got 401 with the account key held; keeping resolved keys")
         }
         await resolveMappings()
+    }
+
+    /// Runs a silent unlock now when the account key is not held: Sync Now on a
+    /// launch whose unlock failed is the user asking for exactly that, and the
+    /// coordinator refuses the request itself while the key is missing. A pending
+    /// retry is replaced, not doubled; with the key held this is a no-op.
+    func kickSilentUnlockIfLocked() {
+        guard !isRetired, manager.currentARK == nil else { return }
+        cancelUnlockRetry()
+        Task { @MainActor [weak self] in await self?.silentUnlockAndResolve() }
+    }
+
+    /// Arms one retry of the silent unlock after a thrown failure without the
+    /// account key. The pass that it runs lands back in `silentUnlockAndResolveOnce`,
+    /// which re-arms on the next throw (with a longer wait) or settles on any
+    /// answer. One timer at a time: a second failure while one is pending (the
+    /// Profile-list follow-up can fail the same way) keeps the earlier, shorter wait.
+    private func scheduleUnlockRetry(after error: Error) {
+        guard unlockRetryTask == nil else { return }
+        let attempt = unlockRetryAttempt
+        unlockRetryAttempt += 1
+        let delay = unlockRetryDelay(attempt)
+        AppLogWarn("[phi-sync] silent unlock failed without the account key; retrying in \(delay.components.seconds)s (\(PhiSyncLog.describe(error)))")
+        unlockRetryTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: delay)
+            guard let self, !Task.isCancelled, !self.isRetired else { return }
+            self.unlockRetryTask = nil
+            // Another flow may have supplied the key meanwhile. Still complete this
+            // recovery pass: holding the account key alone does not publish Profile keys.
+            await self.silentUnlockAndResolve()
+        }
     }
 
     /// Drops every cached key and pings Chromium if there was anything to drop,
@@ -377,9 +594,13 @@ final class SyncKeyController {
     /// It ANNOUNCES, because it is the other writer of both pairing predicates:
     /// a lock or sign-out taken while the app-modal pairing gate is up flips them
     /// false here with no pass to follow (`silentUnlockAndResolve` returns
-    /// straight after), and the gate dismisses only from
+    /// straight after its clearing branches), and the gate dismisses only from
     /// `.phiProfileMappingsDidResolve`. Staying silent would leave the browser
     /// blocked behind a modal with nothing left to pair.
+    ///
+    /// `knownUnmappedProfileIds` survives it while the account key is still
+    /// available: a startup unlock that failed says nothing about which mappings
+    /// are gone on the server.
     ///
     /// It announces as `.cleared`, NOT like a measured pass: the false predicates
     /// below say "unknown", so the gate may take its window down but must not
@@ -392,6 +613,9 @@ final class SyncKeyController {
         resolved = [:]
         needsPairing = false
         needsPairingActionable = false
+        if isRetired || manager.currentARK == nil { knownUnmappedProfileIds = [] }
+        lastMappingsPassResult = nil
+        lastMappingsFailureCategory = nil
         if wasPopulated { notifyChromium() }
         announceMappingsResolved(.cleared)
     }
@@ -405,12 +629,29 @@ final class SyncKeyController {
     private(set) var isRetired = false
 
     /// The teardown entry (review A11): clears the cache like `clearResolved()`, cancels the
-    /// running pass, and marks the controller so a pass that cannot be cancelled mid-request
-    /// still writes nothing once it resumes.
+    /// running pass and auto-create round, and marks the controller so a pass or round that
+    /// cannot be cancelled mid-request still writes nothing once it resumes.
     func retire() {
         isRetired = true
         resolveTask?.cancel()
+        silentUnlockTask?.cancel()
+        cancelUnlockRetry()
+        autoCreateTask?.cancel()
+        defaultFlagBackfillTask?.cancel()
         clearResolved()
+    }
+
+    /// 5 s doubling to 60 s: the key-service lookup is one GET, and nothing
+    /// observes the connection coming back (the repair loop in
+    /// `SyncProfileMappingPauseReconciler` caps its offline wait the same way).
+    static func defaultUnlockRetryDelay(attempt: Int) -> Duration {
+        .seconds(min(5 << min(attempt, 4), 60))
+    }
+
+    private func cancelUnlockRetry() {
+        unlockRetryTask?.cancel()
+        unlockRetryTask = nil
+        unlockRetryAttempt = 0
     }
 
     /// Re-runs resolution after external events (pairing applied, approval
@@ -441,6 +682,13 @@ final class SyncKeyController {
     /// and a consumer must no more read them as an answer than it reads
     /// `clearResolved()`'s. Only the branch that ASSIGNS the two predicates
     /// announces `.measured`.
+    ///
+    /// Registration failures are classified, never swallowed. A
+    /// transient one (transport, offline, 5xx, 401/403, still locked)
+    /// holds the pass exactly like an unknown local: the Profile it could not
+    /// register must not read as "measured, unmapped", which is an answer. A
+    /// definitive one (bad envelope, an unexpected 4xx) still measures, and
+    /// `lastMappingsPassResult` says so.
     func resolveMappings() async {
         resolvePending = true
         if let running = resolveTask {
@@ -479,16 +727,64 @@ final class SyncKeyController {
     private var resolveTask: Task<Void, Never>?
     private var resolvePending = false
 
+    /// Removes the keys of Profiles being deleted, and of every Profile withdrawn during or after
+    /// the pass that started at `passStartedAt`, from the resolved cache after a pass merged its result.
+    private func dropWithdrawnKeys(passStartedAt: UInt64) {
+        for profileId in profileIdsBeingDeleted { resolved[profileId] = nil }
+        for (profileId, seq) in withdrawnAtPass where seq >= passStartedAt { resolved[profileId] = nil }
+    }
+
+    /// Single-flight state for `silentUnlockAndResolve()`. It is entered from the
+    /// startup/login unlock and from the Profile-list follow-up, and the two can
+    /// overlap: one pass resolved the keys, then the other's device-envelope
+    /// lookup failed (an offline blip, a 45 s request timeout) and its
+    /// `clearResolved()` wiped what the first had just resolved, so Chromium
+    /// pulled nil and sync silently stopped (BH-52). So: one unlock pass at a
+    /// time, later callers coalesce into exactly one follow-up pass.
+    private var silentUnlockTask: Task<Void, Never>?
+    private var silentUnlockPending = false
+
+    /// The pending retry of a silent unlock that threw without the account key
+    /// (`scheduleUnlockRetry`), and how many such retries this locked stretch has
+    /// used; both reset when a pass gets any answer. The delay is injected so
+    /// tests do not wait.
+    private var unlockRetryTask: Task<Void, Never>?
+    private var unlockRetryAttempt = 0
+    private var unlockRetryDelay: (Int) -> Duration = SyncKeyController.defaultUnlockRetryDelay
+
     private func resolveMappingsOnce() async {
         guard !isRetired else { return }
         var next: [String: (uuid: String, passphrase: String)] = [:]
-        let locals = localProfilesProvider()
+        let previousStart = passSequence
+        passSequence += 1
+        let startedAt = passSequence
+        let allLocals = localProfilesProvider()
+        // A finished withdrawal older than one full pass whose basename no local Profile names any
+        // more is forgotten; a new Profile that reuses the basename then resolves normally.
+        let localIds = Set(allLocals.map(\.profileId))
+        withdrawnAtPass = withdrawnAtPass.filter { id, seq in
+            seq >= previousStart || localIds.contains(id) || profileIdsBeingDeleted.contains(id)
+        }
+        let locals = allLocals.filter { !profileIdsBeingDeleted.contains($0.profileId) }
         var unmappedLocals: [(profileId: String, displayName: String)] = []
         var hasUnknownLocal = false
+        // Every failure this pass met, by class (BH-15). Any transient one holds
+        // the pass; the worst one becomes `lastMappingsPassResult`.
+        var failures: Set<SyncProfileMappingPassResult> = []
+        // The status-only category of the latest failure this pass met.
+        var failureCategory: SyncProfileMappingFailureCategory?
+        // Evidence for `knownUnmappedProfileIds`, applied only after the retirement
+        // checks below: Profiles this pass resolved, and Profiles whose persisted
+        // mapping it found gone on the server.
+        var resolvedNow: Set<String> = []
+        var provenAbsent: Set<String> = []
         for local in locals {
             do {
-                if let rec = try await profileKeys.resolvedRecord(forLocalProfile: local.profileId) {
+                let record = try await profileKeys.resolvedRecord(forLocalProfile: local.profileId)
+                guard !isRetired else { return }
+                if let rec = record {
                     next[local.profileId] = (rec.uuid, rec.passphrase)
+                    resolvedNow.insert(local.profileId)
                     probeResolve("existing", profileId: local.profileId, uuid: rec.uuid, passphrase: rec.passphrase)
                 } else {
                     // A non-nil priorMapping here means the local is mapped to a UUID
@@ -499,11 +795,16 @@ final class SyncKeyController {
                     // two lines within one bundle.
                     let priorMapping = profileKeys.mappedGlobalUuid(forProfileId: local.profileId)
                     AppLogInfo("[phi-sync-probe] unmapped profile=\(local.profileId) priorMapping=\(priorMapping.map { String($0.prefix(8)) } ?? "none")")
+                    if priorMapping != nil { provenAbsent.insert(local.profileId) }
                     unmappedLocals.append(local)
                 }
             } catch {
+                guard !isRetired else { return }
                 hasUnknownLocal = true
-                AppLogInfo("[phi-sync-probe] unknown(transient) profile=\(local.profileId)")
+                let failure = Self.mappingFailureResult(for: error)
+                failures.insert(failure)
+                failureCategory = Self.mappingFailureCategory(for: error)
+                AppLogInfo("[phi-sync-probe] unknown(\(failure.rawValue)) profile=\(local.profileId) (\(PhiSyncLog.describe(error)))")
                 if let previous = resolved[local.profileId] { next[local.profileId] = previous }
             }
         }
@@ -519,6 +820,7 @@ final class SyncKeyController {
             remoteUuids = try await profileKeys.accountProfileUuids()
             // Review A11: the listing may have answered for the NEXT account; write nothing.
             guard !isRetired else { return }
+            lastAccountProfileUuids = remoteUuids
         } catch {
             guard !isRetired else { return }
             // Unknown remote set (offline / 5xx / 401 / still locked). Hold the
@@ -527,37 +829,66 @@ final class SyncKeyController {
             // update until the next trigger. `.held`, because the predicates that
             // ride along were not measured here: reading them as an answer is how
             // one flap retires a pending join for good.
+            failures.insert(Self.mappingFailureResult(for: error))
+            lastMappingsPassResult = Self.passResult(failures)
+            lastMappingsFailureCategory = Self.mappingFailureCategory(for: error)
             resolved.merge(next) { _, new in new }
+            // A withdrawal that landed while this pass was suspended still holds, also once the
+            // deletion has finished.
+            dropWithdrawnKeys(passStartedAt: startedAt)
+            noteUnmappedEvidence(locals: locals, resolved: resolvedNow, absent: provenAbsent)
             if !resolved.isEmpty { notifyChromium() }
             announceMappingsResolved(.held)
             return
         }
 
+        let uuidsBeingDeleted = Set(profileIdsBeingDeleted.compactMap {
+            profileKeys.mappedGlobalUuid(forProfileId: $0)
+        })
         if !hasUnknownLocal, isPairingComplete() {
             let claimed = Set(next.values.map { $0.uuid })
-            let unclaimed = remoteUuids.subtracting(claimed)
-            if unclaimed.isEmpty {
-                // First device (or all remotes already claimed): register the rest.
-                for local in unmappedLocals {
+            // Registration waits only for an account Profile that §3.6's twin search
+            // or auto-create can still claim onto this Mac, so a same-named local is
+            // adopted rather than forked. Two kinds can never be claimed that way and
+            // must not hold registration forever: an envelope
+            // that does not open under this ARK, and a uuid the persisted mapping
+            // already gives to a local Profile that no longer exists (auto-create
+            // deliberately never grows that one back).
+            var claimable = remoteUuids.subtracting(claimed)
+                .subtracting(undecryptableRemoteUuids)
+                .subtracting(profileKeys.allMappedGlobalUuids())
+            // Auto-create claims only account Profiles with a live Profile entity, so nothing else
+            // may hold registration either: a deleted Profile's registry row would hold it
+            // forever. Before the first full replay auto-create claims nothing at all, and waiting
+            // on it would hold the pause that keeps that replay from running.
+            if let profileEntityView {
+                if let view = profileEntityView() { claimable.formIntersection(view.liveUuids) }
+                else { claimable = [] }
+            }
+            // D20: no count-based adopt. One unmapped local beside one unclaimed
+            // account Profile is not evidence that they are the same Profile; the
+            // twin search matches by name and a new local is registered as new (R4).
+            if claimable.isEmpty {
+                for local in unmappedLocals where !profileIdsBeingCreated.contains(local.profileId) {
                     // Review A11: every registration is a network write sealed with this
                     // controller's ARK; none may start once the account is gone.
                     guard !isRetired else { return }
-                    // `alreadyMapped` cannot normally reach here (only unmapped
-                    // locals are in this list); if it does, skipping is correct
-                    // — same handling as any other transient registration miss.
-                    if let rec = try? await profileKeys.registerLocalProfile(
-                        profileId: local.profileId, displayName: local.displayName) {
+                    do {
+                        let rec = try await profileKeys.registerLocalProfile(
+                            profileId: local.profileId, displayName: local.displayName,
+                            isDefault: local.profileId == LocalStore.defaultProfileId)
                         next[local.profileId] = (rec.uuid, rec.passphrase)
+                        resolvedNow.insert(local.profileId)
                         probeResolve("register", profileId: local.profileId, uuid: rec.uuid, passphrase: rec.passphrase)
+                    } catch {
+                        // `alreadyMapped` cannot normally reach here (only unmapped
+                        // locals are in this list); if it does, the next pass sees
+                        // the mapping that refused it, so it is transient.
+                        let failure = Self.mappingFailureResult(for: error)
+                        failures.insert(failure)
+                        failureCategory = Self.mappingFailureCategory(for: error)
+                        AppLogWarn("[phi-sync] profile registration failed class=\(failure.rawValue) profile=\(local.profileId) (\(PhiSyncLog.describe(error)))")
                     }
-                }
-            } else if unclaimed.count == 1, unmappedLocals.count == 1 {
-                guard !isRetired else { return }
-                if let uuid = unclaimed.first,
-                   let rec = try? await profileKeys.adoptRemoteProfile(
-                    uuid: uuid, forLocalProfile: unmappedLocals[0].profileId) {
-                    next[unmappedLocals[0].profileId] = (rec.uuid, rec.passphrase)
-                    probeResolve("adopt", profileId: unmappedLocals[0].profileId, uuid: rec.uuid, passphrase: rec.passphrase)
                 }
             }
         }
@@ -568,23 +899,96 @@ final class SyncKeyController {
         // partial pass can never erase a previously-good entry. The cache is
         // fully cleared only by `clearResolved()` (lock / sign-out / switch).
         resolved.merge(next) { _, new in new }
+        // A withdrawal that landed while this pass was suspended still holds, also once the
+        // deletion has finished.
+        dropWithdrawnKeys(passStartedAt: startedAt)
         // Set by the one branch that assigns the predicates, so the announcement's
         // marker follows the assignment itself rather than a re-derived condition.
         var outcome = MappingsOutcome.held
-        if hasUnknownLocal {
-            // Undecidable this pass; hold both predicates.
+        var result = Self.passResult(failures)
+        if hasUnknownLocal || failures.contains(.heldTransient) {
+            // Undecidable this pass, or a registration a later pass can still make;
+            // hold both predicates and the unmapped set.
         } else {
             let claimedAfter = Set(next.values.map { $0.uuid })
             let stillUnmapped = locals.filter { next[$0.profileId] == nil }
-            let stillUnclaimed = remoteUuids.subtracting(claimedAfter)
+            // The account Profile of a Profile being deleted here is neither unclaimed nor owed.
+            var stillUnclaimed = remoteUuids.subtracting(claimedAfter).subtracting(uuidsBeingDeleted)
+            // A registry row with no live Profile entity is not an account Profile this Mac lacks.
+            if let view = profileEntityView?() { stillUnclaimed.formIntersection(view.liveUuids) }
             needsPairing = !stillUnmapped.isEmpty || !stillUnclaimed.isEmpty
             needsPairingActionable = !stillUnmapped.isEmpty
                 || !stillUnclaimed.subtracting(undecryptableRemoteUuids).isEmpty
+            provenAbsent.formUnion(stillUnmapped.map(\.profileId))
+            if result == .measured, !stillUnmapped.isEmpty, let autoCreateFailure = lastAutoCreateFailure {
+                result = autoCreateFailure
+                failureCategory = lastAutoCreateFailureCategory
+            }
             outcome = .measured
         }
-        AppLogInfo("[phi-sync-probe] resolved=\(resolved.count) needsPairing=\(needsPairing) actionable=\(needsPairingActionable) outcome=\(outcome.rawValue)")
+        lastMappingsPassResult = result
+        lastMappingsFailureCategory = result == .measured ? nil : failureCategory
+        noteUnmappedEvidence(locals: locals, resolved: resolvedNow, absent: provenAbsent)
+        AppLogInfo("[phi-sync-probe] resolved=\(resolved.count) needsPairing=\(needsPairing) actionable=\(needsPairingActionable) outcome=\(outcome.rawValue) result=\(result.rawValue)")
         if !resolved.isEmpty { notifyChromium() }
         announceMappingsResolved(outcome)
+        // After the announcement: the backfill reads nothing this pass decides
+        // and must never delay or hold it.
+        backfillProfileDefaultFlagsBestEffort()
+    }
+
+    /// Writes the `"default"` flag into this Mac's mapped legacy envelopes so
+    /// OTHER devices' pairing can tell its Default from its other Profiles. Only
+    /// they read it: this Mac's rounds, Chromium keys and Space landing never
+    /// do, so this is strictly best effort. It never sets the pass result or
+    /// failure category, never holds an announcement and never withholds keys.
+    /// Single-flight: a pass ending while one runs leaves the work to the next
+    /// pass. Each failure is logged once per uuid and retried by later passes.
+    private func backfillProfileDefaultFlagsBestEffort() {
+        guard !isRetired, isCurrentAccount(), manager.currentARK != nil,
+              defaultFlagBackfillTask == nil else { return }
+        let mappings = profileKeys.allMappings()
+        let pending = localProfilesProvider().compactMap { local -> (profileId: String, uuid: String)? in
+            guard let uuid = mappings[local.profileId],
+                  confirmedDefaultFlagUuids[local.profileId] != uuid else { return nil }
+            return (local.profileId, uuid)
+        }
+        guard !pending.isEmpty else { return }
+        defaultFlagBackfillTask = Task { @MainActor [weak self] in
+            defer { self?.defaultFlagBackfillTask = nil }
+            for local in pending {
+                guard let self, !Task.isCancelled, !self.isRetired, self.isCurrentAccount() else { return }
+                do {
+                    let confirmed = try await self.profileKeys.backfillDefaultFlag(
+                        profileId: local.profileId, isDefault: local.profileId == LocalStore.defaultProfileId,
+                        isCurrent: { [weak self] in
+                            guard let self else { return false }
+                            return !self.isRetired && self.isCurrentAccount()
+                        })
+                    if confirmed { self.confirmedDefaultFlagUuids[local.profileId] = local.uuid }
+                } catch {
+                    guard !self.isRetired, !(error is CancellationError) else { continue }
+                    if self.loggedDefaultFlagFailureUuids.insert(local.uuid).inserted {
+                        // R12: 8 characters of the account-global uuid only.
+                        AppLogWarn("[phi-sync] profile default-flag backfill failed uuid=\(String(local.uuid.prefix(8))); retried next pass (\(PhiSyncLog.describe(error)))")
+                    }
+                }
+            }
+        }
+    }
+
+    /// Updates `knownUnmappedProfileIds` from one pass: Profiles that no longer
+    /// exist locally leave, Profiles it proved unmapped enter, and Profiles it
+    /// resolved leave last (a 404 that the same pass re-registered is resolved).
+    /// Nothing else leaves, whatever the pass result. A list that has never been
+    /// enumerated prunes nothing (AM-1): its emptiness is not a deletion.
+    private func noteUnmappedEvidence(locals: [(profileId: String, displayName: String)],
+                                      resolved: Set<String>, absent: Set<String>) {
+        if isProfileListEnumerated() {
+            knownUnmappedProfileIds.formIntersection(locals.map(\.profileId))
+        }
+        knownUnmappedProfileIds.formUnion(absent)
+        knownUnmappedProfileIds.subtract(resolved)
     }
 
     /// Every announcement states its outcome; there is no unmarked variant, so an
@@ -597,9 +1001,100 @@ final class SyncKeyController {
             userInfo: [Self.mappingsOutcomeKey: outcome.rawValue])
     }
 
+    /// The class of one register / adopt / lookup failure (BH-15), from the error
+    /// types the key layer actually throws: `KeyAPIError` from the envelope
+    /// client, `ProfileKeyManagerError`, and the crypto and decoding errors of
+    /// opening an envelope. Transient means a later pass can succeed with no
+    /// user action: no response, a token being renewed or a session changing
+    /// (401/403), the server asking for a later try (408/429/5xx), the ARK not
+    /// unlocked yet, a mapping that moved under the pass. Definitive means the
+    /// server or the envelope refused (an unexpected 4xx, a body or envelope that
+    /// does not decode or open). Anything else is transient: before this
+    /// classification every failure was retried on the next trigger, and that
+    /// stays the default.
+    nonisolated static func mappingFailureResult(for error: Error) -> SyncProfileMappingPassResult {
+        switch error {
+        case let error as KeyAPIError:
+            switch error {
+            case .transport: return .heldTransient
+            case .http(let status, _):
+                let transient = status == 0 || status == 401 || status == 403 || status == 408
+                    || status == 429 || status >= 500
+                return transient ? .heldTransient : .definitiveFailure
+            case .decode, .lastActiveDevice: return .definitiveFailure
+            }
+        case let error as ProfileKeyManagerError:
+            switch error {
+            case .notUnlocked, .alreadyMapped, .metadataConflict: return .heldTransient
+            case .badEnvelope, .defaultMismatch: return .definitiveFailure
+            }
+        case is PhiKeyCryptoError, is CryptoKitError, is DecodingError:
+            return .definitiveFailure
+        default:
+            return .heldTransient
+        }
+    }
+
+    /// The status-only category of one failure. Offline is a transport error that
+    /// means no connectivity; a missing token (the client's
+    /// `userAuthenticationRequired` transport error) reads as sign-in expired,
+    /// like 401 and 403; 5xx, 429 and 408 are server errors; everything else,
+    /// a definitive refusal included, is other.
+    nonisolated static func mappingFailureCategory(for error: Error) -> SyncProfileMappingFailureCategory {
+        guard let error = error as? KeyAPIError else { return .other }
+        switch error {
+        case .transport(let underlying):
+            guard let urlError = underlying as? URLError else { return .other }
+            switch urlError.code {
+            case .userAuthenticationRequired: return .signInExpired
+            case .notConnectedToInternet, .networkConnectionLost, .cannotFindHost, .cannotConnectToHost,
+                 .dnsLookupFailed, .timedOut, .internationalRoamingOff, .dataNotAllowed:
+                return .offline
+            default: return .other
+            }
+        case .http(let status, _):
+            if status == 401 || status == 403 { return .signInExpired }
+            if status >= 500 || status == 429 || status == 408 { return .serverError }
+            return .other
+        case .decode, .lastActiveDevice: return .other
+        }
+    }
+
+    /// A definitive failure outranks a transient one: retrying cannot clear it.
+    private static func passResult(_ failures: Set<SyncProfileMappingPassResult>) -> SyncProfileMappingPassResult {
+        if failures.contains(.definitiveFailure) { return .definitiveFailure }
+        if failures.contains(.heldTransient) { return .heldTransient }
+        return .measured
+    }
+
+    /// The one entry the pause's retry drives. §3.6's
+    /// auto-create (twin search, then create) runs FIRST and the mapping pass
+    /// second: an account Profile that auto-create claims leaves the unclaimed set
+    /// before the pass decides whether to register, so a same-named local is
+    /// adopted and a dead mapping heals onto its own uuid instead of forking a new
+    /// one. Nothing here goes through the engine, so it works while the engine is
+    /// stopped. Both halves keep their own gates -- auto-create runs only with
+    /// enrollment complete, and neither step writes while locked -- and both are
+    /// single-flight: a caller arriving while either runs joins it.
+    func runMappingRepairPass() async {
+        guard !isRetired else { return }
+        _ = await ensureLocalProfilesForAccount()
+        guard !isRetired else { return }
+        await resolveMappings()
+    }
+
     // MARK: - §3.6 Runtime profile auto-create
 
     static let maxAutoCreatesPerRound = 3
+
+    /// The candidate scan of a round whose local Default is free: at most this
+    /// many envelope reads in flight, and the whole scan bounded by
+    /// `candidateScanDeadline`, so one slow request cannot hold the sync round
+    /// (the engine awaits this refresh before it pulls pages).
+    static let candidateScanWidth = 3
+    /// An instance property, not a constant, only so the hostless fixture can
+    /// shorten it; production never changes it.
+    var candidateScanDeadline: Duration = .seconds(10)
 
     /// Profiles created by the most recent refresh, for §11's `profiles_created`
     /// counter. Read through `PhiSpaceLocalAccess.profilesCreatedInLastRefresh()`.
@@ -655,7 +1150,13 @@ final class SyncKeyController {
     /// leaves NO mapping behind, which is what makes both retries work next
     /// round: `pendingCreatedProfiles` for the profile this call created, and the
     /// "adopt the same-named unmapped profile" search for the un-suffixed case.
+    ///
+    /// A retired controller creates, adopts and maps nothing and throws
+    /// `CancellationError`. A bridge create that completes after retirement may
+    /// have made the Profile already; it is left local and unmapped, never
+    /// deleted, and never enters `profileIdsBeingCreated`.
     func createLocalProfileAndAdopt(uuid: String, displayName: String) async throws -> String {
+        guard !isRetired else { throw CancellationError() }
         let profileId: String
         if let pending = reusablePendingProfile(forUuid: uuid) {
             // A previous attempt already made a profile for exactly this uuid and
@@ -663,8 +1164,14 @@ final class SyncKeyController {
             // how one network blip becomes a permanent empty duplicate.
             profileId = pending
         } else {
-            let name = uniqueDisplayName(basedOn: displayName)
-            guard let created = await profileCreator.createProfile(displayName: name) else {
+            let name = Self.uniqueDisplayName(basedOn: displayName) { profileCreator.displayNameExists($0) }
+            let result = await profileCreator.createProfile(displayName: name)
+            guard !isRetired else {
+                // R12: metadata only, no profileId or uuid.
+                AppLogInfo("[phi-sync] controller retired while a profile was being created; created=\(result != nil), left local and unmapped")
+                throw CancellationError()
+            }
+            guard let created = result else {
                 throw ProfileKeyManagerError.badEnvelope
             }
             // Recorded BEFORE the adopt, because the adopt is the step that can
@@ -672,10 +1179,22 @@ final class SyncKeyController {
             pendingCreatedProfiles[uuid] = created
             profileId = created
         }
+        // The pause ignores this Profile until the adopt below has finished or
+        // failed. The bridge publishes a new Profile before `createProfile`
+        // returns, so the Profile-list sink sees it one step before it is here.
+        profileIdsBeingCreated.insert(profileId)
+        var adopted = false
+        defer {
+            profileIdsBeingCreated.remove(profileId)
+            // No pass follows a failed adopt; announce so the pause counts this
+            // Profile now instead of at the next trigger. A retired controller
+            // announces nothing.
+            if !adopted, !isRetired { announceMappingsResolved(.held) }
+        }
         // The create is this round's only suspension, and `$profiles` runs a
-        // `resolveMappings()` pass inside it whose 1:1 branch may have claimed
-        // this very uuid onto another local. Adopting anyway would leave two
-        // locals on one uuid.
+        // `resolveMappings()` pass inside it; whatever claimed this very uuid
+        // onto another local meanwhile (a pairing decision) wins. Adopting
+        // anyway would leave two locals on one uuid.
         if profileKeys.localProfileId(forGlobalUuid: uuid) != nil {
             // The uuid now belongs to another local, so it leaves §3.6's
             // `missing` set and this profile is NOT revisited by the next round.
@@ -686,7 +1205,17 @@ final class SyncKeyController {
             AppLogInfo("[phi-sync] uuid was claimed while the profile was being created; the new profile stays local and unmapped")
             return profileId
         }
-        _ = try await profileKeys.adoptRemoteProfile(uuid: uuid, forLocalProfile: profileId)
+        // A profile this creates is never the Default. Callers never create one
+        // for the authoritative account default; a demoted extra default is an
+        // ordinary profile.
+        _ = try await profileKeys.adoptRemoteProfile(uuid: uuid, forLocalProfile: profileId, isDefault: false)
+        // The adopt writes its mapping right after its lookup returns; a
+        // retirement inside that lookup cannot be fenced from here. Record nothing
+        // more for the controller that is gone.
+        guard !isRetired else { throw CancellationError() }
+        adopted = true
+        // Resolved: a pass that holds before it looks again must not keep pausing for it.
+        knownUnmappedProfileIds.remove(profileId)
         pendingCreatedProfiles[uuid] = nil
         return profileId
     }
@@ -695,14 +1224,16 @@ final class SyncKeyController {
     /// `createProfile` returns nil for three different reasons (empty or
     /// duplicate name, no bridge, bridge-side failure), so "nil means duplicate,
     /// try the next suffix" turns a missing bridge into unbounded probing.
-    private func uniqueDisplayName(basedOn raw: String) -> String {
+    /// Shared with the Profile entity's inbound rename (`PhiProfileLocalAccess.applyRemoteName`),
+    /// which passes a `nameExists` that excludes the Profile being renamed.
+    static func uniqueDisplayName(basedOn raw: String, nameExists: (String) -> Bool) -> String {
         let base = raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             ? NSLocalizedString("sync.pairing.unnamedProfileName", value: "Profile", comment: "Sync setup - name given to a local profile created for an account profile that has no name")
             : raw
-        guard profileCreator.displayNameExists(base) else { return base }
+        guard nameExists(base) else { return base }
         for suffix in 2...50 {
             let candidate = "\(base) (\(suffix))"
-            if !profileCreator.displayNameExists(candidate) { return candidate }
+            if !nameExists(candidate) { return candidate }
         }
         return "\(base) (\(UUID().uuidString.prefix(4)))"
     }
@@ -712,7 +1243,28 @@ final class SyncKeyController {
     /// UI. Never runs while the Space gate is shut -- during a join, "the account
     /// has a profile this Mac does not" is exactly the ambiguity the modal exists
     /// to resolve, and auto-claiming would take the choice away from the user.
+    ///
+    /// Single-flight since the repair pass calls it from
+    /// outside the engine as well: two rounds interleaving at their awaits would
+    /// both see the same uuid missing and each create a Profile for it. A caller
+    /// arriving mid-round gets that round's outcome.
     func ensureLocalProfilesForAccount() async -> ProfileRefreshOutcome {
+        if let running = autoCreateTask { return await running.value }
+        let task = Task { @MainActor [weak self] () -> ProfileRefreshOutcome in
+            guard let self else { return .failed }
+            let outcome = await self.ensureLocalProfilesForAccountOnce()
+            // No suspension between the round's end and this write, as in `resolveMappings()`.
+            self.autoCreateTask = nil
+            return outcome
+        }
+        autoCreateTask = task
+        return await task.value
+    }
+
+    private var autoCreateTask: Task<ProfileRefreshOutcome, Never>?
+
+    private func ensureLocalProfilesForAccountOnce() async -> ProfileRefreshOutcome {
+        guard !isRetired else { return retiredRefresh() }
         // Same gate as the Space section (§3.5), not modal visibility: flag-setting and presentation are
         // separate events, and relaunch during pairing adds another gap. A gate-closed round is
         // profile_refresh=skipped, explicitly not failure (§11). Reporting failed would miscount and make the
@@ -720,10 +1272,23 @@ final class SyncKeyController {
         guard isPairingComplete() else {
             return await finishRefresh(.skipped, created: 0, skipped: 0)
         }
+        // R4: auto-create follows the drained account's Profile entities. Before the first full
+        // replay nothing is known about which Profiles still exist, so nothing is created.
+        let entityView = profileEntityView?()
+        if profileEntityView != nil, entityView == nil {
+            return await finishRefresh(.skipped, created: 0, skipped: 0)
+        }
+        lastAutoCreateFailure = nil
+        lastAutoCreateFailureCategory = nil
         let accountUuids: Set<String>
         do {
             accountUuids = try await profileKeys.accountProfileUuids()
+            // The listing may have answered for the next account (review A11).
+            guard !isRetired else { return retiredRefresh() }
+            lastAccountProfileUuids = accountUuids
         } catch {
+            guard !isRetired else { return retiredRefresh() }
+            noteAutoCreateFailure(error)
             AppLogWarn("[phi-sync] account profile refresh failed (\(PhiSyncLog.describe(error)))")
             return await finishRefresh(.failed, created: 0, skipped: 0)
         }
@@ -732,58 +1297,272 @@ final class SyncKeyController {
         // "missing" and never grows back (§3.6). The one exception is §6.2 A0's
         // dead-mapping cleanup, which removes the entry first.
         let mapped = Set(profileKeys.allMappedGlobalUuids())
-        let missing = accountUuids.subtracting(mapped).sorted()   // uuid order: device-independent
-        guard !missing.isEmpty else { return await finishRefresh(.unchanged, created: 0, skipped: 0) }
+        // Only uuids with a live Profile entity: a deleted Profile's registry row stays forever and
+        // must never grow the Profile back on a device that did not have it.
+        var missingSet = accountUuids.subtracting(mapped)
+        if let entityView { missingSet.formIntersection(entityView.liveUuids) }
+        let missing = missingSet.sorted()   // uuid order: device-independent
+        guard !missing.isEmpty else { return await finishRefreshAndBackfill(.unchanged, created: 0, skipped: 0) }
+        // The Profile entity carries the account's current name; the registry envelope keeps
+        // the name it was registered under and is only the fallback.
+        let displayName: (String, String) -> String = { uuid, registryName in
+            let entityName = entityView?.liveNames[uuid] ?? ""
+            return entityName.isEmpty ? registryName : entityName
+        }
 
         var created = 0
         var skipped = 0
-        for uuid in missing {
-            guard created < Self.maxAutoCreatesPerRound else { skipped += 1; continue }
-            let remote: RemoteProfile
-            do { remote = try await profileKeys.remoteProfile(uuid: uuid) } catch {
-                skipped += 1; continue
+        // BH-16: the cap counts attempts, not successes, so a round whose creates
+        // keep failing still stops after `maxAutoCreatesPerRound` of them.
+        var attempts = 0
+        // A local counts as taken only while its persisted uuid is still in this
+        // round's account listing (see `claimMissingProfile`).
+        let liveMappedIds = Set(profileKeys.allMappings().filter { accountUuids.contains($0.value) }.keys)
+        let localDefaultFree = profileCreator.userAssignableProfileIds.contains {
+            $0.profileId == LocalStore.defaultProfileId && !liveMappedIds.contains($0.profileId)
+        }
+
+        if !localDefaultFree {
+            // The local Default cannot be claimed this round, so the order of
+            // claims does not matter (any flagged default is demoted): stream,
+            // with the cap checked BEFORE each read, so a round reads at most
+            // `maxAutoCreatesPerRound` envelopes it then acts on.
+            for uuid in missing {
+                guard attempts < Self.maxAutoCreatesPerRound else { skipped += 1; continue }
+                let remote: RemoteProfile
+                do {
+                    remote = try await profileKeys.remoteProfile(uuid: uuid)
+                    guard !isRetired else { return retiredRefresh() }
+                } catch {
+                    guard !isRetired else { return retiredRefresh() }
+                    noteAutoCreateFailure(error)
+                    skipped += 1; continue
+                }
+                guard let name = remote.name else {
+                    // No per-profile key means a profile that could not sync anything
+                    // and a mystery entry in the user's list. Skip, record, retry.
+                    noteUndecryptableRemote(uuid)
+                    AppLogInfo("[phi-sync] account profile envelope will not open uuid=\(String(uuid.prefix(8)))")
+                    skipped += 1
+                    continue
+                }
+                noteDecryptableRemote(uuid)
+                attempts += 1
+                switch await claimMissingProfile(remote, name: displayName(uuid, name), accountUuids: accountUuids,
+                                                 defaultClosedToUnflagged: false) {
+                case .claimed: created += 1
+                case .failed: skipped += 1
+                case .retired: return retiredRefresh()
+                }
             }
+        } else {
+            // The local Default is free, and which remote takes it depends on the
+            // flags: a legacy profile that merely shares the Default's name must
+            // not take it ahead of the account default that sorts after it. Read
+            // the candidates first -- bounded in width and time -- then claim the
+            // flagged account defaults first, everything else after, uuid order
+            // within each group.
+            let scan = await scanMissingProfiles(missing)
+            guard !scan.retired, !isRetired else { return retiredRefresh() }
+            skipped += missing.count - scan.candidates.count
+            let candidates = scan.candidates.filter { $0.remote.isDefault == true }
+                + scan.candidates.filter { $0.remote.isDefault != true }
+            // An unread remote may be the account default (a 503, a timeout), so
+            // an incomplete scan closes the Default to unflagged remotes exactly
+            // as a flagged one among the candidates does -- even when that one's
+            // own adopt fails. The Default stays free and the next round retries.
+            let defaultClosedToUnflagged = scan.incomplete || candidates.contains { $0.remote.isDefault == true }
+            for (remote, name) in candidates {
+                guard attempts < Self.maxAutoCreatesPerRound else { skipped += 1; continue }
+                attempts += 1
+                switch await claimMissingProfile(remote, name: displayName(remote.uuid, name), accountUuids: accountUuids,
+                                                 defaultClosedToUnflagged: defaultClosedToUnflagged) {
+                case .claimed: created += 1
+                case .failed: skipped += 1
+                case .retired: return retiredRefresh()
+                }
+            }
+        }
+        return await finishRefreshAndBackfill(created > 0 ? .changed : .unchanged, created: created, skipped: skipped)
+    }
+
+    private enum MissingProfileClaim { case claimed, failed, retired }
+
+    /// One decrypted account profile this Mac has no mapping for: twin it onto a
+    /// same-named unmapped local, or create a local for it. The caller has
+    /// already counted the attempt. `defaultClosedToUnflagged` keeps a free local
+    /// Default away from every remote that is not a flagged account default.
+    private func claimMissingProfile(_ remote: RemoteProfile, name: String, accountUuids: Set<String>,
+                                     defaultClosedToUnflagged: Bool) async -> MissingProfileClaim {
+        let uuid = remote.uuid
+        // A local counts as taken only while its persisted uuid is still in
+        // this round's account listing: a mapping whose envelope is gone
+        // (404) must not stop the local -- the Default above all -- from
+        // claiming a live account profile, or the next pass registers yet
+        // another uuid for it.
+        let mappedIds = Set(profileKeys.allMappings().filter { accountUuids.contains($0.value) }.keys)
+        // The default-profile rule: the local Default is a twin only for an
+        // account default (whatever its name) or a legacy profile. While the
+        // local Default is free, an account default goes to it and nowhere
+        // else. Once the Default is live-mapped, its uuid is the one
+        // authoritative account default and any other is demoted to an
+        // ordinary profile -- twinned by name or created like any other --
+        // so nothing a concurrent pairing registered is left unclaimed.
+        let defaultTwin = profileCreator.userAssignableProfileIds.first(where: {
+            $0.profileId == LocalStore.defaultProfileId && !mappedIds.contains($0.profileId)
+        })
+        let effective: RemoteProfile
+        if remote.isDefault == true, defaultTwin == nil {
+            effective = RemoteProfile(uuid: uuid, name: name, isDefault: false)
+            if loggedDefaultConflictUuids.insert(uuid).inserted {
+                AppLogWarn("[phi-sync] default-identity conflict: extra account default treated as an ordinary profile uuid=\(String(uuid.prefix(8)))")
+            }
+        } else {
+            effective = remote
+        }
+
+        // Claim an existing same-named UNMAPPED local first. This covers the
+        // plain coincidence of two devices having made the same name, and the
+        // un-suffixed half of "last round created it but the adopt failed".
+        // The enumeration source is `userAssignableProfileIds`, never the
+        // whole `ProfileManager.profiles`: the agent fallback profile is in
+        // the latter and must never be handed to the account.
+        //
+        // A profile THIS controller created for THIS uuid outranks any name
+        // match, so the twin search stands down when one exists: going by name
+        // first would adopt a different local and orphan the created one for
+        // good. `createLocalProfileAndAdopt` picks it up below.
+        if reusablePendingProfile(forUuid: uuid) == nil,
+           let twin = effective.isDefault == true ? defaultTwin : profileCreator.userAssignableProfileIds.first(where: {
+            !mappedIds.contains($0.profileId)
+            && !(defaultClosedToUnflagged && $0.profileId == LocalStore.defaultProfileId)
+            && effective.mayPair(withLocalDefault: $0.profileId == LocalStore.defaultProfileId,
+                                 authoritativeDefaultUuid: nil)
+            && $0.displayName.caseInsensitiveCompare(name) == .orderedSame
+        }) {
+            do {
+                _ = try await profileKeys.adoptRemoteProfile(
+                    uuid: uuid, forLocalProfile: twin.profileId,
+                    isDefault: twin.profileId == LocalStore.defaultProfileId)
+                guard !isRetired else { return .retired }
+                knownUnmappedProfileIds.remove(twin.profileId)
+                return .claimed
+            } catch {
+                guard !isRetired else { return .retired }
+                noteAutoCreateFailure(error)
+                AppLogInfo("[phi-sync] twin adopt failed uuid=\(String(uuid.prefix(8))) (\(PhiSyncLog.describe(error)))")
+                return .failed
+            }
+        }
+        do {
+            _ = try await createLocalProfileAndAdopt(uuid: uuid, displayName: name)
+            guard !isRetired else { return .retired }
+            return .claimed
+        } catch {
+            guard !isRetired else { return .retired }
+            noteAutoCreateFailure(error)
+            AppLogInfo("[phi-sync] auto-create failed uuid=\(String(uuid.prefix(8))) (\(PhiSyncLog.describe(error)))")
+            return .failed
+        }
+    }
+
+    private enum CandidateRead: Sendable {
+        case read(RemoteProfile)
+        case failed(any Error)
+        case deadline
+    }
+
+    /// Reads the envelopes of `missing` with at most `candidateScanWidth` in
+    /// flight, until `candidateScanDeadline`. `incomplete` is set by any read
+    /// error and by the deadline (an envelope that does not open is a known
+    /// non-candidate, not incomplete). Undecryptable and failure bookkeeping is
+    /// done here for what was read; reads still in flight at the deadline are
+    /// cancelled and counted by the caller as skipped. Candidates come back in
+    /// uuid order.
+    private func scanMissingProfiles(
+        _ missing: [String]
+    ) async -> (candidates: [(remote: RemoteProfile, name: String)], incomplete: Bool, retired: Bool) {
+        var read: [String: RemoteProfile] = [:]
+        var incomplete = false
+        var retired = false
+        let deadline = candidateScanDeadline
+        await withTaskGroup(of: CandidateRead.self) { group in
+            group.addTask {
+                try? await Task.sleep(for: deadline)
+                return .deadline
+            }
+            var pending = missing[...]
+            var inFlight = 0
+            func start(_ uuid: String) {
+                group.addTask { @MainActor [weak self] in
+                    guard let self else { return .failed(CancellationError()) }
+                    do { return .read(try await self.profileKeys.remoteProfile(uuid: uuid)) }
+                    catch { return .failed(error) }
+                }
+                inFlight += 1
+            }
+            while inFlight < Self.candidateScanWidth, let uuid = pending.popFirst() { start(uuid) }
+            scan: while inFlight > 0, let result = await group.next() {
+                switch result {
+                case .deadline:
+                    incomplete = true
+                    AppLogInfo("[phi-sync] account profile scan hit its \(deadline) deadline; \(inFlight + pending.count) unread")
+                    break scan
+                case .read(let remote):
+                    inFlight -= 1
+                    read[remote.uuid] = remote
+                case .failed(let error):
+                    inFlight -= 1
+                    incomplete = true
+                    if !isRetired { noteAutoCreateFailure(error) }
+                }
+                if isRetired { retired = true; break scan }
+                if let uuid = pending.popFirst() { start(uuid) }
+            }
+            // The deadline sleeper, and whatever is still in flight.
+            group.cancelAll()
+        }
+        guard !retired, !isRetired else { return ([], incomplete, true) }
+        var candidates: [(remote: RemoteProfile, name: String)] = []
+        for uuid in missing {
+            guard let remote = read[uuid] else { continue }
             guard let name = remote.name else {
-                // No per-profile key means a profile that could not sync anything
-                // and a mystery entry in the user's list. Skip, record, retry.
                 noteUndecryptableRemote(uuid)
                 AppLogInfo("[phi-sync] account profile envelope will not open uuid=\(String(uuid.prefix(8)))")
-                skipped += 1
                 continue
             }
             noteDecryptableRemote(uuid)
-
-            // Claim an existing same-named UNMAPPED local first. This covers the
-            // plain coincidence of two devices having made the same name, and the
-            // un-suffixed half of "last round created it but the adopt failed".
-            // The enumeration source is `userAssignableProfileIds`, never the
-            // whole `ProfileManager.profiles`: the agent fallback profile is in
-            // the latter and must never be handed to the account.
-            //
-            // A profile THIS controller created for THIS uuid outranks any name
-            // match, so the twin search stands down when one exists: going by name
-            // first would adopt a different local and orphan the created one for
-            // good. `createLocalProfileAndAdopt` picks it up below.
-            let mappedIds = Set(profileKeys.allMappings().keys)
-            if reusablePendingProfile(forUuid: uuid) == nil,
-               let twin = profileCreator.userAssignableProfileIds.first(where: {
-                !mappedIds.contains($0.profileId)
-                && $0.displayName.caseInsensitiveCompare(name) == .orderedSame
-            }) {
-                if (try? await profileKeys.adoptRemoteProfile(uuid: uuid, forLocalProfile: twin.profileId)) != nil {
-                    created += 1
-                } else { skipped += 1 }
-                continue
-            }
-            do {
-                _ = try await createLocalProfileAndAdopt(uuid: uuid, displayName: name)
-                created += 1
-            } catch {
-                AppLogInfo("[phi-sync] auto-create failed uuid=\(String(uuid.prefix(8))) (\(PhiSyncLog.describe(error)))")
-                skipped += 1
-            }
+            candidates.append((remote, name))
         }
-        return await finishRefresh(created > 0 ? .changed : .unchanged, created: created, skipped: skipped)
+        return (candidates, incomplete, false)
+    }
+
+    /// The periodic sync round reaches the key layer through this refresh, not
+    /// through `resolveMappings()`, so a round that read the account listing
+    /// also retries the best-effort default-flag backfill. Confirmed uuids are
+    /// cached, so once the flags are written this costs nothing.
+    private func finishRefreshAndBackfill(_ outcome: ProfileRefreshOutcome,
+                                          created: Int, skipped: Int) async -> ProfileRefreshOutcome {
+        let result = await finishRefresh(outcome, created: created, skipped: skipped)
+        backfillProfileDefaultFlagsBestEffort()
+        return result
+    }
+
+    /// A round stopped by `retire()`: `.failed`, as `PhiSpaceLocalAccess` answers
+    /// for a dropped controller, and no `.phiProfileAutoCreateDidRun`, as a
+    /// retired pass announces nothing either.
+    private func retiredRefresh() -> ProfileRefreshOutcome {
+        AppLogInfo("[phi-sync] auto-create round stopped: the controller was retired")
+        return .failed
+    }
+
+    /// Keeps the worse of this round's failures; a definitive one outranks a transient one.
+    private func noteAutoCreateFailure(_ error: Error) {
+        let failure = Self.mappingFailureResult(for: error)
+        if lastAutoCreateFailure != .definitiveFailure {
+            lastAutoCreateFailure = failure
+            lastAutoCreateFailureCategory = Self.mappingFailureCategory(for: error)
+        }
     }
 
     private func finishRefresh(_ outcome: ProfileRefreshOutcome,
@@ -796,6 +1575,7 @@ final class SyncKeyController {
             // never self-heals, because next round the mapping exists and the uuid
             // is no longer missing.
             await resolveMappings()
+            guard !isRetired else { return retiredRefresh() }
         }
         let label: String
         switch outcome {

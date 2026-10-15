@@ -1168,3 +1168,488 @@ func checkAnEditedChildSurvivesItsFoldersDeletion(report: Report) {
     report.markPassed("bookmarks.tree.an-edited-child-yields-while-its-folder-dies")
     report.markPassed("bookmarks.tree.a-child-of-a-dead-folder-lifts-to-the-space-root")
 }
+
+// MARK: - DI-2: a failed retention purge is retried
+
+/// `purgeExpired` stamps `purgedAtMs` and never returns that uuid again, so the only retry marker for a
+/// cascade that threw (or was cut short by a stop) is the local mapping the sweep keeps until the purge
+/// succeeds. The cascade set of a later sweep must therefore hold every purged uuid that is still mapped,
+/// and nothing else: not a purged uuid whose purge already dropped its mapping, and not a live Space.
+func checkAFailedRetentionPurgeIsRetried(report: Report) {
+    let t0: Int64 = 1_700_000_000_000
+    let retention = PhiSpaceSyncState.retentionMs
+    func deleted(at ms: Int64) -> PhiSpaceCursor {
+        var cursor = PhiSpaceCursor()
+        cursor.entityId = "srv"
+        cursor.hidden = true
+        cursor.deletedAtMs = ms
+        return cursor
+    }
+    var table = PhiSpaceSyncTable()
+    table.cursors["failed"] = deleted(at: t0)
+    table.cursors["done"] = deleted(at: t0)
+    table.cursors["later"] = deleted(at: t0 + retention / 2)
+    table.cursors["live"] = PhiSpaceCursor()
+
+    // Sweep 1: both old deletions expire. "done" purges and drops its mapping; "failed" throws and
+    // keeps it.
+    let firstExpired = table.purgeExpired(nowMs: t0 + retention + 1)
+    let firstCascade = PhiSpaceSyncTable.retentionCascadeUuids(
+        expired: firstExpired, purged: table.purgedSyncUuids.subtracting(firstExpired),
+        mapped: ["failed", "done", "later", "live"])
+    // Sweep 2: nothing new expires, and "failed" is still mapped.
+    let secondExpired = table.purgeExpired(nowMs: t0 + retention + 2)
+    let mapped: Set<String> = ["failed", "later", "live"]
+    let secondCascade = PhiSpaceSyncTable.retentionCascadeUuids(
+        expired: secondExpired, purged: table.purgedSyncUuids.subtracting(secondExpired), mapped: mapped)
+    // Sweep 3: "later" expires alongside the retry.
+    let thirdExpired = table.purgeExpired(nowMs: t0 + retention + retention / 2 + 1)
+    let thirdCascade = PhiSpaceSyncTable.retentionCascadeUuids(
+        expired: thirdExpired, purged: table.purgedSyncUuids.subtracting(thirdExpired), mapped: mapped)
+
+    report.check("spaces.retention.expired-uuids-cascade-once",
+                 firstExpired == ["done", "failed"] && firstCascade == ["done", "failed"],
+                 "first sweep expired \(firstExpired), cascaded \(firstCascade)")
+    report.check("spaces.retention.a-failed-purge-is-retried",
+                 secondExpired.isEmpty && secondCascade == ["failed"],
+                 "second sweep expired \(secondExpired), cascaded \(secondCascade); expected only the "
+                 + "purged uuid whose mapping the failed cascade kept")
+    report.check("spaces.retention.a-retry-joins-a-new-expiry",
+                 thirdExpired == ["later"] && thirdCascade == ["failed", "later"],
+                 "third sweep expired \(thirdExpired), cascaded \(thirdCascade)")
+    report.markPassed("spaces.retention.expired-uuids-cascade-once")
+    report.markPassed("spaces.retention.a-failed-purge-is-retried")
+    report.markPassed("spaces.retention.a-retry-joins-a-new-expiry")
+}
+
+// MARK: - BH-1: a landed Space is published again
+
+/// A refusal writes `refusedAtMs`, and `SyncableSpaces.snapshot` leaves such a cursor out. When a later
+/// version of the entity lands, the engine clears the field next to `pendingApply`; this pins the other
+/// half of that contract: the same cursor with the field cleared is eligible, so its local edits publish.
+func checkALandedSpaceIsNoLongerRefused(report: Report) {
+    let t0: Int64 = 1_700_000_000_000
+    let profileUuid = Pool.uuids[0]
+    let created = Date(timeIntervalSince1970: 1_690_000_000)
+    var baseline = Phi_PhiSpaceEntity()
+    baseline.spaceUuid = simSpaceUuid
+    baseline.name = settingValue("Work", t0)
+    baseline.iconName = settingValue("icon", t0)
+    baseline.colorHex = settingValue("#101010", t0)
+    baseline.rank = settingValue("V", t0)
+    baseline.profileUuid = settingValue(profileUuid, t0)
+    baseline.themeID = settingValue("", t0)
+    baseline.overlayOpacityLight = settingValue(int: -1, t0)
+    baseline.overlayOpacityDark = settingValue(int: -1, t0)
+    baseline.createdAtMs = Int64(created.timeIntervalSince1970 * 1_000)
+    let renamed = PhiLocalSpace(spaceId: "local-a", profileId: "p", name: "Travel", colorHex: "#101010",
+                                iconName: "icon", sortOrder: 0, createdDate: created,
+                                themeId: nil, opacityLight: nil, opacityDark: nil)
+
+    func project(refusedAtMs: Int64?) -> Phi_PhiSpaceEntity? {
+        var cursor = PhiSpaceCursor()
+        cursor.entityId = "srv-a"
+        cursor.version = 3
+        cursor.reconciled = try? baseline.serializedData()
+        cursor.server = cursor.reconciled
+        cursor.refusedAtMs = refusedAtMs
+        var table = PhiSpaceSyncTable()
+        table.cursors[simSpaceUuid] = cursor
+        return SyncableSpaces.snapshot(spaces: [renamed], table: table,
+                                       globalUuid: { $0 == "p" ? profileUuid : nil },
+                                       syncUuid: { $0 == "local-a" ? simSpaceUuid : nil },
+                                       now: t0 + 60_000)[simSpaceUuid]
+    }
+
+    let refused = project(refusedAtMs: t0)
+    let landed = project(refusedAtMs: nil)
+    report.check("spaces.a-refused-cursor-is-not-published", refused == nil,
+                 "a cursor with refusedAtMs was projected: \(refused?.oneLine ?? "")")
+    report.check("spaces.a-landed-space-publishes-its-local-edits",
+                 landed?.name.stringValue == "Travel",
+                 "the cursor with refusedAtMs cleared projected \(landed?.oneLine ?? "nothing"); "
+                 + "expected the local rename")
+    report.markPassed("spaces.a-refused-cursor-is-not-published")
+    report.markPassed("spaces.a-landed-space-publishes-its-local-edits")
+}
+
+// MARK: - DI-3: a local deletion in flight is recorded under its captured uuid
+
+/// While a local deletion is in flight the apply loop does not land an arriving entity; it only harvests
+/// the entity id and version into the cursor. The queued deletion then marks the uuid the facade captured
+/// before the cascade. This pins the table half: a cursor that learned its entity id only through that
+/// harvest (a paired Space never committed from here) is tombstoned, and one a peer's tombstone
+/// soft-deleted in the same window is not tombstoned again.
+func checkALocalDeletionInFlightIsRecordedByItsCapturedUuid(report: Report) {
+    var table = PhiSpaceSyncTable()
+    var harvested = PhiSpaceCursor()      // no entityId before the in-flight round
+    harvested.entityId = "srv-a"
+    harvested.version = 6
+    table.cursors["space-a"] = harvested
+    var softDeleted = PhiSpaceCursor()
+    softDeleted.entityId = "srv-b"
+    softDeleted.version = 7
+    softDeleted.hidden = true
+    softDeleted.deletedAtMs = 1_700_000_000_000
+    table.cursors["space-b"] = softDeleted
+
+    let markedA = table.recordLocalDeletion(spaceId: "space-a")
+    let markedB = table.recordLocalDeletion(spaceId: "space-b")
+    let markedUnknown = table.recordLocalDeletion(spaceId: "space-unknown")
+    report.check("spaces.local-delete.a-harvested-cursor-is-tombstoned",
+                 markedA && table.cursors["space-a"]?.pendingDelete == true
+                    && table.cursors["space-a"]?.version == 6,
+                 "the harvested cursor was not marked: \(String(describing: table.cursors["space-a"]))")
+    report.check("spaces.local-delete.a-remote-tombstone-in-the-window-is-not-echoed",
+                 !markedB && table.cursors["space-b"]?.pendingDelete == false,
+                 "a soft-deleted cursor was marked for a second tombstone")
+    report.check("spaces.local-delete.an-unknown-uuid-mints-no-cursor",
+                 !markedUnknown && table.cursors["space-unknown"] == nil && table.cursors.count == 2,
+                 "recordLocalDeletion minted or marked a cursor for a uuid it did not hold")
+    report.markPassed("spaces.local-delete.a-harvested-cursor-is-tombstoned")
+    report.markPassed("spaces.local-delete.a-remote-tombstone-in-the-window-is-not-echoed")
+    report.markPassed("spaces.local-delete.an-unknown-uuid-mints-no-cursor")
+}
+
+// MARK: - R-M3-4a-78: a deleted Space takes its bookmarks and pins with it
+
+/// The Space every check below deletes. No resolver maps it: a deleting device drops the mapping
+/// once its row is gone, and a fresh device never had one.
+private let deadSpaceUuid = "space-dead"
+
+private func deletionBookmark(_ uuid: String, space: String, parent: String,
+                              stamp: Int64, isFolder: Bool = false) -> Phi_PhiBookmarkEntity {
+    var out = Phi_PhiBookmarkEntity()
+    out.bookmarkUuid = uuid
+    out.spaceUuid = settingValue(space, stamp)
+    out.parentUuid = settingValue(parent, stamp)
+    out.rank = settingValue("V", stamp)
+    out.isFolder = isFolder
+    out.title = settingValue(uuid, stamp)
+    out.url = settingValue(isFolder ? "https://bookmark.phi/folder" : "https://a.example/", stamp)
+    out.secondaryURL = settingValue("", stamp)
+    out.secondaryTitle = settingValue("", stamp)
+    return out
+}
+
+private func deletionPin(_ lineage: String, space: String, stamp: Int64) -> Phi_PhiPinTabEntity {
+    var out = Phi_PhiPinTabEntity()
+    out.pinUuid = lineage
+    out.owner = .spaceUuid(space)
+    out.rank = settingValue("V", stamp)
+    out.title = settingValue("pin", stamp)
+    out.url = settingValue("https://a.example/", stamp)
+    out.splitPartnerUuid = settingValue("", stamp)
+    return out
+}
+
+/// A live local row that claims `syncId`, the only thing the deletion diff reads from a row.
+private func liveBookmarkRow(_ syncId: String) -> PhiLocalBookmark {
+    PhiLocalBookmark(syncId: syncId, guid: syncId, spaceId: "", profileId: "", parentGuid: nil,
+                     index: 0, isFolder: false, title: "",
+                     url: URL(string: "https://a.example/")!, secondaryUrl: nil,
+                     secondaryTitle: nil, source: 0, createdDate: Date(timeIntervalSince1970: 0),
+                     contentUpdatedDate: nil, locationUpdatedDate: nil)
+}
+
+private func deletionBytes<K: OwnedItemKind>(_ kind: K.Type, _ entity: K.Entity) -> Data {
+    (try? K.envelope(entity).serializedData()) ?? Data()
+}
+
+/// A cursor this device landed and published: what a device holds for an item of a Space it had.
+private func landedCursor(_ bytes: Data, owner: String, entityId: String) -> PhiOwnedItemCursor {
+    var cursor = PhiOwnedItemCursor()
+    cursor.entityId = entityId
+    cursor.version = 3
+    cursor.reconciled = bytes
+    cursor.server = bytes
+    cursor.ownerUuid = owner
+    return cursor
+}
+
+/// What a parked arrival leaves behind: the payload and the owner it waits on, no baseline.
+private func parkedCursor(_ bytes: Data, waitingOn owner: String, entityId: String) -> PhiOwnedItemCursor {
+    var cursor = PhiOwnedItemCursor()
+    cursor.entityId = entityId
+    cursor.version = 3
+    cursor.pendingApply = bytes
+    cursor.pendingOwnerUuid = owner
+    return cursor
+}
+
+private func parkedItems(_ table: PhiOwnedItemTable) -> [String: ParkedOwnedItem] {
+    var out: [String: ParkedOwnedItem] = [:]
+    for (identity, cursor) in table.cursors {
+        guard let payload = cursor.pendingApply else { continue }
+        out[identity] = ParkedOwnedItem(payload: payload, pendingOwnerUuid: cursor.pendingOwnerUuid)
+    }
+    return out
+}
+
+/// (i) The deleting device. Its cascade hard-deleted folder F, child C and pin P with the Space,
+/// and only the Space cursor recorded the deletion. Before R-M3-4a-78 the owner gates suppressed
+/// every item tombstone, so the account kept all three live forever. The predicate reads durable
+/// cursor state, so the same round runs again after a crash, and on a device that deleted the
+/// Space before the rule existed.
+func checkADeletedSpaceTombstonesItsItems(report: Report) {
+    let folder = deletionBookmark("del-folder", space: deadSpaceUuid, parent: "", stamp: 1_000,
+                                  isFolder: true)
+    let child = deletionBookmark("del-child", space: deadSpaceUuid, parent: "del-folder", stamp: 1_000)
+    let survivor = deletionBookmark("del-survivor", space: deadSpaceUuid, parent: "", stamp: 1_000)
+    let other = deletionBookmark("del-other", space: simSpaceUuid, parent: "", stamp: 1_000)
+    var bookmarks = PhiOwnedItemTable()
+    bookmarks.cursors["del-folder"] = landedCursor(deletionBytes(BookmarkKind.self, folder),
+                                                   owner: deadSpaceUuid, entityId: "srv-f")
+    bookmarks.cursors["del-child"] = landedCursor(deletionBytes(BookmarkKind.self, child),
+                                                  owner: deadSpaceUuid, entityId: "srv-c")
+    // A row that survived (a failed cascade here) is never tombstoned: the live-row criterion
+    // still applies to explicit deletions.
+    bookmarks.cursors["del-survivor"] = landedCursor(deletionBytes(BookmarkKind.self, survivor),
+                                                     owner: deadSpaceUuid, entityId: "srv-s")
+    // Another Space's row that is simply unmapped right now is not a deletion either.
+    bookmarks.cursors["del-other"] = landedCursor(deletionBytes(BookmarkKind.self, other),
+                                                  owner: "space-unmapped", entityId: "srv-o")
+
+    var spaces = PhiSpaceSyncTable()
+    var deleted = PhiSpaceCursor()
+    deleted.entityId = "srv-space"
+    deleted.pendingDelete = true            // the local deletion is queued, not yet accepted
+    spaces.cursors[deadSpaceUuid] = deleted
+    spaces.cursors[simSpaceUuid] = PhiSpaceCursor()
+    let deadOwners = spaces.deletedSyncUuids
+
+    let live = [liveBookmarkRow("del-survivor")]
+    let before = SyncableOwnedItems.tombstones(BookmarkKind.self, locals: live, table: bookmarks,
+                                               resolve: simResolver(), scope: nil, nowMs: 5_000)
+    let after = SyncableOwnedItems.tombstones(
+        BookmarkKind.self, locals: live, table: bookmarks, resolve: simResolver(), scope: nil,
+        nowMs: 5_000,
+        explicitDeletions: SyncableOwnedItems.deadOwnerDeletions(table: bookmarks,
+                                                                 deadOwners: deadOwners))
+    report.check("space-deletion.owner-gates-alone-tombstone-nothing",
+                 before.identities.isEmpty, "tombstoned \(before.identities)")
+    report.check("space-deletion.the-deleting-device-tombstones-its-items-child-first",
+                 deadOwners == [deadSpaceUuid] && after.identities == ["del-child", "del-folder"]
+                    && after.cursorUpdates["del-child"]?.pendingDelete == true
+                    && after.cursorUpdates["del-child"]?.deleteDecidedAtMs == 5_000,
+                 "dead=\(deadOwners.sorted()) tombstoned=\(after.identities)")
+
+    let pin = deletionPin("lineage-p", space: deadSpaceUuid, stamp: 1_000)
+    let pinIdentity = PinKind.identity(of: pin)
+    var pins = PhiOwnedItemTable()
+    pins.cursors[pinIdentity] = landedCursor(deletionBytes(PinKind.self, pin),
+                                             owner: deadSpaceUuid, entityId: "srv-p")
+    let pinDiff = SyncableOwnedItems.tombstones(
+        PinKind.self, locals: [], table: pins, resolve: simResolver(), scope: nil, nowMs: 5_000,
+        explicitDeletions: SyncableOwnedItems.deadOwnerDeletions(table: pins, deadOwners: deadOwners))
+    report.check("space-deletion.the-deleting-device-tombstones-its-pins",
+                 pinDiff.identities == [pinIdentity], "tombstoned \(pinDiff.identities)")
+
+    // A peer that had the Space (now hidden there) lands the tombstones, child before folder.
+    var peer = bookmarks
+    peer.cursors["del-survivor"] = nil
+    peer.cursors["del-other"] = nil
+    var context = OwnedItemPlanContext()
+    context.tombstonedIdentities = Set(after.identities)
+    let landing = SyncableOwnedItems.plan(BookmarkKind.self, arrivals: [], parked: [:], table: peer,
+                                          resolve: simResolver(), context: context)
+    report.check("space-deletion.a-peer-lands-the-item-tombstones",
+                 landing.steps.map(\.identity) == ["del-child", "del-folder"]
+                    && landing.steps.allSatisfy { $0.kind == .delete },
+                 "steps \(landing.steps.map { "\($0.identity):\($0.kind)" })")
+    for name in ["owner-gates-alone-tombstone-nothing",
+                 "the-deleting-device-tombstones-its-items-child-first",
+                 "the-deleting-device-tombstones-its-pins", "a-peer-lands-the-item-tombstones"] {
+        report.markPassed("space-deletion." + name)
+    }
+}
+
+/// (ii) A fresh device replaying an account whose Space is already tombstoned while its items are
+/// still live (an account written before R-M3-4a-78). The items park behind a Space this device
+/// never had; once the Space tombstone records a deleted cursor, the next plan resolves the whole
+/// parked tree, a child parked behind its parked folder included, and a child that arrives in a
+/// later round follows its discarded folder instead of lifting to a Space root that is gone.
+func checkAFreshDeviceDropsItemsOfADeletedSpace(report: Report) {
+    let folder = deletionBookmark("fresh-folder", space: deadSpaceUuid, parent: "", stamp: 1_000,
+                                  isFolder: true)
+    let child = deletionBookmark("fresh-child", space: deadSpaceUuid, parent: "fresh-folder",
+                                 stamp: 1_000)
+    let pin = deletionPin("lineage-fresh", space: deadSpaceUuid, stamp: 1_000)
+    let pinIdentity = PinKind.identity(of: pin)
+
+    // Round 1: nothing names the Space yet, so everything parks (today's behaviour, kept).
+    let first = SyncableOwnedItems.plan(
+        BookmarkKind.self,
+        arrivals: [OwnedItemArrival(entity: folder, entityId: "srv-f", version: 3),
+                   OwnedItemArrival(entity: child, entityId: "srv-c", version: 3)],
+        parked: [:], table: PhiOwnedItemTable(), resolve: simResolver(),
+        context: OwnedItemPlanContext())
+    report.check("space-deletion.fresh.items-park-before-the-space-is-known-dead",
+                 first.steps.isEmpty && first.parked["fresh-folder"]?.pendingOwnerUuid == deadSpaceUuid
+                    && first.parked["fresh-child"]?.pendingOwnerUuid == "fresh-folder",
+                 "steps \(first.steps.map(\.identity)) parked \(first.parked.mapValues(\.pendingOwnerUuid))")
+
+    var bookmarks = PhiOwnedItemTable()
+    for (identity, item) in first.parked {
+        bookmarks.cursors[identity] = parkedCursor(item.payload, waitingOn: item.pendingOwnerUuid ?? "",
+                                                   entityId: "srv-" + identity)
+    }
+    // The Space tombstone landed for a uuid this device knew only from the parked folder.
+    var spaces = PhiSpaceSyncTable()
+    var tombstone = PhiSpaceCursor()
+    tombstone.entityId = "srv-space"
+    tombstone.hidden = true
+    tombstone.deletedAtMs = 9_000
+    spaces.cursors[deadSpaceUuid] = tombstone
+    var context = OwnedItemPlanContext()
+    context.deadOwners = spaces.deletedSyncUuids
+
+    // Round 2: no arrivals at all, only the parked tree.
+    let second = SyncableOwnedItems.plan(BookmarkKind.self, arrivals: [],
+                                         parked: parkedItems(bookmarks), table: bookmarks,
+                                         resolve: simResolver(), context: context)
+    report.check("space-deletion.fresh.a-parked-tree-is-discarded-not-held",
+                 second.parked.isEmpty
+                    && second.steps.map(\.identity) == ["fresh-folder", "fresh-child"]
+                    && second.steps.allSatisfy { $0.kind == .delete }
+                    && second.discardedForDeadOwner == ["fresh-folder": deadSpaceUuid,
+                                                        "fresh-child": deadSpaceUuid],
+                 "steps \(second.steps.map { "\($0.identity):\($0.kind)" }) "
+                 + "parked \(second.parked.keys.sorted()) discarded \(second.discardedForDeadOwner)")
+
+    var pinTable = PhiOwnedItemTable()
+    pinTable.cursors[pinIdentity] = parkedCursor(deletionBytes(PinKind.self, pin),
+                                                 waitingOn: deadSpaceUuid, entityId: "srv-p")
+    let pins = SyncableOwnedItems.plan(PinKind.self, arrivals: [], parked: parkedItems(pinTable),
+                                       table: pinTable, resolve: simResolver(), context: context)
+    report.check("space-deletion.fresh.a-parked-pin-is-discarded-not-held",
+                 pins.parked.isEmpty && pins.steps.map(\.identity) == [pinIdentity]
+                    && pins.discardedForDeadOwner == [pinIdentity: deadSpaceUuid],
+                 "steps \(pins.steps.map(\.identity)) parked \(pins.parked.keys.sorted())")
+
+    // Round 3: the engine finalized the folder like a landed tombstone and recorded its Space.
+    var afterLanding = bookmarks
+    afterLanding.cursors["fresh-folder"]?.pendingApply = nil
+    afterLanding.cursors["fresh-folder"]?.pendingOwnerUuid = nil
+    afterLanding.cursors["fresh-folder"]?.deletedAtMs = 9_500
+    afterLanding.cursors["fresh-folder"]?.ownerUuid = deadSpaceUuid
+    afterLanding.cursors["fresh-child"] = nil
+    let late = deletionBookmark("fresh-late", space: deadSpaceUuid, parent: "fresh-folder",
+                                stamp: 2_000)
+    let third = SyncableOwnedItems.plan(
+        BookmarkKind.self, arrivals: [OwnedItemArrival(entity: late, entityId: "srv-l", version: 4)],
+        parked: [:], table: afterLanding, resolve: simResolver(), context: context)
+    report.check("space-deletion.fresh.a-later-child-follows-its-discarded-folder",
+                 third.lifted == 0 && third.parked.isEmpty
+                    && third.discardedForDeadOwner == ["fresh-late": deadSpaceUuid],
+                 "lifted \(third.lifted) parked \(third.parked.keys.sorted()) "
+                 + "discarded \(third.discardedForDeadOwner)")
+    for name in ["items-park-before-the-space-is-known-dead", "a-parked-tree-is-discarded-not-held",
+                 "a-parked-pin-is-discarded-not-held", "a-later-child-follows-its-discarded-folder"] {
+        report.markPassed("space-deletion.fresh." + name)
+    }
+}
+
+/// (iii) The reverse race: another device created bookmark N in Space X while this device deleted
+/// X. N arrives after the local deletion is queued; this device must not hold it. An arrival for an
+/// item this device itself landed is left to its own outbound tombstone, and a row that still lives
+/// here (a hidden Space) keeps today's parking rather than being hard-deleted by an arrival.
+func checkADeletingDeviceDoesNotHoldARacingCreate(report: Report) {
+    var spaces = PhiSpaceSyncTable()
+    var deleting = PhiSpaceCursor()
+    deleting.entityId = "srv-space"
+    deleting.pendingDelete = true
+    spaces.cursors[deadSpaceUuid] = deleting
+    var context = OwnedItemPlanContext()
+    context.deadOwners = spaces.deletedSyncUuids
+    context.liveLocalIdentities = ["race-hidden"]
+
+    let created = deletionBookmark("race-new", space: deadSpaceUuid, parent: "", stamp: 3_000)
+    let edited = deletionBookmark("race-own", space: deadSpaceUuid, parent: "", stamp: 3_000)
+    let hidden = deletionBookmark("race-hidden", space: deadSpaceUuid, parent: "", stamp: 3_000)
+    var table = PhiOwnedItemTable()
+    var own = landedCursor(deletionBytes(BookmarkKind.self,
+                                         deletionBookmark("race-own", space: deadSpaceUuid,
+                                                          parent: "", stamp: 1_000)),
+                           owner: deadSpaceUuid, entityId: "srv-own")
+    own.pendingDelete = true
+    own.deleteDecidedAtMs = 2_000
+    table.cursors["race-own"] = own
+    table.cursors["race-hidden"] = landedCursor(
+        deletionBytes(BookmarkKind.self, deletionBookmark("race-hidden", space: deadSpaceUuid,
+                                                          parent: "", stamp: 1_000)),
+        owner: deadSpaceUuid, entityId: "srv-hidden")
+
+    let plan = SyncableOwnedItems.plan(
+        BookmarkKind.self,
+        arrivals: [OwnedItemArrival(entity: created, entityId: "srv-new", version: 2),
+                   OwnedItemArrival(entity: edited, entityId: "srv-own", version: 5),
+                   OwnedItemArrival(entity: hidden, entityId: "srv-hidden", version: 5)],
+        parked: [:], table: table, resolve: simResolver(), context: context)
+    report.check("space-deletion.race.a-racing-create-is-discarded-not-held",
+                 plan.discardedForDeadOwner == ["race-new": deadSpaceUuid]
+                    && plan.steps.map { "\($0.identity):\($0.kind)" } == ["race-new:delete"]
+                    && plan.parked["race-new"] == nil
+                    && plan.harvest["race-new"]?.version == 2,
+                 "steps \(plan.steps.map { "\($0.identity):\($0.kind)" }) "
+                 + "parked \(plan.parked.keys.sorted()) discarded \(plan.discardedForDeadOwner)")
+    report.check("space-deletion.race.an-own-item-is-left-to-its-tombstone",
+                 plan.supersededByDelete == 1 && plan.cancelledDeletes.isEmpty
+                    && plan.harvest["race-own"]?.version == 5,
+                 "superseded \(plan.supersededByDelete) cancelled \(plan.cancelledDeletes.sorted())")
+    report.check("space-deletion.race.a-live-row-keeps-parking",
+                 plan.parked["race-hidden"]?.pendingOwnerUuid == deadSpaceUuid,
+                 "parked \(plan.parked.mapValues(\.pendingOwnerUuid))")
+    for name in ["a-racing-create-is-discarded-not-held", "an-own-item-is-left-to-its-tombstone",
+                 "a-live-row-keeps-parking"] {
+        report.markPassed("space-deletion.race." + name)
+    }
+}
+
+/// (iv) A bookmark another device moved to a live Space concurrently with the deletion survives.
+/// Either the move lands first, recreating the row in the new Space so the live-row criterion keeps
+/// it out of the explicit deletions, or this device decided first and A9 cancels its pending
+/// deletion for the newer move. The dead-owner rule never sees it: its owner is the live Space.
+func checkAMoveOutOfADeletedSpaceSurvives(report: Report) {
+    let baseline = deletionBookmark("move-item", space: deadSpaceUuid, parent: "", stamp: 1_000)
+    let moved = deletionBookmark("move-item", space: simSpaceUuid, parent: "", stamp: 6_000)
+    var spaces = PhiSpaceSyncTable()
+    var deleted = PhiSpaceCursor()
+    deleted.entityId = "srv-space"
+    deleted.pendingDelete = true
+    spaces.cursors[deadSpaceUuid] = deleted
+    var context = OwnedItemPlanContext()
+    context.deadOwners = spaces.deletedSyncUuids
+
+    // This device decided first: the explicit deletion is pending when the move arrives.
+    var table = PhiOwnedItemTable()
+    table.cursors["move-item"] = landedCursor(deletionBytes(BookmarkKind.self, baseline),
+                                              owner: deadSpaceUuid, entityId: "srv-m")
+    let diff = SyncableOwnedItems.tombstones(
+        BookmarkKind.self, locals: [], table: table, resolve: simResolver(), scope: nil,
+        nowMs: 5_000,
+        explicitDeletions: SyncableOwnedItems.deadOwnerDeletions(table: table,
+                                                                 deadOwners: context.deadOwners))
+    var pending = table
+    for (identity, cursor) in diff.cursorUpdates { pending.cursors[identity] = cursor }
+    let plan = SyncableOwnedItems.plan(
+        BookmarkKind.self, arrivals: [OwnedItemArrival(entity: moved, entityId: "srv-m", version: 6)],
+        parked: [:], table: pending, resolve: simResolver(), context: context)
+    report.check("space-deletion.move.a-newer-move-cancels-the-pending-deletion",
+                 diff.identities == ["move-item"] && plan.cancelledDeletes == ["move-item"]
+                    && plan.discardedForDeadOwner.isEmpty
+                    && plan.steps.contains { $0.identity == "move-item" && $0.kind == .move },
+                 "tombstoned \(diff.identities) cancelled \(plan.cancelledDeletes.sorted()) "
+                 + "steps \(plan.steps.map { "\($0.identity):\($0.kind)" })")
+
+    // The move landed first and recreated the row: the explicit deletion skips a live row.
+    let landedFirst = SyncableOwnedItems.tombstones(
+        BookmarkKind.self, locals: [liveBookmarkRow("move-item")], table: table,
+        resolve: simResolver(), scope: nil, nowMs: 5_000,
+        explicitDeletions: SyncableOwnedItems.deadOwnerDeletions(table: table,
+                                                                 deadOwners: context.deadOwners))
+    report.check("space-deletion.move.a-landed-move-is-not-tombstoned",
+                 landedFirst.identities.isEmpty, "tombstoned \(landedFirst.identities)")
+    report.markPassed("space-deletion.move.a-newer-move-cancels-the-pending-deletion")
+    report.markPassed("space-deletion.move.a-landed-move-is-not-tombstoned")
+}

@@ -1,4 +1,5 @@
 import Cocoa
+import Network
 import SwiftUI
 
 final class DevicesSettingHostingViewController: NSViewController {
@@ -120,11 +121,32 @@ final class DevicesSettingHostingViewController: NSViewController {
         let accountID = AccountController.shared.account?.userID
         viewModel.isCurrentAccount = { AccountController.shared.account?.userID == accountID }
         viewModel.isSignedIn = { AccountController.shared.account != nil }
+        viewModel.accountID = { AccountController.shared.account?.userID }
+        viewModel.observeNetworkPath = { onUpdate in
+            let monitor = NWPathMonitor()
+            monitor.pathUpdateHandler = { path in
+                let satisfied = path.status == .satisfied
+                Task { @MainActor in onUpdate(satisfied) }
+            }
+            monitor.start(queue: .main)
+            return { monitor.cancel() }
+        }
         viewModel.syncReport = { requestSync in
             guard let helper = PhiChromiumCoordinator.shared.syncHelper else { return nil }
             await helper.refresh(requestSync: requestSync)
             return helper.report
         }
+        // Bind to the same controller as this pane's manager, never a later account's.
+        // Every Settings window builds a new view model, so the model's own "started
+        // locked" check cannot see across windows; the controller's cache can: keys it
+        // already resolved need no pass (a pass per window open cost about 3 s of lookups
+        // before the status showed, 2026-10-12).
+        viewModel.resolveMappingsAfterUnlock = { [weak controller = syncKeyController] in
+            guard let controller, controller.resolved.isEmpty else { return }
+            await controller.resolveMappings()
+        }
+        viewModel.syncNowReport = { await PhiChromiumCoordinator.shared.requestSyncNow() }
+        viewModel.retryProfileMappingRepair = { PhiChromiumCoordinator.shared.retryProfileMappingRepair() }
         viewModel.reconfigurationRequired = { [weak self] in
             self?.syncKeyController?.requiresReconfiguration == true
                 || PhiChromiumCoordinator.shared.nativeSyncRequiresReconfiguration

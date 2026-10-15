@@ -110,6 +110,12 @@ extension LocalStore {
                                  createdDate: Date?, in context: ModelContext) throws {
         // Spaces from every profile share one strip order.
         let existing = try context.fetch(FetchDescriptor<SpaceModel>())
+        // `spaceId` is unique, so inserting a duplicate would silently overwrite the existing row
+        // (profile binding and order reset, bookmark root orphaned). No caller relies on that: UI
+        // creation passes a fresh UUID, and sync lands an existing row through its update branch.
+        guard !existing.contains(where: { $0.spaceId == spaceId }) else {
+            throw LocalStoreWriteError.spaceAlreadyExists
+        }
         let nextOrder = (existing.map(\.sortOrder).max() ?? -1) + 1
         let space = SpaceModel(
             spaceId: spaceId,
@@ -320,7 +326,7 @@ extension LocalStore {
 
     /// Single implementation shared by both entry points. Only rules branch on `origin`; TabDataModel and
     /// SpaceModel handling remains unchanged.
-    private func deleteSpaceCascadeBody(spaceId: String,
+    func deleteSpaceCascadeBody(spaceId: String,
                                         origin: SpaceCascadeOrigin,
                                         in context: ModelContext) throws {
         // All rule rows in this cascade share one `now` stamp.

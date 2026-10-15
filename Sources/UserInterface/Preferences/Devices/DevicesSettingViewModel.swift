@@ -9,6 +9,8 @@ final class DevicesSettingViewModel: ObservableObject {
     @Published private(set) var unlockState: UnlockState = .loading
     @Published private(set) var pending: [PendingApproval] = []
     @Published private(set) var actionError: String?
+    /// The pending-approval list failed to load; cleared by the next successful load.
+    @Published private(set) var pendingLoadError: String?
     @Published private(set) var devices: [AccountDeviceDTO] = []
     @Published private(set) var devicesLoadError: String?
     @Published private(set) var busyRequestIDs: Set<String> = []
@@ -23,10 +25,69 @@ final class DevicesSettingViewModel: ObservableObject {
     private var deviceGeneration: UInt64 = 0
     private var pendingGeneration: UInt64 = 0
     private var refreshInFlight = false
+    /// Finishes a successful pane unlock on the shared controller before requesting sync.
+    var resolveMappingsAfterUnlock: () async -> Void = {}
     var syncReport: (_ requestSync: Bool) async -> SyncHelper.Report? = { _ in nil }
+    /// Sync now: records an explicit request with the helper and returns its report.
+    var syncNowReport: () async -> SyncHelper.Report? = { nil }
     @Published private(set) var summary = SyncStatusSummary(phase: .notStarted, lastSuccess: nil)
+    @Published private(set) var requestState: SyncRequestState = .idle
+    @Published private(set) var nativeDetail: SyncNativeDetail?
+    /// The helper report's pause fields as last read; `statusPresentation` lays them over the
+    /// summary on every read (docs/sync.md, "Sync status contract"), and nothing else interprets them.
+    @Published private(set) var profileMappingPause: SyncProfileMappingPauseStatus = .none
+    @Published private(set) var syncNowCancelledByPause = false
+    @Published private(set) var profileListNotEnumeratedSince: Date?
+    /// The pin scope follower's failures as last read (B-3 stage 1, design 3.2); shown as a
+    /// problem line under the status, beside the pause fields above.
+    @Published private(set) var pinScopeMigrationFailure: SyncPinScopeMigrationFailure?
+    /// When the report was last read; the unread Profile list's age is measured against it.
+    @Published private(set) var statusReadAt = Date()
+    /// Bumped when a shown pause ends, so the view announces that sync resumed.
+    @Published private(set) var pauseEndedSerial: UInt64 = 0
+    /// The pause card's Retry: `PhiChromiumCoordinator.retryProfileMappingRepair()`.
+    var retryProfileMappingRepair: () -> Void = {}
+    /// From a Sync now tap until the helper answers, so the control never looks idle in between.
+    @Published private(set) var isSubmittingSyncNow = false
+    /// Set when a Sync now request the helper accepted or queued has ended, or when the helper
+    /// refused it; the view announces it and shows a failure under the status row until the
+    /// next tap clears it. `serial` makes repeated outcomes distinct.
+    @Published private(set) var syncNowOutcome: SyncNowOutcome?
+    struct SyncNowOutcome: Equatable {
+        enum Result: Equatable {
+            /// A common success newer than at the tap.
+            case finished
+            /// Ended without that success; the native last problem, if one was recorded after the tap.
+            case failed(SyncProblemCategory?)
+            case rejected
+        }
+        let serial: UInt64
+        let result: Result
+    }
+    private var awaitingSyncNow = false
+    /// The common success time when the tap was made; only a newer one means the sync finished.
+    private var syncNowBaseline: Date?
+    /// Only a problem recorded at or after the tap describes this request.
+    private var syncNowTappedAt = Date.distantPast
+    private var syncNowSerial: UInt64 = 0
     var pairingComplete: () -> Bool = { ProfilePairingGate.shared.isPaired }
     var isCurrentAccount: () -> Bool = { true }
+    /// The signed-in account's id. A reload that fails keeps the pane loaded only for the
+    /// account it was unlocked for.
+    var accountID: () -> String? = { nil }
+    /// The account the pane last showed `.unlocked` for; nil when it has not (a nil id is
+    /// `.some(nil)`).
+    private var unlockedAccountID: String??
+    /// Starts watching the network path for a pane whose first load failed and returns the
+    /// action that stops it. `onUpdate` gets whether the path is satisfied, at once and on
+    /// every change.
+    var observeNetworkPath: (_ onUpdate: @escaping @MainActor (Bool) -> Void) -> (() -> Void) = { _ in {} }
+    /// How long the connection must be back before the failed pane reloads, so a flapping
+    /// path reloads once.
+    var connectivityReloadDelay: UInt64 = 1_000_000_000
+    private var stopObservingNetworkPath: (() -> Void)?
+    private var sawUnsatisfiedPath = false
+    private(set) var connectivityReload: Task<Void, Never>?
     /// Whether an account is signed in. The key API refuses to send a request
     /// without a token and reports that as a transport failure, so a signed-out
     /// pane has to be recognised here or it would show a connection error.
@@ -44,22 +105,111 @@ final class DevicesSettingViewModel: ObservableObject {
         let generation = loadGeneration
         requiresReconfiguration = reconfigurationRequired()
         paired = pairingComplete()
-        guard paired else {
-            contextSnapshots = [:]; requiredIDs = []
-            summary = SyncStatusSummary(phase: .notStarted, lastSuccess: nil)
-            return
-        }
+        guard paired else { clearStatus(); return }
         let report = await syncReport(requestSync)
         guard generation == loadGeneration, isCurrentAccount() else { return }
         paired = pairingComplete()
-        guard paired else {
-            contextSnapshots = [:]; requiredIDs = []
-            summary = SyncStatusSummary(phase: .notStarted, lastSuccess: nil)
-            return
+        guard paired else { clearStatus(); return }
+        apply(report)
+    }
+
+    /// Sync now. Calls the helper directly instead of `refresh`, whose in-flight guard would
+    /// drop a tap made during the 3 s poll.
+    func syncNow() async {
+        guard isUnlocked, !isSubmittingSyncNow, isCurrentAccount() else { return }
+        let generation = loadGeneration
+        syncNowBaseline = summary.lastSuccess
+        syncNowTappedAt = Date()
+        syncNowOutcome = nil // The previous outcome no longer describes the pane.
+        isSubmittingSyncNow = true
+        defer { isSubmittingSyncNow = false }
+        let report = await syncNowReport()
+        guard generation == loadGeneration, isCurrentAccount() else { return }
+        paired = pairingComplete()
+        guard paired else { clearStatus(); return }
+        apply(report)
+        switch requestState {
+        case .queued, .inFlight: awaitingSyncNow = true
+        case .rejected: finishSyncNow(.rejected)
+        case .idle: break // Nothing was recorded (helper stopped or ineligible).
         }
+    }
+
+    /// What the status row shows: the summary with the Profile mapping pause and the unread
+    /// Profile list laid over it. Computed from the last report on every read, never stored.
+    var statusPresentation: SyncStatusPresentation {
+        SyncStatusPresentation.present(summary: summary.phase, request: requestState,
+            profileMappingPause: profileMappingPause, syncNowCancelledByPause: syncNowCancelledByPause,
+            profileListNotEnumeratedSince: profileListNotEnumeratedSince,
+            resetRequired: resetRequired,
+            profileNames: profileNames, now: statusReadAt)
+    }
+
+    /// A reset or reconfiguration wins over the pause: Retry cannot fix it.
+    private var resetRequired: Bool {
+        requiresReconfiguration || nativeDetail?.lastProblem?.category == .resetRequired
+    }
+
+    /// The Sync now control: the helper's request state, the pane's own unlock and pairing
+    /// checks, and progress while a tap is being submitted. Hidden while the pause shows Retry.
+    var syncNowButton: SyncNowButtonState {
+        guard isUnlocked, paired else {
+            return SyncNowButtonState(isVisible: false, isEnabled: false, showsProgress: false, hint: .none)
+        }
+        let state = statusPresentation.syncNow
+        guard isSubmittingSyncNow else { return state }
+        return SyncNowButtonState(isVisible: state.isVisible, isEnabled: false, showsProgress: true, hint: .none)
+    }
+
+    private func apply(_ report: SyncHelper.Report?) {
+        let wasPaused = statusPresentation.pause != nil
         contextSnapshots = report?.snapshots ?? [:]
         requiredIDs = report?.requiredIDs ?? []
         summary = report?.summary ?? SyncStatusSummary(phase: .checking, lastSuccess: nil)
+        requestState = report?.request ?? .idle
+        nativeDetail = report?.snapshots["phi"]?.detail
+        profileMappingPause = report?.profileMappingPause ?? .none
+        syncNowCancelledByPause = report?.syncNowCancelledByPause ?? false
+        profileListNotEnumeratedSince = report?.profileListNotEnumeratedSince
+        pinScopeMigrationFailure = report?.pinScopeMigrationFailure
+        statusReadAt = Date()
+        // The pause ended in the report; one that gives way to a reset or Not started has not resumed sync.
+        if report != nil, profileMappingPause == .none,
+           SyncStatusPresentation.announcesResume(wasPaused: wasPaused, now: statusPresentation,
+                                                  resetRequired: resetRequired) { pauseEndedSerial &+= 1 }
+        guard awaitingSyncNow else { return }
+        // A dropped request (no helper, ineligible, sync not started) ends without a word.
+        guard report != nil, summary.phase != .notStarted else { awaitingSyncNow = false; return }
+        // A request the pause cancelled returns the control to idle and is not announced.
+        guard statusPresentation.announcesSyncNowOutcome else { awaitingSyncNow = false; return }
+        switch requestState {
+        case .queued, .inFlight: break
+        case .rejected: finishSyncNow(.rejected)
+        case .idle:
+            // The helper moves `lastSuccess` only on a coordinated success, so a newer one is enough
+            // even if a later local edit has already started another round.
+            let succeeded = summary.lastSuccess.map { success in syncNowBaseline.map { success > $0 } ?? true } == true
+            let problem = nativeDetail?.lastProblem.flatMap { $0.at >= syncNowTappedAt ? $0.category : nil }
+            finishSyncNow(succeeded ? .finished : .failed(problem))
+        }
+    }
+
+    private func finishSyncNow(_ result: SyncNowOutcome.Result) {
+        awaitingSyncNow = false
+        syncNowSerial &+= 1
+        syncNowOutcome = SyncNowOutcome(serial: syncNowSerial, result: result)
+    }
+
+    private func clearStatus() {
+        contextSnapshots = [:]; requiredIDs = []
+        summary = SyncStatusSummary(phase: .notStarted, lastSuccess: nil)
+        requestState = .idle
+        nativeDetail = nil
+        profileMappingPause = .none
+        syncNowCancelledByPause = false
+        profileListNotEnumeratedSince = nil
+        pinScopeMigrationFailure = nil
+        awaitingSyncNow = false
     }
 
     func refreshDevices() async {
@@ -97,36 +247,110 @@ final class DevicesSettingViewModel: ObservableObject {
         self.approvals = approvals
     }
 
+    deinit {
+        stopObservingNetworkPath?()
+        connectivityReload?.cancel()
+    }
+
     var isUnlocked: Bool { unlockState == .unlocked }
 
     func loadAll() async {
         loadGeneration &+= 1
         let generation = loadGeneration
         guard isSignedIn() else {
+            stopObservingConnectivity()
             doStopPolling()
+            unlockedAccountID = nil
             actionError = nil
+            pendingLoadError = nil
             requiresReconfiguration = false
             unlockState = .notSignedIn
             return
         }
-        unlockState = .loading
+        let account = accountID()
+        // A pane already loaded for this account keeps its content while it reloads, unless the
+        // key was discarded since (this device left the account).
+        let wasUnlocked = unlockState == .unlocked && unlockedAccountID == .some(account)
+            && manager.currentARK != nil
+        if !wasUnlocked { unlockState = .loading }
         requiresReconfiguration = reconfigurationRequired()
+        let result: UnlockResult
         do {
-            let result = try await manager.unlockAtStartup()
-            guard generation == loadGeneration, isCurrentAccount() else { return }
-            switch result {
-            case .unlocked:
-                unlockState = .unlocked
-                await refresh(requestSync: true)
-                guard generation == loadGeneration, isCurrentAccount() else { return }
-                startPolling()
-            case .needsJoin:    unlockState = .needsJoin
-            case .notSignedIn:  unlockState = .notSignedIn
-            }
+            result = try await manager.unlockAtStartup()
         } catch {
             guard generation == loadGeneration, isCurrentAccount() else { return }
+            // A failed reload (usually offline) does not undo this device's unlock: the status
+            // row keeps reporting the helper's state. Only a first load shows the failure card.
+            if wasUnlocked {
+                await showUnlocked(generation: generation)
+                return
+            }
+            unlockedAccountID = nil
             unlockState = .failed(Self.requestFailed)
+            observeConnectivity()
+            return
         }
+        guard generation == loadGeneration, isCurrentAccount() else { return }
+        stopObservingConnectivity()
+        switch result {
+        case .unlocked:
+            // A load that started locked (Retry, connectivity recovery, a launch whose
+            // silent unlock failed) must publish the Profile keys now rather than wait for
+            // the launch-time unlock retry. An ordinary reload of an unlocked pane resolves
+            // nothing: the controller already holds the keys, and a mapping pass per pane
+            // open would cost a network round trip before the status shows.
+            if !wasUnlocked { await resolveMappingsAfterUnlock() }
+            guard generation == loadGeneration, isCurrentAccount() else { return }
+            unlockedAccountID = account
+            await showUnlocked(generation: generation)
+        case .needsJoin:    unlockedAccountID = nil; unlockState = .needsJoin
+        case .notSignedIn:  unlockedAccountID = nil; unlockState = .notSignedIn
+        }
+    }
+
+    /// Opening or reloading the pane only observes (owner ruling 2026-10-12): a round per
+    /// pane open flipped Up to date to Checking → Syncing every time the pane was shown.
+    /// Sync now is the user's request; the helper's own stale-evidence rule still requests a
+    /// round when the last success is old.
+    private func showUnlocked(generation: UInt64) async {
+        unlockState = .unlocked
+        await refresh(requestSync: false)
+        guard generation == loadGeneration, isCurrentAccount() else { return }
+        startPolling()
+    }
+
+    /// While the first load has failed, reloads once after the connection comes back. A
+    /// failure while the path was already satisfied waits for Retry, so it cannot loop.
+    private func observeConnectivity() {
+        stopObservingConnectivity()
+        sawUnsatisfiedPath = false
+        stopObservingNetworkPath = observeNetworkPath { [weak self] satisfied in
+            self?.networkPathChanged(satisfied: satisfied)
+        }
+    }
+
+    private func networkPathChanged(satisfied: Bool) {
+        guard case .failed = unlockState else { return }
+        connectivityReload?.cancel()
+        connectivityReload = nil
+        guard satisfied else { sawUnsatisfiedPath = true; return }
+        guard sawUnsatisfiedPath else { return }
+        sawUnsatisfiedPath = false
+        let delay = connectivityReloadDelay
+        connectivityReload = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: delay)
+            guard !Task.isCancelled, let self, case .failed = self.unlockState else { return }
+            // Cleared first: the reload stops observing, which must not cancel this task.
+            self.connectivityReload = nil
+            await self.loadAll()
+        }
+    }
+
+    private func stopObservingConnectivity() {
+        stopObservingNetworkPath?()
+        stopObservingNetworkPath = nil
+        connectivityReload?.cancel()
+        connectivityReload = nil
     }
 
     func refreshPending() async {
@@ -136,9 +360,10 @@ final class DevicesSettingViewModel: ObservableObject {
             let rows = try await approvals.listPendingApprovals()
             guard generation == pendingGeneration, isCurrentAccount() else { return }
             pending = rows
+            pendingLoadError = nil
         } catch {
             guard generation == pendingGeneration, isCurrentAccount() else { return }
-            actionError = Self.requestFailed
+            pendingLoadError = Self.requestFailed
         }
     }
 
@@ -178,6 +403,8 @@ final class DevicesSettingViewModel: ObservableObject {
         loadGeneration &+= 1
         deviceGeneration &+= 1
         pendingGeneration &+= 1
+        awaitingSyncNow = false
+        stopObservingConnectivity()
         doStopPolling()
     }
 

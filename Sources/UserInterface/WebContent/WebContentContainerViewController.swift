@@ -64,6 +64,11 @@ class WebContentContainerViewController: NSViewController {
     /// excludes. See `WebContentViewController.pageCardView`.
     var currentPageCardView: NSView? { currentWebContentController?.pageCardView }
 
+    /// `tabId`'s pane card when it is in the mounted split; nil otherwise.
+    func currentSplitPaneCardView(forTabId tabId: Int) -> NSView? {
+        currentWebContentController?.splitPaneCardView(forTabId: tabId)
+    }
+
     /// Owned by this controller while in placeholder mode; released on exit.
     /// Mutually exclusive with the active tab's WCVC (only one is visible
     /// in contentContainer at a time).
@@ -413,12 +418,18 @@ class WebContentContainerViewController: NSViewController {
     /// the page itself. A hosted session's container does not: the shell's
     /// page-area host paints one backdrop for every Space in the window
     /// (`ShellContentHostViewController`), which is what lets a Space switch
-    /// ramp it as one surface.
+    /// ramp it as one surface. The pages this container mounts follow it:
+    /// each spans the margins around its card, and one painting its own
+    /// backdrop there keeps the leaving Space's color until the switch lands.
     var paintsOwnBackdrop = true {
         didSet { applyBackdropPainting() }
     }
 
     private func applyBackdropPainting() {
+        for controller in webContentControllers.values {
+            controller.paintsOwnBackdrop = paintsOwnBackdrop
+        }
+        placeholderShell?.paintsOwnBackdrop = paintsOwnBackdrop
         guard isViewLoaded else { return }
         (view as? ColoredVisualEffectView)?.suppressesBackdrop = !paintsOwnBackdrop
     }
@@ -1334,6 +1345,7 @@ class WebContentContainerViewController: NSViewController {
             return byGuid
         }
         let controller = WebContentViewController(state: state, tab: tab)
+        controller.paintsOwnBackdrop = paintsOwnBackdrop
         webContentControllers[identifier] = controller
         return controller
     }
@@ -1374,6 +1386,7 @@ class WebContentContainerViewController: NSViewController {
         
         // Create new controller with the associated tab
         let controller = WebContentViewController(state: browserState, tab: tab)
+        controller.paintsOwnBackdrop = paintsOwnBackdrop
         webContentControllers[identifier] = controller
         AppLogInfo("🆕 [WebContent] Created new controller for identifier '\(identifier)', tab.guid: \(tab.guid)")
         
@@ -1441,6 +1454,7 @@ class WebContentContainerViewController: NSViewController {
             shell = existing
         } else {
             shell = PlaceholderShellViewController(browserState: browserState)
+            shell.paintsOwnBackdrop = paintsOwnBackdrop
             addChild(shell)
             contentContainer.addSubview(shell.view)
             shell.view.snp.remakeConstraints { make in

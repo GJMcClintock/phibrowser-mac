@@ -40,7 +40,7 @@ tested without a host at all.
 
 * **Merge core — symlinks, never copies.**
   `Sources/SyncConvergence/PhiSyncCore/*.swift` are relative symlinks to
-  `Sources/Sync/Phi/{SyncableSettings,SyncableSpaces,BookmarkKind,PinKind,URLRuleKind,SyncableOwnedItems,PinnedTabScopeMirror,PhiHybridClock}.swift`,
+  `Sources/Sync/Phi/{SyncableSettings,SyncableSpaces,SyncableProfiles,BookmarkKind,PinKind,URLRuleKind,SyncableOwnedItems,PinnedTabScopeMirror,PhiHybridClock}.swift`,
   and `PhiSyncCore/Proto` is a symlink to `Sources/Sync/Phi/Proto/Generated`.
   The harness lives in the same target, so it sees these declarations at their
   production `internal` visibility: no `public` annotations, no `@testable`,
@@ -61,6 +61,24 @@ tested without a host at all.
   production text. A renamed or restructured declaration fails the extraction
   loudly rather than testing a stale copy, and the generated file is gitignored
   so no copy is ever committed.
+
+* **Engine members — re-hosted in a stub actor.**
+  `PhiSyncEngine` is an actor that cannot be compiled outside the app, but its
+  Space apply pass (`applySpaces`), its Space tag routing (`routeSpaceEntity`),
+  the two structs they use and the pull's per-page tag-index extension are
+  sliced into `extension SpaceApplyHost` (the `HOSTED` and `SNIPPETS` lists in
+  `extract_production_slices.py`; `private` is dropped from each member's own
+  head, nothing else changes). `SpaceApply.swift` declares the actor with the
+  few engine members those read (`spaceAccess`, `now()`, the round counters,
+  and stubs for the logger, `PhiSyncLog` and `PhiEntityCodec`), plus a fake
+  main-actor `PhiSpaceLocalAccess`, and pins the apply-loop decisions no pure
+  property reaches: a landing clears `refusedAtMs`, a Space being deleted
+  locally is neither updated nor re-created (including a deletion that begins
+  between the loop's two reads of the mark), a mapped Space outside the sync
+  view is parked rather than created over, a tombstone on a later page
+  resolves a Space an earlier page of the same pull introduced, and a
+  tombstone for a Space known only from the owned items that name it is routed
+  rather than dropped, wherever it falls on the page (R-M3-4a-78).
 
 * **SwiftProtobuf — the checkout Xcode already resolved.**
   The build script reads the revision `Phi.xcodeproj`'s `Package.resolved` pins
@@ -127,7 +145,7 @@ domain on exactly two points, both tied to a documented contract, and the
 adversarial generators are kept, not deleted: they are what feeds the
 normalisation properties.
 
-For settings, Spaces, bookmarks, pins and URL rules:
+For settings, Spaces, Profiles, bookmarks, pins and URL rules:
 
 | Property | Statement |
 | --- | --- |
@@ -460,6 +478,12 @@ and remain the XCTest suites' job:
   (`checkAnEditedChildSurvivesItsFoldersDeletion`): an edited child yields while
   its folder dies, an arrival still naming the dead folder lifts to the Space
   root, and the lifted node satisfies the same reachability invariants.
+  Deleting a Space is checked the same way (R-M3-4a-78, the four
+  `space-deletion.*` groups): the deleting device tombstones the Space's
+  bookmarks and pins from cursor state and a peer lands them; a fresh device
+  discards a parked tree owned by a deleted Space instead of holding it; a
+  racing create into the deleted Space is discarded, not held; and a move to a
+  live Space survives the deletion through A9 or the live-row criterion.
 * Space hide/purge and the 30-day retention lifecycle (Spaces and settings
   therefore have deletes switched off in the model);
 * landing into local storage, dense-order projection and the routing refresh;

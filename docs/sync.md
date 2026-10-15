@@ -103,6 +103,59 @@ Within the same session, completed Profile writes advance the expected review
 snapshot so a Space-write retry retains its remaining choices. Fresh preflight
 still rejects independent changes to the server candidates or reviewed Space data.
 
+After enrollment the background mapping pass (`SyncKeyController.resolveMappings()`)
+never adopts an account Profile by count: one unmapped local beside one unclaimed
+account Profile stays unmapped. Auto-create's same-name twin
+search still adopts, after a Profile auto-create already made for that uuid. A
+local with no twin is registered as a new account Profile without asking, once no
+account Profile is left that auto-create could still claim. Envelopes that do not
+open under the ARK, and uuids the persisted mapping gives to deleted locals, never
+hold registration. Register and lookup failures are classified: transient
+(transport, 5xx, 408/429, 401/403, locked, a mapping that moved) holds the pass
+(`.held`); definitive (bad envelope, another 4xx, an undecodable body) measures
+and reports `.definitiveFailure`. The controller publishes the Profiles whose
+mapping it knows to be absent on the server (`knownUnmappedProfileIds`), the last
+pass result and the Profiles it is creating, read on
+`.phiProfileMappingsDidResolve`; the pure `SyncProfileMappingPause` turns them into
+a pause decision. The known-unmapped set is evidence, not a per-pass answer: a
+Profile enters when a lookup finds its persisted mapping's envelope gone (404) or
+a measured pass leaves it unmapped, and leaves only when a pass or an adopt
+resolves it or it no longer exists locally. A held pass erases nothing, and
+`clearResolved()` keeps the set while the account key is still available; it
+empties once the key is gone or the controller is retired. So a mapping whose
+envelope is gone keeps pausing even when its replacement registration fails.
+Beside the pass result the controller publishes `lastMappingsFailureCategory`
+(`SyncProfileMappingFailureCategory`: offline, sign-in expired, server error,
+other), for the Sync status only. It names the latest failure the pass met (for
+a measured pass that reports an auto-create failure, that failure's), carries no
+text or identifiers, changes neither the pass result nor the pause's reason, and
+is nil after a pass that succeeds and after `clearResolved()`. `runMappingRepairPass()` runs auto-create and then a mapping pass,
+both single-flight, outside the engine, under the existing gates (enrollment
+complete, unlocked). The coordinator turns these inputs into the pause described
+below. Until `ProfileManager` has enumerated the Profile list once
+(`isProfileListEnumerated`), a pass does not prune the known-unmapped set against
+the empty list it sees.
+
+Auto-create follows the account's Profile entities, not the key registry, which
+keeps every Profile ever registered (see "Profile entity"). The facade publishes
+`PhiSpaceSyncState.accountProfileEntityView`: nil until the data type's first full
+replay has drained, then the live Profile entities (uuid and account name) and the
+deleted ones. Auto-create skips its round (`.skipped`) while the view is nil and
+otherwise creates only uuids with a live entity, named from the entity (the
+registry name is the fallback); a registry row without a live entity is never
+grown back. The mapping pass uses the same view: an account Profile counts as
+claimable, and as unclaimed for `needsPairing`, only with a live entity, so a
+deleted account Profile neither holds registration nor keeps the pairing state
+open. Before the first replay nothing is claimable, so registration never waits
+on an auto-create that cannot run yet; the accepted cost is that a same-named
+local created in that window may be registered as a second account Profile. A
+pull that finishes the first replay after a skipped auto-create, or lands a new
+account Profile this device has no local Profile for, queues one follow-up pull
+so the Profile is created and its Spaces land without waiting for the timer.
+Mixed versions: an account Profile that only older clients know (no Profile
+entity published yet) is not auto-created on a new device until an upgraded
+device that has it publishes its entity.
+
 All native data rounds and Chromium ready-key exposure require enrollment.
 Completing setup replays the shared Phi data type once under the confirmed Space
 mappings, because no round (not even the gate close) runs while unpaired. Completion
@@ -155,6 +208,216 @@ Withdrawing eligibility synchronously blocks
 in-flight native writes, stops the invalidation schedule, and notifies Chromium.
 A generation fence also rejects old rounds after rapid re-enrollment.
 
+The pause while a local Profile is unmapped is a separate, softer stop.
+Comments in the sync sources cite identifiers such as AM-1, R2, D20 or 10.2; they
+refer to the implementation plan kept in the company knowledge base under
+`30-projects/phinomenon/sync-service/design/2026-09-29-sync-profile-pause-and-loading-plan.md`.
+The engine keeps an in-memory, lock-protected gate beside the stop signal
+(`PhiSyncEngine.setProfileMappingPause(_:)`, read back through
+`isProfileMappingPaused`), which the coordinator sets and clears synchronously
+on the main actor. It takes effect at round boundaries: `run(_:)` reads it once,
+after the wait for the previous round, and a pull, push, local-change round
+(settings, Spaces, owned kinds) or retention sweep that meets it returns before
+it writes anything or shows Syncing. A round admitted before the gate came on
+finishes with all its landings, cursor saves, acknowledgements and marker
+advance; nothing inside a round reads the gate, it never bumps the generation,
+and it is not the pairing stop (`suspendForPairing()`), which does abort a
+round. Exempt: the read-only preview, the Space gate edge and the local
+deletion intent. A round admitted only through that exemption while the gate
+is on skips the favicon backfill tail, so the pause starts no favicon request.
+While the gate is on, neither `markLocalChangePending()` nor the queue's own
+Syncing update changes the status. Rounds turned away are not replayed:
+clearing the gate admits the next round, and the caller requests a catch-up and
+queues the retention sweep again. An engine whose gate is never set behaves
+exactly as before.
+
+`PhiChromiumCoordinator` owns the pause. Its state
+is an episode (an identifier and the time the predicate first reported an
+unmapped Profile) and the outputs last applied, in memory only, held by a
+`SyncProfileMappingPauseReconciler` (`Sources/Sync/`). Every output is derived by
+one idempotent function, `reconcileProfileMappingPause(profiles:)`, which commits
+the episode and the outputs before it applies any difference:
+
+| Step | Rule |
+| --- | --- |
+| Prerequisites | Engine present, key controller present and not retired, account key unlocked, enrollment complete and activated, and this Mac not requiring reconfiguration (`nativeSyncRequiresReconfiguration`, the same source as the Profile loader's eligibility: an account reset by another device keeps enrollment and the key until setup runs again). Without them there is no episode and every output of the pause is off |
+| Predicate | `SyncProfileMappingPause` over the user-assignable Profiles of the list the trigger passed (the Profile-list sink passes the value it was given; every other caller the current list), the persisted mappings, `knownUnmappedProfileIds`, `profileIdsBeingCreated` and the last pass result. Evaluated only with the prerequisites met and the list enumerated |
+| Episode | Starts when the predicate pauses, runs a repair pass at once and arms one timer for its 15-second mark; ends when the predicate is clear or a prerequisite goes. A second unmapped Profile does not restart it |
+| Engine gate | On while an episode exists, and from engine construction until the Profile list has been enumerated |
+| Chromium keys | `chromiumKeysWithdrawn` set, then `notifyPhiSyncKeysChanged`, once an episode is 15 seconds old; cleared and notified when it ends |
+| Status | The helper gets `SyncProfileMappingPauseStatus`: `.grace` for the first 15 seconds, then `.paused` with the reason, the failure category and the unmapped Profile ids, `.none` otherwise |
+| Resume | When the gate goes from on to off on the current engine: a catch-up from the invalidation coordinator and the retention sweep again (both only once the schedule has started; before that `startPhiSyncIfReady()` requests its own), then the Profile loader re-evaluates |
+
+Triggers: the Profile-list sink, the `.phiProfileMappingsDidResolve` and
+`.phiProfileAutoCreateDidRun` observers, the episode's 15-second mark, the end of
+engine build (before any round is requested), `activatePairedSync()`,
+`startPhiSyncIfReady()` and the unlock observer before they enable work, the
+Profile-list retry after each read, a repair pass skipped because reconfiguration
+is required, and teardown. A pause never aborts a round, never bumps the generation and never
+stops or starts the invalidation coordinator; the invalidation stream stays
+connected and the pulls it requests return at admission. Nothing about it is
+persisted.
+
+Repair: one loop per episode calls `runMappingRepairPass()` (unless reconfiguration is required when the pass falls due: the engine enters that state without telling the coordinator, so the pass is skipped without network work, the delay does not grow, and a reconciliation ends the episode), then waits 5 seconds,
+doubling to 5 minutes, and repeats while its episode is current. While the
+latest mapping failure the pass left is offline (`lastMappingsFailureCategory`),
+a wait is at most 30 seconds, because nothing observes the connection coming
+back; the next delay doubles from the wait used. Foreground,
+wake, an unlock and the pane's Retry (`retryProfileMappingRepair()`) replace the
+pending wait with an immediate pass and restart the delay at 5 seconds; a request
+during a pass runs one more pass after it. During an episode, and with the
+account key unlocked, the Profile-list sink runs this repair instead of
+`silentUnlockAndResolve()`, so no device-envelope lookup runs during the episode;
+on a device with no episode the sink is unchanged. `silentUnlockAndResolve()` is
+single-flight (callers during a pass coalesce into one follow-up pass) and clears
+the key cache on a failed lookup only while the account key is not held; a thrown
+failure in that state (the key service unreachable at launch) also arms its own
+retry, 5 seconds doubling to 60, until a pass gets any answer, so recovery does
+not depend on another login refresh or Profile-list change. A coordinator Sync
+Now request while the key is missing runs that retry at once,
+before the helper checks eligibility (even when no helper exists yet). The locked
+pane exposes Retry on its failed-load card, not Sync Now; a successful pane unlock
+resolves mappings on its bound shared controller before requesting sync, without
+waiting for the pending launch retry. Once the key is held, a thrown error or a
+401 keeps the cache and runs a mapping pass, and only a 404 for this device's
+envelope clears it. The sink's
+choice is made by the reconciliation right after the episode transition for its
+list is committed: a sink that runs inside another reconciliation (the resume
+lets the Profile loader refresh the list) has its inputs queued, and its choice
+waits for them, so an episode they start selects nothing rather than the silent
+unlock. A silent unlock chosen this way runs later, in a task, and only if the
+key controller it was chosen for is still current and no episode exists by then.
+A Profile
+the key layer is creating can start an episode for the moment before its id is
+known (the list publishes before `createProfile` returns); nothing is aborted or
+shown and the episode ends when its adopt does.
+
+Launch: `ProfileManager.isProfileListEnumerated` becomes true on the first
+complete, non-empty bridge read and never goes back. Until then the gate is on,
+no episode starts and no key is withdrawn; while an engine exists and the list is
+still not enumerated, the list is read again after 5 seconds, doubling to 30
+seconds and then every 30 seconds, because no round starts until a read
+succeeds. Reaching the 30-second cap is logged once, and so is the enumeration
+that follows it (elapsed seconds only). The helper's report carries
+`profileListNotEnumeratedSince` (the time the engine was built) while the gate
+is on for this reason, and nil otherwise; membership changes keep it. A first
+enumeration with nothing unmapped only opens the gate.
+
+Timers exist only while they have work: the 15-second mark and the repair wait
+during an episode, the list retry before enumeration. Sign-out, account switch,
+self-removal and engine retirement (`stopPhiSync()`) reconcile without an engine,
+which ends the episode, cancels its timers and forgets the gate and helper
+pause of the engine being dropped. Keys withdrawn from the key controller are
+forgotten too, not restored: `invalidateSyncKeyController()` retires that
+controller right after `stopPhiSync()`, and `retire()` clears the keys and
+notifies the bridge once, so Chromium never gets the old account's keys back
+during sign-out, an account switch or self-removal. A reconciliation for any
+other missing prerequisite (lock, retirement found later, unpairing) still
+restores the flag and notifies. A device on which the predicate stays clear sees no change beyond the
+launch gate: no timer, no repair pass, no withdrawal, no catch-up, no report
+change.
+
+Known limitations: an edit made during a pause is stamped when the next round
+runs; a round admitted before the episode finishes under the partial behaviour
+(the Spaces of the unmapped Profile are left out, the apply loop's checks keep an
+existing row from being created again, and a deletion of such a Space arriving
+from the account is applied); Chromium keeps syncing the mapped Profiles for the
+first 15 seconds; the reason is per pass, not per Profile.
+
+### Profile pairing and the default profile
+
+Each account Profile's key travels in an envelope sealed with the ARK:
+`{"v":1,"key":<base64>,"name":<string>,"default":<bool>}`
+(`ProfileKeyManager.sealProfilePayload` / `openProfilePayload`). The server stores
+it opaquely. `"default"` is additive: every registration writes it, `true` only
+for the registering device's Default Profile (`LocalStore.defaultProfileId`),
+`false` for any other. An envelope without the key was written before the flag
+existed and reads as unknown (`RemoteProfile.isDefault == nil`), never as false.
+Older clients ignore the key.
+
+Legacy envelopes of this Mac's own mappings are backfilled best effort. After
+every mapping pass that reaches its announcement, and after every auto-create
+refresh that read the account listing (the periodic sync round reaches the key
+layer only through that refresh, including when nothing is missing),
+`SyncKeyController` starts one single-flight backfill over the local Profiles
+that have a persisted mapping (`ProfileKeyManager.backfillDefaultFlag`, main-actor
+isolated because its fence reads controller state). A local Default provides evidence for
+`true`; ordinary locals fill a missing flag with `false`. True wins across devices:
+`false` may be promoted to `true`, never the reverse. Unmapped account Profiles
+stay unknown; this Mac cannot infer their role from a name. Only other devices'
+pairing reads the flag: this Mac's rounds, Chromium key delivery and Space landing
+never read its own mappings' flag, so the backfill never blocks startup or sync,
+never withholds Chromium keys, never holds or delays the pass announcement and
+never changes the pass result or failure category. A failure is logged once per
+uuid per session (8-character prefix) and the next pass retries. A uuid confirmed
+to carry the flag is not fetched again in the same session; a changed mapping for
+that Profile re-checks it.
+
+`PATCH /keys/v1/profiles/{uuid}` conditionally replaces an envelope using the
+exact old ciphertext in `expected_profile_key_envelope`; PUT stays create-only.
+The client preserves the Profile UUID, key, name and unknown payload fields; 409
+means re-read and merge again, at most three attempts per backfill
+(`metadataConflict`, transient). A 404 on GET leaves the missing identity to the
+existing mapping repair; no key or UUID is minted. Account retirement,
+cancellation and a changed mapping fence each write. Deploy the service endpoint
+first; a client talking to a service without it only leaves its legacy envelopes
+unknown (failures are logged and retried), and sync is otherwise unaffected. The
+backfill upgrades known mappings; envelopes owned only by devices that have not
+upgraded stay unknown.
+
+Rule: a device's Default Profile pairs only with the account's default Profile.
+Exactly one account default is authoritative on a Mac: the one its Default is
+mapped to with the uuid still in the account listing, or, in the pairing sheet,
+the first readable account default in the listing, which the Default's row is
+fixed to (shown in place of a picker; only with no readable account default does
+the Default keep a picker over the legacy Profiles it may take). Two devices
+that complete first pairing concurrently each register a default; every account
+default other than the authoritative one is demoted to an ordinary Profile on this
+Mac (offered to other locals, creatable, auto-created) and the conflict is logged
+(`AppLogWarn`, metadata only). Nothing is hidden or left unclaimable, so Spaces
+bound to the other default still land.
+
+| Remote | Local Default | Other local |
+| --- | --- | --- |
+| Authoritative account default | Fixed: the Default's row shows it, whatever its name | Never; never created as a new local |
+| Other account default (demoted) | Never while a readable account default is fixed | Allowed, like any Profile |
+| `isDefault == false` | Never | Allowed |
+| `nil` (legacy / unknown) | Allowed (picker, only with no readable account default) | Allowed |
+
+`ProfilePairingModel` applies it to every picker, preselection (the local Default
+is decided first and takes the first unclaimed account default, otherwise a name
+match among the remotes it may take), "Assign to" option, "Create on this Mac"
+option and decision; `fixedDefaultRemote` pins the local Default's selection so a
+stored "Register as new" or legacy choice for it reads back as the account default
+and no sheet can mint a second one. Rows for the local Default and the
+authoritative account default carry the Default badge. `adoptRemoteProfile`
+refuses a known non-default for the local Default with
+`ProfileKeyManagerError.defaultMismatch` before writing anything; the pairing sheet
+shows a fixed error and reloads. Which default is authoritative is the callers'
+knowledge, so the write boundary does not police the other half.
+
+Background mapping follows the same rule. A local counts as mapped only while its
+persisted uuid is in the round's account listing, so a mapping whose envelope is
+gone never keeps the local Default from claiming the live account default (and a
+third uuid is never registered for it). How auto-create reads the missing
+envelopes depends on whether the local Default is free (user-assignable and
+without a live mapping). When it is not, the round streams in uuid order with
+the per-round cap checked before each read, so it reads at most
+`maxAutoCreatesPerRound` envelopes it then acts on; claim order is irrelevant
+because any flagged default is demoted. When it is free, the round first scans
+the missing envelopes with at most `candidateScanWidth` (3) reads in flight and an
+overall `candidateScanDeadline` (10 seconds), then claims flagged account
+defaults first and everything else after, uuid order within each group, under
+the same cap. A read error or the deadline makes the scan incomplete (an
+envelope that does not open is a known non-candidate, not incomplete). While the
+scan is incomplete or a flagged account default is among the candidates, no
+unflagged Profile may take the local Default that round, even if the flagged
+default's own adopt fails; the Default stays free and the next round retries.
+Otherwise a free local Default adopts an account default regardless of name (the
+first by uuid among several), and a known non-default never takes it. Once the
+Default is live-mapped, any other account default is twinned by name or created
+like an ordinary Profile, and its conflict is logged once per uuid.
+
 ## Sync status contract
 
 `SyncHelper` is the account-scoped macOS owner of the common completion time.
@@ -166,22 +429,69 @@ Observation reads the cached user Profile list once and never calls
 `ProfileManager.refresh()`. The existing Profile-list subscription synchronously
 invalidates outstanding observations when membership changes.
 
-Only startup, membership changes, an explicit pane reload, failed status, or
-known stale success evidence (five minutes) may request a coordinated round.
-All requests share a minimum interval of 60 seconds; explicit reloads coalesce
-with an active round. A queued explicit reload preserves the observed phase and
+Only startup, membership changes, failed status, or known stale success evidence
+(five minutes) may request a coordinated round; opening or reloading the Sync pane
+only observes (owner ruling 2026-10-12: a round per pane open flipped the status to
+Checking → Syncing every time the pane was shown). All requests share a minimum
+interval of 60 seconds; a request made while a round is active coalesces with it. A Sync now request skips the interval while the native
+participant (`Participant.isNative`) reports Offline and dispatches as soon as the
+participants are settled, so the tap fails within seconds
+instead of waiting behind the interval that automatic retries keep pushing
+forward. Upgrading an already admitted ordinary round to Sync now also skips the
+interval, as described below. Automatic demand never skips it. A queued explicit reload preserves the observed phase and
 last common time until dispatch; it does not invalidate a completed barrier.
 Ordinary pending work, commit-only cycles, native remote
 applies, and late successful replies never request another round. The engines'
 existing local-change and invalidation schedulers continue to own normal work.
 A requested round pulls native data and refreshes all Profile namespaces through
 the existing account-wide `notifyPhiSyncInvalidation` catch-up (both Profile UUID
-and type list empty; a nonempty UUID with empty types is a no-op).
+and type list empty; a nonempty UUID with empty types is a no-op). The native
+participant does not start either itself: it asks the running
+`PhiSyncInvalidationCoordinator` for a catch-up, whose pull performs both, so helper,
+SSE and fallback-timer pulls share one coalesced, single-flight pull. A request made
+while a pull is running is served by one follow-up pull. The participant refuses
+(the helper reports Rejected) when the coordinator is absent or stopped, in addition
+to the pairing, key, account and bridge-support gates.
+
+`requestSyncNow()` is the explicit "Sync now" request. It joins an observation in
+progress and then observes once more, so a request recorded during a poll is never
+left behind, and returns the report's
+`SyncRequestState`. `Report.request` describes that request only; the pane-open
+request and automatic demand never appear in it. It is In flight (with the round's
+start) while a round dispatched with a Sync now request is active; Queued while a
+Sync now request waits, with the reason Unobservable (a
+participant is missing or Checking), Busy (Initial sync or Syncing) or Rate limited
+(with the earliest dispatch time); Rejected after an adapter refused a dispatch that
+carried a Sync now request, until the next tap or accepted dispatch; otherwise Idle. Membership changes, ineligibility and stop reset it
+to Idle. A queued request dispatches on the helper's own poll. A dispatch that carries a Sync now request
+passes `bySyncNow` to every participant: the native adapter queues a requested catch-up
+(`PhiSyncInvalidationDemand.requestedCatchUp`, which survives coalescing with automatic
+catch-ups) and sends Chromium its account-wide catch-up with `userInitiated: YES`, so each
+Profile's sync scheduler retries at once instead of waiting out exponential backoff from an
+earlier failure (server throttling still holds). A framework without that selector gets the
+plain catch-up; pane reloads and automatic demand never set it.
+
+The first tap on an ordinary active round upgrades it with one user-initiated dispatch,
+even if the minimum interval holds or participants are now busy or unobservable: that
+round was already admitted. Eligibility, membership, mapping-pause and adapter-acceptance
+checks still apply. Acceptance replaces the completion baseline and timeout with those
+of the upgrade, so old failure or success evidence cannot finish the retry; refusal
+retires the old barrier and reports Rejected. Further taps on the user-initiated round
+coalesce without another dispatch. Transport still uses the coordinator's single-flight
+catch-up path.
+
+For new rounds, the helper's `ExplicitRequestPolicy` decides only explicit requests
+while a participant is
+unobservable: `.waitForAllObservable` (the default) keeps them queued;
+`.dispatchToObservable` dispatches once every observable participant is settled,
+still sends the request to every participant and keeps the unobservable one in the
+completion barrier, so such a round expires without a common time and without an
+error. Automatic demand always waits for every participant.
 
 All required participants remain in the barrier, including lazy Profiles that
 have not been loaded. Missing reads and Checking snapshots are unobservable, not
 stale evidence. While any participant is unobservable or reports Initial sync or
-Syncing, the helper only observes and defers new requests, including queued pane
+Syncing, the helper only observes and defers new rounds, including queued pane
 reloads. Even another context's aging success cannot force a round in that state.
 It never loads Profiles for status. Once every context is observable and settled,
 retained startup/membership/expired-round demand can establish a fresh barrier.
@@ -194,7 +504,22 @@ reports Needs attention only when all engines claim Up to date without fresh
 completion evidence. Checking, Initial sync and Syncing remain their observed
 states, and real engine failures retain their existing error state. A previous
 timeout never overrides later missing status or healthy work. Retry waits at least
-another 60 seconds and until every context is observable and settled. Rejected requests have the same rate limit and cannot be
+another 60 seconds and until every context is observable and settled. A round also ends
+early, for the request state, when the summary stays Offline or Needs attention with every
+participant settled and sampled after dispatch (a revision newer than at dispatch; a
+Chromium Profile's revision moves on every read) for at least one poll interval (3 seconds)
+of time, measured by timestamps, not by the number of observations. A round a Sync now
+request started or joined also ends early when the native participant alone has reported
+Offline since dispatch for that same interval, without waiting for Chromium Profiles, which
+can keep reporting Syncing or Checking without a connection. Offline is never reported as
+Rejected, so it does not turn the summary into Needs attention. Its request baseline is
+kept until the round's timeout: if every context then reports a newer success, the common
+time is recorded exactly as the running round would have, and no demand remains; after the
+timeout the baseline is dropped without recording anything. Automatic demand after an early
+end waits until the round's timeout plus the minimum interval, the time it would have waited
+after expiry, so failing sync is not retried more often; an explicit request needs only the
+minimum interval, and a membership change, ineligibility or a new dispatch clears the kept
+baseline and the extra delay. Rejected requests have the same rate limit and cannot be
 completed by unrelated success samples. Rebuilding the stack stops the old helper.
 
 Only when every required context is Up to date with a success newer than its
@@ -215,6 +540,30 @@ enumeration, unsupported selectors and malformed payloads never prove completion
 Their observed state remains Checking, including after round expiry; they never
 cause automatic catch-up retries. An actual dispatch or persistence failure
 remains distinct from an observation timeout.
+The Profile mapping pause reaches the helper through
+`setProfileMappingPause(_:)`, which the coordinator's reconciliation calls and
+nothing else. It is neither eligibility nor a membership change: it keeps the
+barrier's membership, the common time and the rate limit, and while it holds no
+participant is read or asked for a round. When an episode starts, the
+observations of a round in flight are invalidated (that round could never reach
+its coordinated success; the engine round itself is not cancelled) and a Sync now
+request it carried stays queued. During the first 15 seconds (`.grace`) the report
+is kept as it stood when the episode started and a Sync now request stays queued
+as Busy. What it stood at depends on the trigger. An episode started by a
+mapping announcement, the unlock observer or another trigger that is not a
+Profile-list change keeps the report of before the episode. An episode started
+by a Profile-list change (the usual case: a new Profile appears) follows the
+sink's `membershipDidChange()`, which runs first: the report is already reset
+to Checking and a queued Sync now request is already dropped, so the grace
+keeps Checking and has no Sync now to hold. From 15 seconds
+(`.paused`) `Report.profileMappingPause` carries the pause and a queued Sync now
+request is cancelled, `request` returns to Idle and `syncNowCancelledByPause` is
+set so the pane announces nothing; a new request is cancelled the same way. The
+presentation overlays the pause on the summary when it reads the report, because
+the completion of a round admitted before the pause still writes the phase. The
+pause is checked again after every asynchronous participant read. When it ends,
+the helper asks for a fresh round on its own poll, with a still-queued Sync now
+request; this does not call `membershipDidChange()`.
 Unpaired means Not started. Account retirement fences late callbacks; explicit
 removal/reconfiguration clears the account's common timestamp.
 
@@ -236,7 +585,69 @@ Domain-key lookup failures count toward the round's status: network unavailabili
 authorization and key-envelope failures report Needs attention. Failed rounds
 retain the previous success time, and a later successful round clears the failure.
 Rows that are deliberately never published (hidden, purged or unmapped owner Spaces)
-and refused arrivals are exclusions, not pending work. Local
+and refused arrivals are exclusions, not pending work. Bookmarks and pins of a
+Space deleted on this device are not exclusions: their tombstones are ordinary
+publication work (see "Local Space deletion").
+
+The native snapshot also carries in-memory `SyncNativeDetail` (never persisted, so a
+relaunch starts empty); Chromium snapshots carry none. Per Phi kind (Settings, Spaces,
+Bookmarks, Pinned tabs, URL rules; no Profiles yet) it holds received and sent counts of the
+most recent round in which that kind had activity, with that round's time, and the pending
+(waiting to send) and held (parked) counts from the kind's table after the last round that
+visited it. Settings count changed keys; Space and owned kinds count landings and published
+entities plus tombstones. Owned pending is the live edits the round did not publish (outside
+the slice budget, or sent and not applied, a conflict counted once after its scoped retry) plus
+the pending-delete cursors, each counted once; a round whose publication pass did not run keeps
+the last known count. Held uses the same conditions that make the round's inbound work pending:
+Spaces parked, held for a Profile or tombstone-parked; owned items parked, tombstone-parked or
+waiting for a split partner; settings unreadable. Kinds a round does not read keep their values:
+owned kinds while the Space gate is shut or whose table the round did not load. The Space table
+is read every round, so Space pending and held follow it even with the gate shut (with no
+activity counts). Every detail change is a status update, so it bumps the revision. The last
+problem is one `SyncProblemCategory` with an optional kind and a time, chosen by precedence
+(reset required, save failed on this Mac, couldn't read data on this Mac, sign-in expired,
+offline, rejected by server, server error, unreadable remote data). HTTP 401/403 map to sign-in
+expired, other HTTP, key-envelope and unattributed outbound failures to server error, exhausted
+conflicts and rejected commits to rejected by server, an owned kind's local read failure to
+couldn't read data (with the kind), unreadable tags to unreadable remote data without a kind
+(the Space table quarantines owned kinds' tags too). It is replaced by the next failing round,
+kept through rounds that neither fail nor succeed, and cleared only by a final Up to date. Held
+items alone produce no category. Invariant, covered by the status harness: a round that ends
+Needs attention always has a non-zero held count or a problem category. The detail has no string field, so it cannot
+carry names, identifiers, URLs, hosts, error text or status numbers.
+
+The Sync settings pane reads all of this only from `SyncHelper.report`. Its Sync now
+button calls `requestSyncNow()` directly, not through the pane's 3-second poll, whose
+in-flight guard would otherwise drop the tap. `SyncNowButtonState.reduce` maps the summary
+phase and `Report.request` to the control (Queued Busy: waiting for the current sync;
+Queued Rate limited: starting shortly; Queued Unobservable: waiting for profiles;
+Rejected: could not start). While the request is Idle, a Syncing or Initial sync summary
+also disables the button with progress and no hint, so any running sync, not only one the
+request started, blocks a tap; Checking does not. The pane adds its own unlock and pairing
+check. The view alone
+turns kinds, counts and `SyncProblemCategory` into localized text; the Sync layer produces
+no user-facing strings.
+
+The pane lays the Profile mapping pause and the unread Profile list over the summary with
+`SyncStatusPresentation.present` (`SyncStatusSnapshot.swift`, Foundation only), computed from
+the last report on every 3-second read and never stored, because the completion of a round
+admitted before the pause still writes the phase. Precedence, highest first:
+
+| State in the report and the pane | Pane shows |
+| --- | --- |
+| Reconfiguration required, or the native last problem is Reset required | The summary and Sync now as they are; nothing of the pause or the list wait. Retry cannot fix a reset |
+| Summary Not started | As it is (no control) |
+| `profileMappingPause == .paused` | Headline "Sync paused" over any summary (Syncing, including a Syncing left from a round queued before the gate, Up to date, Offline, Needs attention, Checking), a reason line (setting up / trying again / needs attention), a line for the failure category when there is one (offline wording only for Offline; sign-in expired, server error, other), the Profiles by display name (one to three names; above three a count; ids that no longer resolve are left out; none resolved: "A profile"), the last success time, and Retry in the Sync now slot with the same fixed space. Retry calls `PhiChromiumCoordinator.retryProfileMappingRepair()` |
+| `profileListNotEnumeratedSince` 30 s or more ago | The summary with the line "Waiting for profiles to load"; from 5 minutes the headline is Needs attention. Sync now stays; no Retry, because the list read is retried automatically |
+| `pinScopeMigrationFailure` set (B-3 stage 1) | An extra line under the normal status: "Pinned tab scope change not applied yet (n attempts; reason)". The headline is unchanged; the follower retries on its own timer |
+| Grace (`.none` during the first 15 s of an episode) and no episode | The summary and Sync now as they are; a Sync now during the grace is queued Busy and shows "Waiting for current sync". A Syncing left from a round queued before the gate stays visible for up to those 15 s |
+
+A Sync now request that the pause cancelled (`syncNowCancelledByPause`) returns the control to
+idle and is not announced. The pause row (title and lines) is one accessibility element;
+Retry has its own label; VoiceOver announces "Sync resumed" only when a shown pause gives way
+to a normal summary, not when it gives way to a reset or Not started
+(`SyncStatusPresentation.announcesResume`). The pane shows Profile display names, resolved from
+`ProfileManager` by id, and localized categories, never identifiers or error text. Local
 changes to sync-visible fields invalidate the current result before debounce.
 Local-only activity timestamps and favicon updates do not create pending sync
 work. Every invalidation must have a corresponding debounced round, including
@@ -246,6 +657,73 @@ loaded user Profiles; it never creates Profiles or sync services. It combines
 transport/auth/crypto/controller state, initial downloads, cycle evidence,
 active-delegate pending counts, and a final backend pending-work fence. The old
 transport-only local-data count API cannot be used for full-sync status.
+
+What the pane shows, as a contract:
+
+- **States.** The status row shows Not started (unpaired), Checking, Initial sync,
+  Syncing, Up to date (with the common completion time), Offline or Needs
+  attention. The summary has no Paused state, and the account email is not
+  shown. The one pause the pane shows is the Profile mapping pause, laid over
+  the summary as "Sync paused" by the precedence table above.
+- **Reloads.** The pane reloads each time it appears. A pane already unlocked for
+  the same account, with its key still held, stays loaded while it reloads and
+  when that reload fails (for example offline); the status row keeps reporting
+  the helper's state, including the pause row. Only a first load that fails shows
+  the "Couldn't load sync information" card with Retry. While that card shows,
+  the pane watches the network path and reloads once, after 1 second, when the
+  connection comes back; a failure while already online waits for Retry. A load that
+  started locked and unlocks awaits the shared controller's mapping pass before
+  refreshing sync status (a reload of an already unlocked pane, or a new Settings
+  window over a controller that already holds resolved keys, runs no pass); a pane
+  superseded or rebound during that pass does not publish the old result. Opening or
+  reloading the pane never requests a round; only Sync now does.
+- **Last problem.** When this Mac's native sync has recorded a problem, the status
+  row adds one line: a localized category (for example No connection, Sign-in
+  expired, Server error) and a relative time. The next fully successful round
+  clears it. Held items alone produce no line. The pause row omits it; the
+  pause's own failure-category line takes its place. When the headline is Needs
+  attention only because of the Profile list wait, the row keeps the last problem
+  line but not the "Some content needs attention" line, which follows the summary.
+- **Details layout.** Details groups the browser Profiles under a Profiles row,
+  with one indented row per Profile showing its status, followed by the Phi data
+  row and its indented per-kind rows.
+- **Per-kind rows.** Inside Details the Phi data context lists one row per
+  supported Phi kind (Settings, Spaces, Bookmarks, Pinned tabs, URL rules): the
+  received and sent counts of the kind's most recent sync with changes, with how
+  long ago that sync was, and the waiting-to-send and held counts only when they
+  are non-zero. Profile rows have no counts and there is no per-category Chromium
+  row until those have their own numbers; no unsupported category is shown as available.
+- **Never shown.** Only categorized problems and counts reach the pane. It never
+  shows internal error text, HTTP status numbers, identifiers, names, URLs or
+  hosts, or any other user content. The one exception is the display names of
+  the Profiles a shown mapping pause waits for.
+- **Sync now.** The button appears in the status row's trailing control slot only
+  when pairing is complete and the key is unlocked; an unpaired (not set up) or
+  locked Mac shows no button. Offline and Needs attention keep it available.
+  While the pane shows the Profile mapping pause, Retry takes its slot. It never bypasses the pairing, key or account
+  gates. A tap is coalesced with a round already running and is subject
+  to the shared 60-second minimum interval, except that a tap while this Mac's
+  native sync is offline starts at once. While any sync runs (Syncing or Initial
+  sync), and while the user's request waits or runs, the button is disabled and
+  shows progress. Opening the pane and background sync never report a failure.
+  Why a request waits (the current sync, starting shortly, or every profile
+  reporting status) is the button's tooltip and VoiceOver hint; no hint text sits
+  beside the button. The progress indicator keeps its space and the button keeps
+  its full title, so the status row does not move.
+- **Ending a requested sync.** When it ends, VoiceOver announces "Sync finished"
+  only if this Mac recorded a newer coordinated success than at the tap;
+  otherwise it announces the category of a problem recorded since the tap, or
+  "Sync did not finish" when there is none, and a refusal as could not start. The
+  same text, except for a finished sync, is shown as one line under the status row
+  until the next tap, unless it is the category the Last problem line already
+  shows. A failing sync ends once every context has stayed settled on
+  the failure for a few seconds, or once this Mac's native sync has stayed offline
+  for a few seconds, instead of after a minute; if it recovers within that minute,
+  the success is still recorded. A request dropped because sync stopped or became
+  unavailable ends silently.
+- **Load errors.** A failed load of the devices waiting for approval is shown inside
+  the Devices section and cleared by the next successful load. When the device list
+  also failed, only the device-list card shows the error, so it appears once.
 
 Old frameworks safely remain Checking. A matched framework build and manual
 cross-device acceptance are required before release; object compilation alone
@@ -295,6 +773,64 @@ when the Profile UUID and key have not changed.
 Withdrawing a Profile key stops the Chromium engine, including initialization,
 without clearing its metadata. Returning the same UUID/key resumes the existing
 sync state; changing the UUID retains the existing namespace-reset behavior.
+`SyncKeyController.chromiumKeysWithdrawn` withdraws every Profile's key at once:
+`profileSyncInfo` answers nil while it is set and the same UUID/key after it is
+cleared, because the resolved cache is untouched. Only the coordinator's
+Profile mapping pause sets it: once an episode is 15 seconds old, and back when
+the episode ends or its prerequisites go, each time committing its state before
+it sends `notifyPhiSyncKeysChanged` (see "Enrollment and setup").
+
+A Profile being deleted has its own key withdrawn
+(`SyncKeyController.withdrawProfileKey`): its resolved entry is dropped,
+Chromium is pinged, and mapping passes skip it entirely (neither resolved,
+registered nor counted as unmapped, and its account Profile does not count as
+unclaimed for `needsPairing`), so a deleted Profile's basename can neither
+keep nor regain a key. A failed deletion restores it and re-resolves; a completed
+one ends the withdrawal once the Profile is gone from the list. A withdrawal records
+the current mapping pass sequence (`withdrawnAtPass`), and a pass drops from the
+cache every Profile withdrawn at or after its own start, so a pass that was
+suspended across the whole deletion cannot merge the key back. The record outlives
+the deletion until a later pass finds it older than the previous pass and no local
+Profile with that basename; a new Profile reusing the basename then resolves
+normally.
+
+## Profile loading
+
+Chromium runs a Profile's sync only while the Profile is loaded, and
+`getProfileSyncStatus` reports nothing (Checking) for a Profile that is not, so
+the helper never completes a coordinated round while one is missing. Every
+mapped Profile is therefore loaded in the background.
+`SyncProfileLoader` (`Sources/Sync/`) decides; `PhiChromiumCoordinator` builds
+and retires it with the engine and the helper, and supplies the Profile list,
+the checks, the load call and a timer.
+
+| Point | Rule |
+| --- | --- |
+| Which | User-assignable Profiles that the cached list reports as not loaded and for which `SyncKeyController.profileSyncInfo` would return a key now (enrolled, keys not withdrawn, mapping resolved under the unlocked account key) |
+| Call | `ensureProfileLoaded:`, the existing bridge call: loads without a window, returns at once if already loaded, takes no keep-alive of its own. Completions are handled on the main thread |
+| When | The first load no earlier than 30 seconds after `startPhiSyncIfReady()` starts the schedule (unlocked, enrolled, native sync running; at launch this follows the silent unlock and so the session restore of the first window). One load at a time, 5 seconds after the previous one ended |
+| Unloaded again | A Profile that had a window unloads after its last window closes, and nothing tells the Mac side. The loader re-reads `ProfileManager`'s list every 60 seconds while it runs, through `refreshIfChanged()`: the same bridge read as `refresh()`, assigned and published only when the decoded list differs (`isLoaded` included), with none of `refresh()`'s side effects (chat-archive drain, display-name upserts). It re-evaluates on every published change by anyone else; a Profile shown as not loaded again is loaded again. A Profile it loaded itself waits 60 seconds before a still-stale list can ask for it again |
+| Sync now | `PhiChromiumCoordinator.requestSyncNow()` (the pane's button) first tells the loader to re-read the list (so a Profile unloaded since the last recheck counts) and to load every Profile that needs it at once, without the initial delay, the gap or a pending retry delay, once each, then asks the helper; its request stays queued as Unobservable until the Profiles report |
+| Not while | Disabled by the developer switch, not eligible (signed out or another account, controller retired, not enrolled, account key locked, or the account reset by another device so that this Mac requires reconfiguration), sync paused for an unmapped Profile, or the Profile list not enumerated yet. The coordinator supplies the last two: the engine's `isProfileMappingPaused` (on during an episode and before enumeration) and `ProfileManager.isProfileListEnumerated`; the loader re-evaluates when the gate goes off. A Sync now request made meanwhile is dropped. While it cannot load, a started loader still wakes once per recheck interval (60 seconds) to re-read these conditions, without refreshing the list or loading; before `startPhiSyncIfReady()` has started it, it does nothing at all |
+| Failures | A failed load, or one that has not completed after 60 seconds, is retried after 30 seconds, doubling up to 10 minutes; the other Profiles go on. A Profile seen loaded forgets its failures |
+| Teardown | Sign-out, account switch, self-removal and engine retirement stop the loader with the engine. A load already requested cannot be cancelled; its completion is ignored. There is no unload call: the Profiles it loaded stay in memory until the app quits, and so does a Profile whose load was in flight at teardown (a known limitation until the framework has an explicit hold and release call) |
+| Logs | Counts and durations only, no Profile identifiers |
+
+The helper's `ExplicitRequestPolicy` stays `.waitForAllObservable`.
+
+Developer switch: `phi.sync.debug.profileLoadingDisabled` in
+`UserDefaults.standard`. Absent or false, the loader runs; true turns it off,
+for measuring memory without it. It is read at every decision, so it takes
+effect within one recheck interval. It is not a synced setting and has no UI.
+
+Dependency on upstream Chromium: a Profile loaded this way and never given a
+window stays loaded until the process exits, because Chromium gives every newly
+loaded Profile a "waiting for first browser window" keep-alive that only a
+window clears. That is upstream behaviour, not a Phi contract; a Chromium
+rebase can change it, and the loader would then keep reloading Profiles that
+unload. An explicit hold and release call in the framework is follow-up work.
+A Profile loaded without a window also publishes an empty open-tabs header for
+this device (a known limitation).
 
 ## Pairing and initial catch-up
 
@@ -338,7 +874,14 @@ data: {"namespace":"chromium:phi","data_types":[2000],"source_client_id":"produc
 
 `ready` schedules catch-up for native sync and, through the optional bridge, all
 eligible Chromium Profiles. `chromium:phi` with type 2000 requests a native pull;
-`chromium:<profile-uuid>` forwards the type list to that Profile's engine. Hints
+`chromium:<profile-uuid>` forwards the type list to that Profile's engine. The service
+sends no hint for a Profile registration, but the new account Profile's first Chromium
+commit does: a Profile hint whose UUID has no persisted mapping here and is not known to be
+undecryptable runs one `runMappingRepairPass()` through the pause's reconciler
+(`unmappedAccountProfileHint()`), so another device maps or auto-creates the Profile within
+seconds instead of at its next periodic round. Only on an idle device and at most once per
+30 seconds; a hint during a pause episode, or while the gate waits for the Profile list, is
+dropped, and the episode's own repair loop and closing catch-up cover it. Hints
 carry routing metadata only, not entity content, ciphertext or keys. Unknown
 event types are ignored; supported types and eligibility remain engine concerns.
 Malformed or oversized events close the stream and leave fallback polling in
@@ -458,7 +1001,7 @@ A Space cursor carries one payload in each direction, and they are symmetric:
 
 | field | direction | written by | cleared by |
 | --- | --- | --- | --- |
-| `pendingApply` | inbound — a decrypted entity this device could not land yet (a deferred landing, a mapping write failure, or a rebind that did not take effect) | the apply pass | a successful landing |
+| `pendingApply` | inbound — a decrypted entity this device could not land yet (a deferred landing, a mapping write failure, a rebind that did not take effect, or a mapped Space the sync view leaves out) | the apply pass | a successful landing |
 | `pendingProjection` | outbound — this device's own projection of the Space, with each changed field already stamped at the time the user changed it | the stamping pass, from the debounced local-Spaces-change round, ahead of the pull gate | a landing, an accepted commit, a tombstone, or a revert that leaves nothing to publish |
 
 Both are serialized `PhiSpaceEntity` bytes in `sync.phiSpaces`, both are
@@ -469,6 +1012,24 @@ the field decodes with it nil (the rule
 `PhiOwnedItemCursor.rekeyRejectRounds` states for its own addition). A build
 without Space edit-time stamping ignores the key and stamps Space edits at publish time
 again, which is the earlier publish-time behavior — correct, just coarser.
+
+Every park of a server entity also records its `entityId` and version on the
+cursor. The shared marker moves past a parked entity, so the retry replays it
+with the cursor's version and no later pull brings that version back. Without
+it the landed Space keeps the older version and every commit from this device
+conflicts. A parked Space is never projected, so the newer version cannot
+publish a stale snapshot while it waits.
+
+The last case guards a create over an existing row. The apply pass finds the
+landing target in `currentSpaces()`, which leaves out a Space whose Profile has
+no sync mapping, but validates the mapped local id against unfiltered storage.
+For such a Space the target is missing although its row exists, and landing it
+would create a row under a `spaceId` that is already taken; because `spaceId` is
+unique, SwiftData would overwrite the existing row (Profile binding and order
+reset, bookmark root orphaned). The pass parks the entity instead, and
+`LocalStore.createSpaceBody` refuses a duplicate `spaceId` with
+`LocalStoreWriteError.spaceAlreadyExists`, which the landing-failure path also
+turns into a park.
 
 `pendingProjection` is written only for a cursor that already has a
 `reconciled` baseline. A Space this device has never published has no per-field
@@ -570,6 +1131,359 @@ always existed locally. Both are fixed:
 - In a mixed account, old clients still ignore the tombstone, so the Space
   lingers there until they update; the tombstone is the current value of that
   row and is redelivered on their next full replay.
+
+## Local Space deletion
+
+`SpaceManager.deleteSpace` is the one delete origin: the strip, Settings >
+Spaces, the app menu, the CDP `agentSpace.spaces.delete` face and the startup
+orphan sweep all reach its single sync hook in `finishDeletingSpace`, after the
+early-return guards. The engine marks `pendingDelete` only on a cursor with an
+`entityId`; a Space without a mapping (an agent Space) records nothing.
+
+- **Cascade first, intent second.** The deletion intent reaches the engine only
+  after `deleteSpaceCascadeThrowing` has committed. A failed cascade puts the
+  Space back in the strip and records nothing, so no tombstone is sent for a
+  Space that still exists. A tombstone for a surviving row would delete it on
+  every other device, drop its mapping on `.applied`, and let the next round
+  publish the surviving row as a new Space under a fresh uuid, detached from its
+  account-side bookmarks and pins.
+- **Identity captured up front, in-flight rounds held off.** Before the cascade,
+  `PhiSpaceSyncState.beginLocalDeletion` resolves the Space's sync uuid and puts
+  it in an in-memory being-deleted set; the intent carries that uuid, and the
+  engine round records `pendingDelete` under it without resolving the mapping
+  again. That round writes the table even while the engine is paused for
+  pairing, reconfiguration or an unmapped Profile (a local write in the
+  engine's round queue, so it never interleaves with a round holding a table copy); the deletion is
+  published when sync next runs. Only a retired engine (sign-out, key
+  invalidation) skips it. The mark ends when that round has run, or when the
+  cascade fails.
+- **While the mark stands, delete beats a concurrent edit.** The apply loop
+  treats an arriving entity for a marked uuid like a `pendingDelete` one: it
+  learns the entity id and version for the tombstone, keeps the mapping and
+  lands nothing. The entity is parked in `pendingApply` so that it still lands
+  if the cascade fails; a recorded deletion clears it. The mark is read before
+  the entity is considered, and again after each observation that the row is
+  gone, before any decision based on that absence: in the dead-mapping repair
+  before the mapping is dropped, and when the landing target is missing from
+  `currentSpaces()` before landing could create the row again. The later reads
+  keep a round already in flight from re-landing the Space: because the mark is
+  set before the cascade and held until after the deletion round, a read made
+  after the row is observed absent cannot miss it. The last read covers the
+  default identity too, whose row is deletable.
+- **Every ending drops the mapping of a row that is gone.** An accepted
+  tombstone, a `pendingDelete` finalized locally because it was never
+  published, and a tombstone given up after three rejections all leave a cursor
+  with `deletedAtMs` and `hidden`, and remove the Space's mapping when its local
+  row no longer exists. The row can still exist when an older build recorded the
+  `pendingDelete` before a cascade that then failed. For such a row the mapping
+  is kept, because dropping it would publish the row as a new Space under a
+  fresh uuid. With the mapping in place the cursor's `hidden` applies: the row's
+  windows close, it leaves the strip like a remote deletion, and the retention
+  sweep purges it after 30 days, so the device agrees with the account.
+- **The last live user Space stays visible.** Hiding such a row must not leave
+  the device with no live user Space, the invariant `deleteSpace` holds. When
+  no other live user Space is left, the row's mapping is dropped instead and the
+  row is not hidden: it stays visible and a later round publishes it under a new
+  uuid. This is logged as a count.
+- **The retention purge retries.** The 30-day sweep drops a Space's mapping only
+  after its purge cascade succeeded, so a purged cursor whose mapping is still
+  present marks a cascade that failed or was cut short, and every later sweep
+  retries it. A retried uuid is skipped (and counted in the log) when its local
+  row was created after the cursor's `deletedAtMs`: such a row cannot be the
+  deleted Space. The check compares against the row's `createdDate`, which for
+  a Space landed from the account is the account's `created_at_ms`, so it is a
+  guard, not a proof.
+- **The Space's bookmarks and pins are tombstoned too (R-M3-4a-78).** The
+  cascade hard-deletes them in the same transaction, and their owner Space then
+  fails both §4.7 owner gates (unmapped once the mapping is dropped, ineligible
+  while it remains), which used to suppress every item tombstone: the account
+  kept them live forever and a fresh device parked them behind the dead Space.
+  Bookmark and pin publication now passes `deadOwnerDeletions` as the diff's
+  explicit deletions: every item cursor with an `entityId`, a `reconciled`
+  baseline and no `deletedAtMs` whose `ownerUuid` names a Space in
+  `PhiSpaceSyncTable.deletedSyncUuids` (`pendingDelete`, `deletedAtMs` or
+  `purgedAtMs`). These bypass only the owner gates; the row must still be
+  absent, so a row that survives (a hidden Space on a receiving device, a failed
+  cascade) is never tombstoned, and "cascade first, intent second" still holds.
+  The set comes from durable cursor state, not from the delete event, so the
+  next publication round sends them (child before folder, at most 250 per kind
+  per round), a crash before that round loses nothing, and a device that deleted
+  a Space before this rule shipped tombstones the items it left behind, as long
+  as it still holds their cursors (the retention cascade drops them 30 days
+  after the Space's own deletion). A move to a live Space made concurrently on
+  another device survives: once it lands the row is live again and its owner
+  refreshes to the new Space; if this device decided first, A9 cancels the
+  pending deletion for the newer move, and a tombstone built on the stale
+  version conflicts on the server instead of deleting the moved entity.
+- **A deleted owner discards inbound items instead of parking them.** Owned
+  landing passes the same set to `plan`. An inbound bookmark or pin whose owner
+  Space is in it, directly or through a folder discarded with it, is resolved by
+  what this device holds: never landed here, it gets a `.delete` step, so its
+  cursor is finalized like a landed tombstone (payload and pending owner
+  cleared, `deletedAtMs` set, `entityId`/version kept) and records the dead
+  Space as `ownerUuid`, so a child arriving in a later round follows its folder
+  rather than lifting to a Space root that is gone; landed here and row gone,
+  the payload is dropped (`supersededByDelete`) and the item's own tombstone
+  above carries the deletion; a live row still parks as before. Parked items
+  are replayed every round, so trees parked by an earlier build resolve on the
+  next round once the Space is known dead. A device that never had the Space
+  learns its uuid from the parked items and this page's arrivals: the pull seeds
+  the Space tag index with their owner uuids and retries the page's unknown
+  tombstones after indexing them, so the Space tombstone records a deleted
+  cursor instead of being dropped as an unknown tag. URL rules are unchanged.
+  Residual: an item another device created in the Space while it was being
+  deleted stays live on the account; every device that lands it discards it.
+- **Known limitation: a crash between the cascade and the engine round.**
+  `pendingDelete` is written by a queued engine round, not in the cascade's
+  transaction, and nothing about the deletion is persisted before that round.
+  If the app dies after the cascade committed and before the round wrote the
+  cursor table, no tombstone is sent: the Space stays on every other device, and
+  when the account next delivers its entity (a peer edit or a replay) the
+  interrupted-deletion repair drops the dead mapping and lands the entity again
+  under a new local id. The Space reappears here; deleting it again removes it
+  everywhere. The same happens when the account is switched while the cascade
+  runs, and when the engine is retired between the cascade and its round (the
+  retirement also clears the facade's direct store). Closing this gap would
+  need a persisted deletion intent, which is a format change.
+
+## Profile entity
+
+Each account Profile is one Phi entity, `PhiProfileEntity` (kind 6 of data type
+2000), tagged `phi-profile:<profile_uuid>` where `profile_uuid` is the account
+uuid from `sync.profileGlobalUuids`, never the Chromium basename. The payload
+carries `name` (LWW `PhiSettingValue`) and `created_at_ms` (`min()` of non-zero
+values; a Profile row records its creation date when it is created, and rows
+created before that publish 0, "unknown"); fields 4-7 are reserved. `SyncableProfiles.merge` starts from `remote`
+like every other kind, so a newer client's reserved fields survive. Deleting an
+account Profile is the ordinary entity tombstone on its tag; the server is
+unchanged. The key registry (`/keys/v1/profiles`) still holds every envelope and
+is never deleted; it no longer decides whether a Profile exists.
+
+Only Profiles mapped to an account Profile are published:
+`PhiProfileLocalAccess.currentProfiles()` is `userAssignableProfiles` (which
+already leaves out Phi Chat and the agent fallback) with a mapping, so unmapped
+and local-only Profiles never reach the wire. The entity rides the Space section:
+it is routed, landed and published only while the Space gate is open, lands in the
+same page write as the Spaces, and `pushProfiles` runs after the same pull and
+full-replay guards as `pushSpaces`, immediately before it, so a new Profile's
+entity precedes the Spaces bound to it. Conflicts retry only the conflicting uuids;
+unreadable tags are never committed over. The coordinator triggers a Profile round
+on a debounced change of the (id, mapping, name) set of mapped Profiles.
+
+Local names must be unique and auto-create or an inbound rename may suffix one
+("Work (2)"), so a device's local name can legitimately differ from the account
+name. The cursor records `localNameAtBaseline`, the local name that corresponds to
+its baseline here. The snapshot publishes a local name only when it differs from
+that record (a user rename), stamped like a Space field edit (edit-time
+`pendingProjection`, AM-1); otherwise it echoes the baseline, so a suffixed twin
+never renames the account. A baseline stored before this device had the Profile
+records the current local name at the next stamping or publication. The first
+publication after the drain sends the local name at stamp 0, so a derived name
+never beats a real rename. An inbound entity is merged against the local
+projection; when the winning name differs from what this device presents it is
+applied through `applyRemoteName` (exact name, else the auto-create suffix rule)
+and the resulting local name is recorded with the baseline. A rename that does not
+take parks the entity in `pendingApply`, retried every round; a parked Profile is
+not published over. An entity for a uuid with no local Profile here is stored as
+the baseline only; auto-create reads it.
+
+Two account Profiles can end up with the same name (two Macs renaming different
+Profiles to one name at about the same time). Every device resolves this the same
+way from the live entities' baselines (`SyncableProfiles.convergedNames`): among
+Profiles sharing an exact name, the one whose name was set earliest
+(`name.updated_at_ms`, ties to the smaller uuid) keeps it, and the others become
+"Name (2)", "Name (3)"… in that order, skipping names already live on the account.
+After each landed page, and before a Profile round's push, a device renames each
+such loser it has a local Profile for through the inbound-rename path and publishes
+the new account name as an ordinary rename (`convergedLocalName` lets it publish
+"Name (2)" even when its own local rename had to fall back to a further local
+suffix); losers without a local Profile here are left to the device that has them.
+Then the local reclaim runs: a mapped Profile whose local name is the counterpart
+of its baseline but differs from the account name takes the account name once no
+other local Profile uses it, which releases a suffix the Profile had to take while
+another Profile held the name. A name held by a local-only Profile (unmapped, Phi
+Chat) is never free, so that suffix stays local and is never published.
+
+A Profile tombstone is applied as described in "Profile deletion and rename"; once
+recorded (`deletedAtMs`) the uuid is no longer published or auto-created. A deleted uuid comes back
+only with a newer version than the tombstone it recorded; the cursor is reset and
+the entity lands wholesale, and a mapping whose local Profile is gone is dropped
+so auto-create recreates the Profile. A replayed older create lands nothing. The
+A Profile tombstone carries no payload, so it is resolved only through an index
+of known uuids: the Profile cursors, the persisted mappings, the deletion journal,
+every uuid the key registry listed at its last read this process
+(`SyncKeyController.lastAccountProfileUuids`, through
+`PhiProfileLocalAccess.knownAccountProfileUuids()`; the registry never forgets a
+uuid, so a Profile listed in that snapshot resolves on its own page), and
+the owner uuids named by owned-item arrivals and by items parked earlier (the
+same extension that resolves a deleted Space's tombstone, R-M3-4a-78). A pin of a
+Profile this device never mapped (deleted on the account before this device joined
+or replayed) therefore lands as "Profile deleted" and is discarded, instead of
+parking forever on its unknown owner. A tombstone that no index names yet is kept
+in `PhiSpaceSyncTable.unmatchedTombstones` (hash, entity id, version; decoded as
+empty from older tables), written with each page's marker. Every unresolved entry
+is retained, including when the registry has not been read or its snapshot does
+not yet include the Profile. Each entry is
+re-routed on every later page and pull until an owner names it, so neither a quit
+nor the 64-page budget between the tombstone and the pin loses it. A live entity
+for the same tag on a later page evicts the entry (the entity was recreated), and a
+Profile or Space tombstone whose version is lower than the live cursor's
+(entity id set, not deleted or purged) is ignored without a cursor write, so a
+stale tombstone never deletes a newer entity. A pull that
+starts without a marker does not seed the list (the replay re-delivers every
+tombstone) and its first page replaces it. 2048 is a diagnostic threshold, not a
+storage limit: above it the engine logs
+`unmatched tombstones above warning threshold; retained=N threshold=2048` once
+when the retained count changes. No entry is evicted to meet the threshold, since
+its page marker has already advanced and an incremental pull cannot recover it.
+The
+pairing wizard leaves out an account Profile whose `phi-profile:` tag hash the
+preview saw tombstoned (`PhiAccountSpacePreview.deletedProfileTagHashes`) and
+offers the others under their live entity's name (`profileNames`): the registry
+envelope keeps the name a Profile was registered with, and a rename never
+rewrites it.
+
+Cursors are `PhiSpaceSyncTable.profileCursors` (`PhiProfileCursor`), keyed by
+account profile uuid, in the same `sync.phiSpaces` table as the Space cursors:
+they share the drain state and the atomic table write, and a table written
+before this field decodes with an empty map (no format bump). The table derives
+`liveProfileEntityUuids` (an entity id and not deleted) and `deletedProfileUuids`
+(`pendingDelete`, `deletedAtMs` or `purgedAtMs`).
+
+Profile cursor loss. An older build without Profile entities that runs on the
+same data directory decodes `sync.phiSpaces` with its own keys and re-encodes
+it, so `profileCursors` is dropped while the shared marker keeps advancing past
+every Profile entity. Back on this build, each mapped Profile has no cursor and
+is committed as a create; the server answers CONFLICT for a create over a live
+row whose content differs, and no incremental pull delivers that row again. The
+signal is a create (no entity id, base version 0) that still CONFLICTs in a push
+pass that ran right after a drained pull: the scoped conflict retry, or a timer
+round's push. `pushProfiles` then arms a one-shot replay like an owned kind's
+cursor-table loss (`armProfileReplayForLostCursors`): it persists a nil marker,
+then sets `profilesReplayedForEmptyTable` with `hasDrainedFullReplay = false`
+and `drainInProgress = true` (either write failing reports cursorSaveFailed and
+leaves the latch open), logs `profile cursors lost for N mapped Profiles;
+replaying data type 2000 once`, and the next pull replays the data type. The
+replay lands each entity as a baseline, and the next publication is an update.
+`applyProfiles` clears the latch when a pulled entity restores a cursor that had
+no entity id, so a later loss can replay again; a uuid the replay never delivers
+keeps the latch shut, so it cannot cause a replay every round. A CONFLICT on an
+entry that had a baseline is retried as before and never arms the replay. Each
+round logs `[phi-sync] profiles pushed= tombstones= conflicts= rejected=
+invalid= replay_armed=` next to the Space line, counted per committed entry.
+
+Mixed versions: an older client that receives a live Profile entity decrypts it,
+finds a kind it does not own and ignores it (`routeSpaceEntity`'s unknown-kind
+step); a Profile tombstone is logged as a tombstone for an unknown tag and
+dropped. The marker advances and no round fails. The one visible effect is in an
+older client's pairing preview, which counts a Profile entity as an unreadable
+entity: `skippedEntityCount > 0` only disables the wizard's empty-account
+auto-finish shortcut. There is no migration.
+
+## Profile deletion and rename
+
+Renames are described in "Profile entity". Deleting a mapped Profile deletes it on
+every synced device where that is possible; an unmapped Profile (and Phi Chat or
+the agent fallback) stays a local deletion. The server is unchanged: the deletion
+is the Profile entity's tombstone, and the key registry row and the Chromium data
+in the uuid's server namespace stay (which is what makes an undelete lossless).
+
+Deleting device. `ProfileManager.deleteProfile(_:sync:)` takes
+`ProfileDeletionSync`: `.none` (the user-data backup rollback, and the default),
+`.userAction` and `.remoteTombstone`. A `.userAction` deletion of a mapped Profile:
+
+1. Persists the intent before anything is deleted:
+   `PhiSpaceSyncState.beginLocalProfileDeletion` writes `uuid -> local profile id`
+   to the account journal `sync.profileDeletionIntents`
+   (`AccountProfileDeletionIntentStore`). A failed write fails the deletion with
+   nothing deleted. The journal is the durable record: losing the mapping, the
+   process or the Space table does not lose the deletion.
+2. Withdraws the Profile's key (see "Chromium account and key lifecycle").
+3. Deletes the Profile in Chromium (chat archive journal, memories, as before).
+   Chromium reports success only once the profile directory is marked for
+   deletion (or was already gone), after closing its browsers without
+   beforeunload prompts, so success means the deletion is committed.
+4. On success removes the Profile-scoped pinned rows and the `ProfileModel` row
+   (`LocalStore.deleteProfileRowCascadeThrowing`, best effort and idempotent; the
+   engine runs it again when it reconciles the journal). Remotely soft-deleted
+   Spaces still bound to the Profile are hard-deleted with it, with their content:
+   they are deleted on the account already, and only the sync table hides them, so
+   a table reset would otherwise show them again bound to a missing Profile. Then
+   it delivers `.recordLocalProfileDeletion`. All of this is bound to the account
+   captured before the Chromium deletion started: if `localDataAccount` changed
+   meanwhile, nothing is removed or recorded (a warning is logged; only the
+   process-wide in-flight mark is ended, `abandonLocalProfileDeletion`), and the
+   original account's engine reconciles its journal entry (for `.remoteTombstone`,
+   it repeats the row removal when it next finds the Profile gone).
+   On failure removes the journal entry and gives the key back.
+
+The engine reconciles the journal at the start of every pull, push, Profile round
+and deletion round (`reconcileProfileDeletionIntents`, admitted while the
+unmapped-Profile pause is on): an entry whose Chromium deletion is still in
+flight is left alone, and so is every entry when a fresh bridge read of the
+Profile list fails (`ProfileManager.readProfiles`, which publishes nothing); a
+Profile the fresh read still lists means the deletion never happened, so the entry
+is dropped. Otherwise the leftover local rows are removed again (idempotent) and: a
+uuid whose peer tombstone was parked while the local deletion was in flight is
+finalized without committing; a published entity gets `pendingDelete` and
+`pushProfiles` commits its tombstone; a deleted or (after the full replay)
+never-published uuid is finalized locally, the latter marked
+`deletedBeforePublish` so a peer's later first publication is tombstoned rather
+than taken as an undelete. The entry is removed only when the tombstone commits,
+is given up on after three INVALID_MESSAGE rejections, or a peer's tombstone for
+the same uuid lands. While an entry or
+`pendingDelete` exists, an inbound entity for the uuid lands nothing (delete beats
+rename) but its id and version are learned for the tombstone. The mapping is kept
+until retention; Spaces whose binding names a deleted account Profile park and
+never trigger the dead-mapping repair, and pins owned by it are tombstoned on
+publication and discarded on landing (`deadProfileUuids`, like a deleted Space's).
+
+Other devices (`applyProfileTombstones`, inside the pull page before its table
+write). With no mapped local Profile, or one already gone, or this device's own
+deletion of the uuid journaled, the cursor is finalized. Otherwise
+`SyncableProfiles.tombstoneDecision` weighs `PhiProfileLocalAccess.profileDeletionBlockers`:
+
+| Local state | Result |
+| --- | --- |
+| The Default Profile | undelete |
+| A live user Space bound to it (not remotely soft-deleted; its own cursor neither deleted nor pending deletion) | undelete |
+| Only remotely soft-deleted (hidden) Space rows | delete; the rows are purged by Space retention |
+| A persistent agent Space bound to it | undelete |
+| A running agent Space, an import into one of its Spaces, or a bound Space whose deletion is still pending | defer to the next round (`pendingTombstone`); undelete once it has stayed deferred for 2 hours (`firstDeferredAtMs`, wall clock) |
+| Nothing | delete |
+
+Delete runs `deleteProfile(sync: .remoteTombstone)`: the same Chromium deletion,
+key withdrawal and local row removal, with no journal and nothing published; the
+engine repeats the idempotent row removal, also when it finds the Profile already
+gone. The engine's removal also passes the page's working table's hidden Spaces
+(`removeLocalRows(ofDeletedProfile:alsoHiddenSyncUuids:)`): the table is written
+only after the page, so a Space hidden by a tombstone on the same page would
+otherwise stay as a hidden row bound to the deleted Profile. A failed Chromium deletion defers; after three failed rounds (counted apart
+from blocker deferrals) the Profile is undeleted. A crash replays the page, finds the Profile gone and finalizes.
+Undelete keeps the baseline, takes the tombstone's id and version and drops
+`server`, so the next publication republishes the entity over the tombstone; the
+deleting device then sees a newer live version, resurrects the cursor, drops its
+dead mapping and auto-create recreates the Profile from the entity. Spaces are
+never rebound to another Profile.
+
+Local deletion uses the same hidden-row rule: the UI guard
+`SpaceManager.isProfileInUse` (Profiles settings, the menu and the post-modal
+re-check in `ProfileDeletionFlow`) and `PhiSpaceSyncState.blocksProfileDeletion`
+ignore Space rows a remote deletion soft-deleted
+(`PhiSpaceSyncState.hasLiveSpaceRow`), so a Profile whose Spaces were all deleted
+on another device can be deleted here at once. Live user Spaces and agent Spaces
+still block it. The hidden Spaces are removed together with the Profile (see the
+deleting-device steps above).
+
+Retention follows the Space model: 30 days after `deletedAtMs` the cursor is
+trimmed to a permanent tombstone (`purgedAtMs`, keeping `deletedBeforePublish`) and
+a mapping whose local Profile is gone is dropped; the cursor is the durable guard
+from then on. A cursor whose tombstone is still owed (`pendingDelete`) is not
+trimmed. A recorded deletion whose mapped local Profile still exists is decided
+again, unless that Profile was created after the deletion: Chromium numbers
+Profile basenames from a Local State counter that never goes back, so a basename
+is reused only after Local State itself was reset.
+`clearLocalSyncState` empties the journal with the other cursors.
 
 ## Stamps and the hybrid logical clock
 
@@ -841,6 +1755,12 @@ mechanism: a delete is easy to redo, an edit is not, and a wrongly kept deletion
 costs more than a wrongly kept item. The predicate below bounds resurrection; `resurrected` counters make repeated
 yielding observable and should settle near zero.
 
+Profiles follow the same rule with one documented exception: a device holding an
+unpublished rename of a Profile still deletes it when a peer's tombstone arrives
+and the Profile is deletable there. A Profile can only be deleted when it has no
+live Space, and a rename carries no data worth keeping. What the rule protects --
+live Spaces -- undeletes instead (see "Profile deletion and rename").
+
 **Say it plainly, because users see it:** an item you deleted can reappear on
 your device when another device had an unpublished edit of it. Deleting it again
 after that edit has published removes it everywhere. The folder you deleted stays
@@ -1055,6 +1975,114 @@ The engine must preserve these persistence, retry and account-isolation rules.
   (`OwnerResolver.localProfileIdForSpace`) before any sibling or default
   fallback, and landing a parentless bookmark materializes a missing root for
   an existing Space instead of parking the batch on `rowNotFound`.
+- **A pin round blocked on its scope publishes nothing** (B-3 stage 1; KB
+  design `2026-09-29-b3-pin-scope-migration-stage1-design.md` 3.3-3.4). The
+  key `PhiPinnedTabScope` is the desired scope and the store row the actual
+  one; `LocalStore.changePinnedTabScope` moves the row and **never writes the
+  key** (the settings UI or settings sync does). The migration bumps an
+  in-memory `LocalStore.pinScopeGeneration` inside its transaction; it re-checks
+  the browser-migration flag inside the store job as well as before queueing.
+  - `PinSyncRoundState` samples the generation (before the rows) with both
+    scopes. Every probe (`rescanScopes`) compares all three, so a round trip
+    X to Y to X still blocks. Blocked = row != key, or anything moved since the
+    sample, or `PhiPinnedTabLocalAccess.scopeFollowerBusy()`.
+  - Blocked: no snapshot, no diff, and no tombstone queued by an earlier round
+    (`pendingDelete`, including dead-owner deletions); these are recomputed
+    from cursor state, so they are delayed, not lost. Arrivals park as before.
+  - Commit fence: right before each pin commit, after the last suspension,
+    the block is re-probed; a blocked commit is dropped unsent and retried by
+    a later round. Other kinds have no fence.
+  - `applyPinSyncBatchThrowing(_:expectedGeneration:expectedScope:)` throws
+    `scopeChangedSinceSample` and writes nothing when the generation or the
+    row scope differs from the round's sample (the scope catches a sample that
+    read the new generation with rows the main context had not merged yet), or
+    when a create's owner shape does not match the transaction's scope
+    (creates are no longer re-shaped). The engine parks the batch on it;
+    no-row deletes it had already finalized stay finalized.
+  - Commit fence residual: the fence's own return hop from main to the engine
+    sits between the probe and `client.commit`; a migration in that hop is not
+    seen by this commit (inherent, accepted).
+  - Hostless checks: `build-scripts/test-sync-pin-scope-publication.sh` runs
+    the sliced `publishOwnedKind` with the production pin block predicate
+    and the production `beginRound` (blocked rounds, commit fence, sample
+    order); `build-scripts/test-sync-pin-scope-store.sh` runs the sliced
+    migration, its in-flight count and the batch fence on an in-memory
+    SwiftData store (stale generation, X to Y to X, same generation with
+    another row scope). No hostless check reaches the `landPins` park branch:
+    it needs the SwiftProtobuf entity types.
+- **The pin scope row follows the key; the key is written first** (B-3 stage
+  1, design 3.1, 3.2, 3.5, 3.6).
+  - Settings, after its confirmation alert and a fresh browser-migration
+    check, hands its selected Space to the mounted follower
+    (`preparePinnedTabScopeFollow`, before the key moves, so an attempt a
+    trigger starts first takes it too; one-shot), writes `PhiPinnedTabScope`
+    and then awaits the follower's first attempt
+    (`PhiChromiumCoordinator.followPinnedTabScopeNow(store:preferredSpaceId:)`;
+    the Space is the preferred owner when no Space is active).
+    Applied shows the new scope. With a mounted follower, failed keeps it
+    selected with a "finishes in the background" note and re-enables the
+    picker; deferred (follower retired or key cleared) reloads the picker from
+    the key and row. Without one, a failed attempt is `.failedNoRetry`: unless a
+    follower has mounted for the store meanwhile (then the picker reloads and
+    nothing is restored, review round 2 R2), Settings puts the
+    key's previous value back if the key still holds the new scope, restores
+    the picker and shows the "Pinned Tab Scope Wasn't Changed" alert through
+    `RunLoop.main.perform` (amended 2026-10-10, review round 1 F1). The restore
+    runs only while `store` is still the data account's; after an account
+    switch during the attempt the key is the next account's and nothing is
+    restored (PR #191 review finding 2). When the engine mounts for the
+    store during an unmounted attempt that applies, its reset and reseed
+    have put the row's old scope into the key at stamp 0; Settings writes
+    the chosen scope again as the user's edit, or the mounted follower would
+    migrate the row back (review round 4 F1). The key write
+    is an ordinary settings edit: the debounced defaults trigger and
+    `SyncableSettings.snapshot` stamp and publish it; nothing scope-specific
+    is stamped or compared. While the Profile mapping pause is closed the
+    stamp is taken at the first admitted round after resume (amendment a).
+  - `PinScopeFollower` (`Sources/Sync/Phi/PinScopeFollower.swift`), one per
+    mounted account, built in `buildPhiSyncEngine` and retired synchronously
+    in `stopPhiSync()` (sign-out and account switch). Triggers: the
+    `.phiSyncedSettingsDidApply` observer, mount (after the reseed, which
+    still seeds a missing key from the row at stamp 0), the start of every pin
+    round (`PhiPinnedTabLocalAccess.requestScopeFollow()`, before the round
+    samples `scopeFollowerBusy()`), and its retry timer. The job reads the key
+    now; row == key ends it, otherwise it runs
+    `LocalStore.changePinnedTabScope(key)` and reads the key again, running
+    again if it moved. Single-flight with a run-again flag; no target crosses
+    a suspension; it never writes the key or its sidecars. A failure retries
+    after 5 s doubling to 300 s (the Profile mapping reconciler's schedule);
+    a trigger for the same key waits for the timer, a different key runs at
+    once, including one that moved during the failing attempt. A trigger that
+    finds row == key with no job to run also ends a failure in progress
+    (status cleared, timer cancelled, backoff reset): the account moved the key
+    back to the row (PR #191 review finding 3). A retired
+    follower starts nothing and stops at its next check; a queued store job
+    finishes on its own account's store. Without a mounted follower (Guest
+    Mode, no sync mount, engine not built) Settings runs one attempt with no
+    retry and takes the key back on failure (above); that follower is
+    `singleAttempt` and reads no key once `store` is no longer the data
+    account's, so a key moved by an account switch during the wait starts no
+    second migration into the previous account's store (review finding 1).
+    `build-scripts/test-sync-pin-scope-follower.sh` drives the real follower
+    over injected effects and a manual timer.
+  - Status (amendment b): the consecutive failure count and the last kind
+    (`SyncPinScopeMigrationFailure`) reach the pane through
+    `SyncHelper.setPinScopeMigrationFailure(_:)`, beside the Profile mapping
+    pause, as the problem line "Pinned tab scope change not applied yet". It
+    is not an engine `SyncProblemCategory`, and nothing is persisted.
+  - Account switch: `resetPhiSyncCursorIfAccountChanged` also clears the key
+    and its `.phiSyncTs` / `.phiSyncVal` sidecars, and records the new owner
+    only after every cleanup step, so an interrupted cleanup runs again at
+    the next launch.
+  - `BrowserMigrationRunner.start` refuses (returns false, as for a run
+    already in flight) while a scope migration job is in flight:
+    `BrowserDataActivity.pinScopeMigrationIsPending` reads a process-wide
+    count that `LocalStore.changePinnedTabScope` holds from its queueing check
+    until its store job returns, for every caller (design 3.6 as amended
+    2026-10-10, not "row != key": a follower in retry backoff does not hold
+    the runner, because the store refuses a scope job once a run has started
+    and the run plans from the row scope). The wizard says why Start did
+    nothing for either refusal.
 - **An account switch drops the account's `marker.json`.** The entity cursor
   in `UserDefaults.standard` is wiped on a switch; resuming a previously used
   account from its advanced marker with no entity id would make the next push
@@ -1082,7 +2110,15 @@ The engine must preserve these persistence, retry and account-isolation rules.
 - **A retired `SyncKeyController` writes nothing.** Teardown calls
   `retire()`; a pass parked in a network call when the account went away
   resumes on the next account's token and used to register every unmapped
-  local Profile into it under the old ARK.
+  local Profile into it under the old ARK. `retire()` also cancels the shared
+  auto-create round, and the round, `createLocalProfileAndAdopt` and the repair
+  pass check retirement after every await and before every create, adopt or
+  mapping write. A stopped round returns `.failed` without posting
+  `.phiProfileAutoCreateDidRun`. When the bridge's create completes after
+  retirement, the Profile stays local and unmapped (it is not deleted), never
+  enters `profileIdsBeingCreated`, and only metadata is logged. An adopt whose
+  own lookup is in flight at retirement can still write its mapping, into the
+  retired account's mapping store.
 - **Guest migration ignores soft-deleted rules** on both stores: a Space
   deletion soft-deletes its rules for the sync tombstone, and a Guest store has
   no engine to purge them.
@@ -1179,8 +2215,9 @@ written" restart window falls on them.
 The implementation entry points are under [Sources/Sync/Phi](../Sources/Sync/Phi)
 and [Sources/Sync/Keys](../Sources/Sync/Keys). The native bridge is declared in
 [PhiChromiumBridgeHeader.h](../Sources/ChromiumBridge/PhiChromiumBridgeHeader.h).
-`PhiSyncEngine`, `SyncableSettings`, `SyncableSpaces`, `SyncableOwnedItems`,
-`BookmarkKind`, `PinKind`, `URLRuleKind` and `PhiHybridClock` own the rules above.
+`PhiSyncEngine`, `SyncableSettings`, `SyncableSpaces`, `SyncableProfiles`,
+`SyncableOwnedItems`, `BookmarkKind`, `PinKind`, `URLRuleKind` and `PhiHybridClock` own
+the rules above.
 
 Focused suites in [Tests/PhiBrowserTests/Sync](../Tests/PhiBrowserTests/Sync)
 cover pairing, marker persistence, failed/paginated pulls, merges, logical

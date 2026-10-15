@@ -328,11 +328,28 @@ extension AppController {
             AppLogDebug("Main menu changed: \(change)")
             self?.hookAndRebuildMainMenu()
         }
+        // Every layout-mode writer (View menu, Settings, tab-area context
+        // menu, sync) goes through the standard defaults.
+        lastMenuLayoutMode = PhiPreferences.GeneralSettings.loadLayoutMode()
+        layoutModeMenuObservation = NotificationCenter.default.addObserver(
+            forName: UserDefaults.didChangeNotification,
+            object: UserDefaults.standard,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                let mode = PhiPreferences.GeneralSettings.loadLayoutMode()
+                guard mode != self.lastMenuLayoutMode else { return }
+                self.lastMenuLayoutMode = mode
+                self.refreshPrefGatedMenuItems()
+            }
+        }
     }
     
     /// Schedules the main-menu hook so pref-gated items appear or disappear
     /// without waiting for Chromium's next menu swap — the View ▸ agent items
-    /// follow the agent CDP switch (`AgentCDPListener.setEnabled` calls this).
+    /// follow the agent CDP switch (`AgentCDPListener.setEnabled` calls this),
+    /// and the Tab menu's New Tab title follows the layout mode.
     /// Coalesces repeated requests and waits until menu tracking ends.
     func refreshPrefGatedMenuItems() {
         guard !isMainMenuRefreshScheduled else { return }
@@ -609,6 +626,7 @@ extension AppController {
                         item.isHidden = true
                     }
                 }
+                Self.applyNewTabOrientation(in: subMenu)
             } else
             
             if menuRole == .help, let subMenu = menuItem.submenu {
@@ -740,6 +758,37 @@ extension AppController {
         }
     }
 
+    /// Chromium's Tab menu carries two items for New Tab to the Right, and only
+    /// their order tells them apart: both have the same tag, action and key
+    /// equivalent, and their titles are Chromium-localized strings. The order
+    /// comes from `BuildTabMenu` in chrome/browser/ui/cocoa/main_menu_builder.mm,
+    /// which lists the "to the Right" title first and a hidden "New Tab Below"
+    /// second. Upstream's `-[AppController onVerticalTabStripModeChanged:]`
+    /// (chrome/browser/app_controller_mac.mm, copied into Phi's
+    /// phi_app_controller_mac.mm) reads them the same way: [0] horizontal,
+    /// [1] vertical. Keep the indices below in step with both; the count check
+    /// cannot catch a reorder, which would only swap the titles shown.
+    ///
+    /// Upstream swaps them on its vertical tab strip mode, which Phi never
+    /// turns on, so swap them on the layout mode: only Comfortable lays tabs
+    /// out horizontally.
+    static func applyNewTabOrientation(
+        in tabMenu: NSMenu,
+        layoutMode: LayoutMode = PhiPreferences.GeneralSettings.loadLayoutMode()
+    ) {
+        let items = tabMenu.items.filter {
+            $0.tag == CommandWrapper.IDC_NEW_TAB_TO_RIGHT.rawValue
+        }
+        guard items.count == 2 else {
+            AppLogWarn("Tab menu has \(items.count) New Tab to the Right items, expected 2; leaving them as built")
+            return
+        }
+        // items[0] is "to the Right", items[1] is "New Tab Below".
+        let vertical = !layoutMode.isTraditional
+        items[0].isHidden = vertical
+        items[1].isHidden = !vertical
+    }
+
     static func installOrUpdateFileMenuItems(
         in subMenu: NSMenu,
         target: AppController?
@@ -789,6 +838,7 @@ extension AppController {
             item.tag == CommandWrapper.PHI_NEW_KIOSK_WINDOW.rawValue
                 || item.tag == CommandWrapper.PHI_NEW_INCOGNITO_SPACE.rawValue
                 || item.tag == CommandWrapper.PHI_SHARE_PAGE.rawValue
+                || item.action == #selector(AppController.copyFullPageScreenshotFromMenu(_:))
                 || item.tag == CommandWrapper.PHI_SAVE_FOR_LATER.rawValue
                 || item.tag == AppController.fileSaveForLaterLibraryItemTag
         }
@@ -841,12 +891,25 @@ extension AppController {
         Shortcuts.updateShortcut(for: sharePageItem)
         sharePageItem.target = target
 
+        let screenshotItem = NSMenuItem(
+            title: NSLocalizedString(
+                "app.fileMenu.copyFullPageScreenshot",
+                value: "Capture Full Page",
+                comment: "File menu - Capture the entire current webpage and copy it as an image"
+            ),
+            action: #selector(AppController.copyFullPageScreenshotFromMenu(_:)),
+            keyEquivalent: ""
+        )
+        screenshotItem.target = target
+
         // Same slot Safari uses: directly above Print.
         if let printIndex = subMenu.items.firstIndex(where: {
             $0.tag == CommandWrapper.IDC_PRINT.rawValue
         }) {
-            subMenu.insertItem(sharePageItem, at: printIndex)
+            subMenu.insertItem(screenshotItem, at: printIndex)
+            subMenu.insertItem(sharePageItem, at: printIndex + 1)
         } else {
+            subMenu.addItem(screenshotItem)
             subMenu.addItem(sharePageItem)
         }
 
@@ -948,41 +1011,7 @@ extension AppController {
               let profile = menuItem.representedObject as? PhiBrowserProfile else {
             return
         }
-        let alert = NSAlert()
-        alert.messageText = String(
-            format: NSLocalizedString("app.deleteProfileConfirmation.title", value: "Delete profile \u{201C}%@\u{201D}?", comment: "Title of the delete-profile confirmation"),
-            profile.displayName
-        )
-        alert.informativeText = NSLocalizedString("app.deleteProfileConfirmation.browserDataAndChats", value: "Cookies, history, extensions, and other browser data in this profile will be permanently removed. Conversations will be kept in Phi Chat under Uncategorized. If AI is disabled or unavailable, conversations will be moved when AI is enabled and available again.",
-            comment: "Spaces menu - Profile deletion confirmation distinguishing permanently removed browser data from retained conversations and explaining deferred organization while AI is unavailable"
-        )
-        alert.alertStyle = .warning
-        alert.addButton(withTitle: NSLocalizedString("app.deleteProfileConfirmation.deleteButton", value: "Delete", comment: "Destructive button"))
-        alert.addButton(withTitle: NSLocalizedString("app.deleteProfileConfirmation.cancelButton", value: "Cancel", comment: "Cancel button"))
-        guard alert.runModal() == .alertFirstButtonReturn else { return }
-        // Re-check AFTER the modal: the menu item was validated when the menu
-        // opened, and a Space can be bound to this profile while the
-        // confirmation sits on screen (background work — the agent surface
-        // included — keeps running under runModal). Nothing below this guard
-        // re-checks: neither ProfileManager nor the Chromium bridge knows
-        // about Space bindings.
-        guard !SpaceManager.shared.isProfileInUse(profile.profileId) else {
-            let errAlert = NSAlert()
-            errAlert.messageText = NSLocalizedString("app.deleteProfileFailure.title", value: "Couldn't delete profile", comment: "Title of the profile-delete error")
-            errAlert.informativeText = NSLocalizedString("app.deleteProfileFailure.inUseBySpace", value: "A Space is using this profile. Delete that Space or change its profile first.",
-                comment: "Body of the profile-delete error when a Space became bound to the profile before the deletion ran"
-            )
-            errAlert.runModal()
-            return
-        }
-        ProfileManager.shared.deleteProfile(profile.profileId) { success, error in
-            if !success {
-                let errAlert = NSAlert()
-                errAlert.messageText = NSLocalizedString("app.deleteProfileFailure.title", value: "Couldn't delete profile", comment: "Title of the profile-delete error")
-                errAlert.informativeText = error ?? NSLocalizedString("app.deleteProfileFailure.unknownError", value: "Unknown error", comment: "Fallback profile-delete error reason")
-                errAlert.runModal()
-            }
-        }
+        ProfileDeletionFlow.confirmAndDelete(profile)
     }
 
     private func configureBookmarksMenuItem(_ menuItem: NSMenuItem) {
@@ -1166,7 +1195,7 @@ extension AppController {
     @MainActor
     @objc func toggleReaderView(_ sender: Any?) {
         guard let state = SpaceSessionControllersManager.shared.activeWindowController?.browserState,
-              let tab = state.focusingTab else {
+              let tab = state.readerViewTarget(focusingTab: state.focusingTab) else {
             return
         }
         state.toggleReaderView(for: tab, from: .viewMenu)
@@ -1203,6 +1232,12 @@ extension AppController {
             return
         }
         OverlayToastCenter.shared.showURLCopyConfirmation(copiedURLs: copiedURLs, in: state)
+    }
+
+    @MainActor
+    @objc func copyFullPageScreenshotFromMenu(_ sender: Any?) {
+        guard let state = SpaceSessionControllersManager.shared.getActiveWindowState() else { return }
+        PageScreenshotService.shared.capture(in: state)
     }
 
     @MainActor
@@ -2493,27 +2528,10 @@ extension AppController {
     func confirmSpaceDeletion(_ space: Space) {
         guard SpaceManager.shared.acceptsStoreAction(from: space.storeIdentifier),
               SpaceManager.shared.canDeleteSpace(spaceId: space.spaceId) else { return }
-        let alert = NSAlert()
-        alert.messageText = String(
-            format: NSLocalizedString("app.deleteSpaceConfirmation.title", value: "Delete \u{201C}%@\u{201D}?", comment: "Title of the delete-Space confirmation"),
-            space.name
-        )
-        let usesSpaceScopedPinnedTabs = MainActor.assumeIsolated {
-            AccountController.shared.localDataAccount?.localStorage.pinnedTabScope() == .space
+        let confirmed = MainActor.assumeIsolated {
+            SpaceDeletionConfirmation.run(space: space)
         }
-        if usesSpaceScopedPinnedTabs {
-            alert.informativeText = NSLocalizedString("app.deleteSpaceConfirmation.spaceScopedMessage", value: "Bookmarks and pinned tabs belonging to this Space will also be removed. This action cannot be undone.",
-                comment: "Body of the delete-Space confirmation with Space-scoped pinned tabs"
-            )
-        } else {
-            alert.informativeText = NSLocalizedString("app.deleteSpaceConfirmation.message", value: "Bookmarks belonging to this Space will also be removed. This action cannot be undone.",
-                comment: "Body of the delete-Space confirmation"
-            )
-        }
-        alert.alertStyle = .warning
-        alert.addButton(withTitle: NSLocalizedString("app.deleteSpaceConfirmation.deleteButton", value: "Delete", comment: "Destructive button"))
-        alert.addButton(withTitle: NSLocalizedString("app.deleteSpaceConfirmation.cancelButton", value: "Cancel", comment: "Cancel button"))
-        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        guard confirmed else { return }
         SpaceManager.shared.deleteSpace(spaceId: space.spaceId, expectedStoreIdentifier: space.storeIdentifier)
     }
 
@@ -3122,9 +3140,10 @@ extension AppController {
 
         if item.action == #selector(toggleReaderView(_:)) {
             if let menuItem = item as? NSMenuItem {
-                let tab = MainActor.assumeIsolated {
-                    SpaceSessionControllersManager.shared
-                        .activeWindowController?.browserState.focusingTab
+                let tab = MainActor.assumeIsolated { () -> Tab? in
+                    guard let state = SpaceSessionControllersManager.shared
+                        .activeWindowController?.browserState else { return nil }
+                    return state.readerViewTarget(focusingTab: state.focusingTab)
                 }
                 menuItem.state = (tab?.extensionReaderActive ?? false) ? .on : .off
                 // Nothing to distill on the native NTP: it has no WebContents,
@@ -3315,6 +3334,13 @@ extension AppController {
                     : NSLocalizedString("app.editMenu.copySelectedTabURLState", value: "Copy URL", comment: "Edit menu - Single selected-tab URL title when updating menu state")
             }
             return state.hasCopyableSelectedTabURLs
+        }
+        if item.action == #selector(copyFullPageScreenshotFromMenu(_:)) {
+            return MainActor.assumeIsolated {
+                guard ApplicationState.shared.canUseBrowser,
+                      let state = SpaceSessionControllersManager.shared.getActiveWindowState() else { return false }
+                return PageScreenshotService.shared.canCapture(in: state)
+            }
         }
         if item.action == #selector(sharePageFromMenu(_:)) {
             guard let state = SpaceSessionControllersManager.shared.getActiveWindowState() else {

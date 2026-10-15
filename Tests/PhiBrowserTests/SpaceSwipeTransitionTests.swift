@@ -37,7 +37,6 @@ final class SpaceSwipeTransitionTests: XCTestCase {
         try context.save()
         manager = SpaceManager(observeAccountChanges: false)
         manager.bind(to: account)
-        SpaceBandSnapshotCache.shared.accountForTesting = account
         await drain()
     }
 
@@ -48,7 +47,6 @@ final class SpaceSwipeTransitionTests: XCTestCase {
         slots.removeAll()
         await drain()
         manager = nil
-        SpaceBandSnapshotCache.shared.accountForTesting = nil
         try await account.localStorage.closeForAccountDirectoryRemoval()
         for url in [directory, account.userDataStorage].compactMap({ $0 }) {
             try? FileManager.default.removeItem(at: url)
@@ -107,6 +105,14 @@ final class SpaceSwipeTransitionTests: XCTestCase {
         }
         slot.handleSpaceSwipe(.consumed)
         XCTAssertEqual(changes.compactMap { $0 }, ["second"])
+    }
+
+    func testDockedSwipeCommitActivatesMediaWithoutAnotherLayout() async throws {
+        try await assertSwipeCommitActivatesMedia(kind: .docked)
+    }
+
+    func testFloatingSwipeCommitActivatesMediaWithoutAnotherLayout() async throws {
+        try await assertSwipeCommitActivatesMedia(kind: .floating)
     }
 
     func testEdgeResistanceNeverCommits() async throws {
@@ -196,36 +202,6 @@ final class SpaceSwipeTransitionTests: XCTestCase {
         XCTAssertEqual(second.activeSpaceId, "first")
     }
 
-    func testColdSwipeKeepsCachedRowsThroughCommitUntilLiveRowsArrive() async throws {
-        let slot = try makeSlot(showing: "first", target: "second")
-        let source = try XCTUnwrap(slot.visibleController).mainSplitViewController.sidebarViewController
-        let target = try XCTUnwrap(slot.windowController(for: "second"))
-        let surface = target.mainSplitViewController.sidebarViewController
-        source.prepareSpaceSwitchBand()
-        SpaceBandSnapshotCache.shared.capture(source, spaceId: "second")
-        defer { SpaceBandSnapshotCache.shared.remove(spaceId: "second") }
-        target.browserState.tabs = []
-        target.browserState.updateNormalTabs()
-        slot.handleSpaceSwipe(.update(distance: -150, velocity: 0, began: true))
-        let snapshot = try XCTUnwrap(surface.spaceSwitchBandContainer.subviews.compactMap { $0 as? SpaceBandSnapshotView }.first)
-        await drain()
-        XCTAssertNotNil(snapshot.superview, "A paused preview must keep cached rows")
-        XCTAssertFalse(target.isPresented)
-        slot.handleSpaceSwipe(.end(distance: -150, velocity: 0, cancelled: false))
-        try await waitForSettle(slot)
-        XCTAssertEqual(slot.activeSpaceId, "second")
-        XCTAssertNotNil(snapshot.superview, "Cold activation must not flash an empty band at landing")
-        XCTAssertNil(snapshot.layer?.animation(forKey: "phi.hostedBandSwipePosition"))
-        target.browserState.tabs = [Tab(guid: 9991, url: "https://example.test", isActive: true,
-                                        index: 0, title: "Restored tab")]
-        target.browserState.updateNormalTabs()
-        await drain()
-        await drain()
-        XCTAssertTrue(surface.spaceSwitchBandViews.allSatisfy { $0.alphaValue == 1 })
-        try await Task.sleep(nanoseconds: 200_000_000)
-        XCTAssertNil(snapshot.superview)
-    }
-
     func testRenderedSelectionBackgroundFollowsSwipeAndReversal() async throws {
         let slot = try makeSlot(showing: "first", target: "second")
         let geometry = SpacesStripGeometry()
@@ -280,6 +256,64 @@ final class SpaceSwipeTransitionTests: XCTestCase {
                            "Rendered chip must track progress, including reversal, while the source stays active")
             XCTAssertEqual(slot.activeSpaceId, "first")
         }
+    }
+
+    private func assertSwipeCommitActivatesMedia(kind: SidebarMediaController.Surface.Kind) async throws {
+        let key = PhiPreferences.GeneralSettings.sidebarMediaPlayerEnabled.rawValue
+        let previousEnabled = UserDefaults.standard.object(forKey: key)
+        UserDefaults.standard.set(true, forKey: key)
+        defer { UserDefaults.standard.set(previousEnabled, forKey: key) }
+
+        let slot = try makeSlot(showing: "first", target: "second")
+        let source = try XCTUnwrap(slot.visibleController)
+        let target = try XCTUnwrap(slot.windowController(for: "second"))
+        let split = try XCTUnwrap(slot.shell?.split)
+        let window = try XCTUnwrap(slot.shell?.window)
+        let screen = try XCTUnwrap(NSScreen.main)
+        window.setFrameOrigin(NSPoint(x: screen.visibleFrame.midX - window.frame.width / 2,
+                                      y: screen.visibleFrame.midY - window.frame.height / 2))
+        window.makeKeyAndOrderFront(nil)
+        window.orderFrontRegardless()
+        window.display()
+        NSApp.activate(ignoringOtherApps: true)
+        let deadline = Date().addingTimeInterval(2)
+        while !window.occlusionState.contains(.visible), Date() < deadline {
+            while let event = NSApp.nextEvent(matching: .any, until: Date(), inMode: .default, dequeue: true) {
+                NSApp.sendEvent(event)
+            }
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        XCTAssertTrue(window.occlusionState.contains(.visible))
+        if kind == .floating {
+            split.setSidebarCollapsed(true, animated: false)
+            split.floatingSidebarHost.showFloatingSidebar()
+        }
+        split.view.layoutSubtreeIfNeeded()
+        let media = slot.sidebarMediaController
+        let sourceSurface = SidebarMediaController.Surface(session: source.browserState, kind: kind)
+        let targetSurface = SidebarMediaController.Surface(session: target.browserState, kind: kind)
+        media.setActive(true, on: sourceSurface)
+
+        let surface: any SpaceSwitchBandSurface = kind == .floating
+            ? source.mainSplitViewController.floatingSidebarContent
+            : source.mainSplitViewController.sidebarViewController
+        let root = kind == .floating ? split.floatingSidebarHost.view : split.sidebarHost.view
+        // Settle synchronously so a later AppKit layout cannot repair the missing activation.
+        let slide = SpaceWindowSlot.HostedBandSlide(slot: slot, leaving: source,
+            enteringSpaceId: target.spaceId, root: root,
+            bandFrame: surface.spaceSwitchBandFrame, leavingBandViews: surface.spaceSwitchBandViews,
+            leavingBandContainer: surface.spaceSwitchBandContainer, direction: .forward,
+            duration: 0, interactive: true, restoreLeavingTheme: {})
+        slide.start()
+        slide.attachEntering(target)
+        await drain()
+        XCTAssertTrue(slot.visibleController === source)
+        XCTAssertEqual(media.activeSurface, sourceSurface, "Preview must not activate the target's media surface")
+        let distance = -surface.spaceSwitchBandFrame.width
+        slide.endSwipe(distance: distance, velocity: 0, cancelled: false)
+        XCTAssertTrue(slot.visibleController === target)
+        XCTAssertEqual(media.activeSurface, targetSurface,
+                       "Committing the preview must activate media before another layout or window event")
     }
 
     private func waitForSettle(_ slot: SpaceWindowSlot) async throws {

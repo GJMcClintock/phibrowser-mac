@@ -46,6 +46,13 @@ import PostHog
     #endif
     
     var menuObservation: NSKeyValueObservation?
+    /// Refreshes the main menu when the layout mode changes, so the Tab menu's
+    /// layout-dependent New Tab title follows it; a layout change swaps no
+    /// menu, so `menuObservation` does not see it.
+    var layoutModeMenuObservation: NSObjectProtocol?
+    /// Layout mode last seen by `layoutModeMenuObservation`; the menu is
+    /// refreshed only when this actually changes.
+    var lastMenuLayoutMode: LayoutMode?
     var isMainMenuRefreshScheduled = false
     /// Rebuilds flag-gated menu rows once PostHog's flags land — they arrive
     /// after setup, over the network, and every menu built before then read
@@ -130,8 +137,6 @@ import PostHog
             permitsSentinelLaunch = true
         }
         
-        //        ASWebAuthenticationSessionWebBrowserSessionManager.shared.sessionHandler = self
-        
         ChromiumLauncher.sharedInstance().bridge?.applicationDidFinishLaunching(notification)
         hasFinishedLaunching = true
         #if PHI_OSS_BUILD
@@ -146,7 +151,7 @@ import PostHog
         SentinelTelemetryConsentPublisher.shared.start()
         #endif
         
-        //        ASWebAuthenticationSessionWebBrowserSessionManager.shared.sessionHandler = self
+        ASWebAuthenticationSessionWebBrowserSessionManager.shared.sessionHandler = self
         
         #if !PHI_OSS_BUILD
         setupSparkle()
@@ -307,12 +312,17 @@ import PostHog
             // (Folio's File menu entries) would stay missing for the whole
             // session even once the flag was known. Schedule a refresh after
             // menu tracking ends so an open menu is not rebuilt in place.
+            // Mirage read the same flags at its own boot, usually before
+            // they loaded, so it is told the decided Folio state as well.
             featureFlagObservation = NotificationCenter.default.addObserver(
                 forName: PostHogSDK.didReceiveFeatureFlags,
                 object: nil,
                 queue: .main
             ) { [weak self] _ in
-                MainActor.assumeIsolated { self?.refreshPrefGatedMenuItems() }
+                MainActor.assumeIsolated {
+                    self?.refreshPrefGatedMenuItems()
+                    SaveForLaterService.broadcastArmedState()
+                }
             }
             AccountController.shared.reconcilePostHogIdentityForAnonymousLaunchIfNeeded(
                 isMetricsReportingEnabled: isMetricsReportingEnabled

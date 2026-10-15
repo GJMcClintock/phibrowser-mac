@@ -420,6 +420,9 @@ class SidebarHeaderView: NSView, TitlebarAwareHitTestable {
         if showInSidebar {
             scheduleSidebarButtonUpdateAfterLayoutChange()
         }
+        if !isFloating {
+            updateSidebarButtonLeftConstraint()
+        }
 
         updateUpgradeAndSidebarVisibility(layoutMode: layoutMode)
     }
@@ -502,6 +505,7 @@ class SidebarHeaderView: NSView, TitlebarAwareHitTestable {
             return
         }
         // Keep a small gap after the leading chrome group.
+        if !isFloating && abs(sidebarButtonLeftOffset - (x + 10)) < 0.01 { return }
         AppLogDebug("[SidebarHeader] updateSidebarButtonLeftConstraint update offset=\(x + 10)")
         sidebarButtonLeftOffset = x + 10
         sidebarButtonLeftConstraint?.update(offset: sidebarButtonLeftOffset)
@@ -512,6 +516,14 @@ class SidebarHeaderView: NSView, TitlebarAwareHitTestable {
 
     private func scheduleSidebarButtonUpdateAfterLayoutChange() {
         layoutSettleCancellable?.cancel()
+        // The subscription retains its `object`, this view, until it fires.
+        // A header that has left its window gets no layout pass to fire it
+        // and would stay alive for good, with the state and slot its
+        // subviews hold. Entering a window arms it and realigns directly.
+        guard window != nil else {
+            layoutSettleCancellable = nil
+            return
+        }
         postsFrameChangedNotifications = true
         layoutSettleCancellable = NotificationCenter.default.publisher(for: NSView.frameDidChangeNotification, object: self)
             .debounce(for: .milliseconds(80), scheduler: DispatchQueue.main)
@@ -578,13 +590,22 @@ class SidebarHeaderView: NSView, TitlebarAwareHitTestable {
         // Position sidebar button relative to the window's traffic-light buttons
         updateSidebarButtonLeftConstraint()
 
-        // Keep updated on window resize and when titlebar layout changes
-        if let win = window {
-            NotificationCenter.default.publisher(for: NSWindow.didResizeNotification, object: win)
-                .sink { [weak self] _ in self?.updateSidebarButtonLeftConstraint() }
-                .store(in: &cancellables)
-
-            NotificationCenter.default.publisher(for: NSWindow.didEndLiveResizeNotification, object: win)
+        // Keep updated on window resize and when titlebar layout changes.
+        // Matched by identity rather than `object:` — a subscription retains
+        // its `object`, and a window retained by a view it hosts never
+        // deallocates.
+        if window != nil {
+            NotificationCenter.default.publisher(for: NSWindow.didResizeNotification)
+                .merge(with: NotificationCenter.default.publisher(for: NSWindow.didEndLiveResizeNotification))
+                .merge(with: NotificationCenter.default.publisher(for: NSView.frameDidChangeNotification))
+                .filter { [weak self] notification in
+                    guard let self, let window = self.window else { return false }
+                    if notification.name == NSView.frameDidChangeNotification {
+                        return !self.isFloating
+                            && notification.object as? NSView === window.standardWindowButton(.zoomButton)
+                    }
+                    return notification.object as? NSWindow === window
+                }
                 .sink { [weak self] _ in self?.updateSidebarButtonLeftConstraint() }
                 .store(in: &cancellables)
         }

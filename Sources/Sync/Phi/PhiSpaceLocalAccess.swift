@@ -96,6 +96,9 @@ protocol PhiSpaceLocalAccess: AnyObject {
     /// Second tag-index seed (§3.4): a wizard-mapped Space may lack a cursor before its first commit, while
     /// the account tombstone can arrive first.
     func allSpaceMappings() -> [String: String]
+    /// Whether a local deletion of this Space has started and is not yet recorded in the table (§9.2): the
+    /// apply loop must neither land it nor treat its vanished row as a dead mapping.
+    func isBeingDeletedLocally(syncUuid: String) -> Bool
 
     /// Pairing step-2 local column (§5.4), applying only §6.5 identity exclusions: incognito and both agent
     /// characteristics. Include default Space and do not require mapped Profiles. That is a publication
@@ -241,6 +244,10 @@ final class AccountPhiSpaceAccess: PhiSpaceLocalAccess {
         controller?.allSpaceMappings() ?? [:]
     }
 
+    func isBeingDeletedLocally(syncUuid: String) -> Bool {
+        PhiSpaceSyncState.shared.isBeingDeletedLocally(syncUuid: syncUuid)
+    }
+
     func isImporting(intoSpaceId spaceId: String) -> Bool {
         ImportTargetLock.shared.isImporting(into: spaceId)
     }
@@ -296,5 +303,107 @@ final class AccountPhiSpaceAccess: PhiSpaceLocalAccess {
         SpaceManager.shared.closeSpaceWindows(spaceId: spaceId)
         try await account.localStorage.deleteSpaceCascadeThrowing(spaceId: spaceId, origin: .retentionPurge)
         SpaceManager.shared.clearThemeRecords(forSpaceId: spaceId)
+    }
+}
+
+// MARK: - Profile entity (docs/sync.md, "Profile entity")
+
+extension AccountPhiSpaceAccess: PhiProfileLocalAccess {
+    func currentProfiles() -> [PhiLocalProfile] {
+        ProfileManager.shared.userAssignableProfiles.compactMap { profile in
+            guard globalUuid(forProfileId: profile.profileId) != nil else { return nil }
+            return PhiLocalProfile(profileId: profile.profileId, displayName: profile.displayName,
+                                   createdAtMs: profileCreatedAtMs(profile.profileId))
+        }
+    }
+
+    /// Epoch ms of `ProfileModel.createdDate`, 0 when this device never recorded one.
+    private func profileCreatedAtMs(_ profileId: String) -> Int64 {
+        guard let date = (try? account.localStorage.profile(with: profileId, createIfNeeded: false))??.createdDate
+        else { return 0 }
+        return Int64(date.timeIntervalSince1970 * 1000)
+    }
+
+    func allProfileMappings() -> [String: String] {
+        controller?.profileKeys.allMappings() ?? [:]
+    }
+
+    func knownAccountProfileUuids() -> Set<String> {
+        controller?.lastAccountProfileUuids ?? []
+    }
+
+    func profileDeletionIntents() -> [String: String] {
+        PhiSpaceSyncState.shared.profileDeletionIntents()
+    }
+
+    func finishLocalProfileDeletion(syncUuid: String) {
+        PhiSpaceSyncState.shared.removeProfileDeletionIntent(syncUuid: syncUuid)
+    }
+
+    func isProfileBeingDeletedLocally(syncUuid: String) -> Bool {
+        PhiSpaceSyncState.shared.isProfileBeingDeletedLocally(syncUuid: syncUuid)
+    }
+
+    func isDisplayNameTaken(_ name: String, excluding profileId: String) -> Bool {
+        ProfileManager.shared.displayNameExists(name, excluding: profileId)
+    }
+
+    func freshProfileIds() -> Set<String>? {
+        ProfileManager.readProfiles().map { Set($0.map(\.profileId)) }
+    }
+
+    func removeLocalRows(ofDeletedProfile localProfileId: String, alsoHiddenSyncUuids: Set<String>) async {
+        await ProfileManager.removeLocalRows(ofDeletedProfile: localProfileId, account: account,
+                                             alsoHiddenSyncUuids: alsoHiddenSyncUuids)
+    }
+
+    /// Classifies every Space row bound to the Profile. A remotely soft-deleted (hidden) row does
+    /// not count: it is kept for the retention window only. `SpaceManager.isProfileInUse` counts
+    /// those rows too, so it cannot answer this question.
+    func profileDeletionBlockers(localProfileId: String) -> ProfileDeletionBlockers {
+        var blockers = ProfileDeletionBlockers()
+        blockers.isDefaultProfile = localProfileId == LocalStore.defaultProfileId
+        for model in account.localStorage.getAllSpaces() where model.profileId == localProfileId {
+            guard !SpaceManager.isIncognitoSpaceId(model.spaceId) else { continue }
+            if ImportTargetLock.shared.isImporting(into: model.spaceId) { blockers.isImporting = true }
+            if AgentSpaceManager.isPersistentAgentSpaceModel(iconName: model.iconName,
+                                                            colorHex: model.colorHex) {
+                blockers.hasPersistentAgentSpace = true
+                continue
+            }
+            if AgentSpaceManager.isAgentSpaceModel(name: model.name, iconName: model.iconName,
+                                                   colorHex: model.colorHex) {
+                blockers.hasRunningAgentSpace = true
+                continue
+            }
+            guard !PhiSpaceSyncState.shared.isHidden(model.spaceId) else { continue }
+            blockers.liveUserSpaceSyncUuids.append(syncUuid(forSpaceId: model.spaceId))
+        }
+        return blockers
+    }
+
+    func deleteForRemoteTombstone(localProfileId: String) async -> Bool {
+        await withCheckedContinuation { continuation in
+            ProfileManager.shared.deleteProfile(localProfileId, sync: .remoteTombstone) { success, _ in
+                continuation.resume(returning: success)
+            }
+        }
+    }
+
+    func isProfileListEnumerated() -> Bool {
+        ProfileManager.shared.isProfileListEnumerated
+    }
+
+    func applyRemoteName(profileId: String, name: String) async -> String? {
+        let manager = ProfileManager.shared
+        guard let current = manager.profile(for: profileId)?.displayName else { return nil }
+        let target = SyncKeyController.uniqueDisplayName(basedOn: name) {
+            manager.displayNameExists($0, excluding: profileId)
+        }
+        guard target != current else { return current }
+        let renamed = await withCheckedContinuation { continuation in
+            manager.renameProfile(profileId, to: target) { success, _ in continuation.resume(returning: success) }
+        }
+        return renamed ? manager.profile(for: profileId)?.displayName ?? target : nil
     }
 }

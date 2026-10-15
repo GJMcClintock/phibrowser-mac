@@ -14,22 +14,34 @@ final class SyncKeyControllerTests: XCTestCase {
     private func makeController(api: FakeAPI, provider: FakeDeviceKeyProvider,
                                 localsProvider: @escaping () -> [(profileId: String, displayName: String)],
                                 store: ProfileSyncMappingStore = MemoryMappingStore(),
-                                pinged: @escaping () -> Void = {}) -> (SyncKeyController, AccountKeyManager) {
+                                pinged: @escaping () -> Void = {},
+                                unlockRetryDelay: @escaping (Int) -> Duration = SyncKeyController.defaultUnlockRetryDelay) -> (SyncKeyController, AccountKeyManager) {
         let mgr = AccountKeyManager(api: api, deviceKeyProvider: provider)
         let pkm = ProfileKeyManager(api: api, keyManager: mgr, mappingStore: store)
         let approvals = DeviceApprovalService(api: api, keyManager: mgr, deviceKeyProvider: provider)
         let c = SyncKeyController(manager: mgr, approvals: approvals, profileKeys: pkm,
                                   localProfilesProvider: localsProvider,
-                                  notifyChromium: pinged, isPairingComplete: { true })
+                                  notifyChromium: pinged, isPairingComplete: { true },
+                                  unlockRetryDelay: unlockRetryDelay)
         return (c, mgr)
+    }
+
+    /// Polls the main actor until `condition` holds or `timeout` elapses.
+    private func waitUntil(_ timeout: Duration = .seconds(2), _ condition: () -> Bool) async {
+        let clock = ContinuousClock()
+        let deadline = clock.now + timeout
+        while !condition(), clock.now < deadline {
+            try? await Task.sleep(for: .milliseconds(5))
+        }
     }
 
     private func makeController(api: FakeAPI, provider: FakeDeviceKeyProvider,
                                 locals: [(String, String)],
-                                pinged: @escaping () -> Void = {}) -> (SyncKeyController, AccountKeyManager) {
+                                pinged: @escaping () -> Void = {},
+                                unlockRetryDelay: @escaping (Int) -> Duration = SyncKeyController.defaultUnlockRetryDelay) -> (SyncKeyController, AccountKeyManager) {
         makeController(api: api, provider: provider,
                        localsProvider: { locals.map { (profileId: $0.0, displayName: $0.1) } },
-                       pinged: pinged)
+                       pinged: pinged, unlockRetryDelay: unlockRetryDelay)
     }
 
     func testFirstDeviceRegistersAllLocalsAndPings() async throws {
@@ -79,14 +91,17 @@ final class SyncKeyControllerTests: XCTestCase {
         XCTAssertLessThanOrEqual(api.profileEnvelopes.count, 1)
     }
 
-    func testSingleRemoteSingleLocalAutoAdopts() async throws {
+    /// D20: one unmapped local beside one unclaimed account Profile is not a match.
+    /// The pass neither merges them nor registers the local while §3.6 can still
+    /// claim that account Profile (the repair pass runs auto-create first).
+    func testSingleRemoteSingleLocalAreNotMergedByCount() async throws {
         let api = FakeAPI()
         // Device A bootstraps and registers one profile.
         let providerA = FakeDeviceKeyProvider()
         let mgrA = AccountKeyManager(api: api, deviceKeyProvider: providerA)
         _ = try await mgrA.bootstrap()
         let pkmA = ProfileKeyManager(api: api, keyManager: mgrA, mappingStore: MemoryMappingStore())
-        let recA = try await pkmA.registerLocalProfile(profileId: "Default", displayName: "Work")
+        let recA = try await pkmA.registerLocalProfile(profileId: "Default", displayName: "Work", isDefault: true)
         // Device B joins with the recovery-equivalent (same account) and has one local profile.
         let providerB = FakeDeviceKeyProvider()
         let mgrBSeed = AccountKeyManager(api: api, deviceKeyProvider: providerB)
@@ -98,9 +113,11 @@ final class SyncKeyControllerTests: XCTestCase {
         _ = mgrBSeed // silence unused
         let (c, _) = makeController(api: api, provider: providerB, locals: [("Default", "Default")])
         await c.silentUnlockAndResolve()
-        XCTAssertFalse(c.needsPairing)
-        XCTAssertEqual(c.profileSyncInfo(forProfileId: "Default")?.uuid, recA.uuid)
-        XCTAssertEqual(c.profileSyncInfo(forProfileId: "Default")?.passphrase, recA.passphrase)
+        XCTAssertTrue(c.needsPairing)
+        XCTAssertNil(c.profileSyncInfo(forProfileId: "Default"))
+        XCTAssertEqual(api.profileEnvelopes.keys.sorted(), [recA.uuid], "no registration while the account Profile is claimable")
+        XCTAssertEqual(c.knownUnmappedProfileIds, ["Default"])
+        XCTAssertEqual(c.lastMappingsPassResult, .measured)
     }
 
     func testAmbiguousSetsNeedsPairing() async throws {
@@ -109,8 +126,8 @@ final class SyncKeyControllerTests: XCTestCase {
         let mgrA = AccountKeyManager(api: api, deviceKeyProvider: providerA)
         _ = try await mgrA.bootstrap()
         let pkmA = ProfileKeyManager(api: api, keyManager: mgrA, mappingStore: MemoryMappingStore())
-        _ = try await pkmA.registerLocalProfile(profileId: "Default", displayName: "Work")
-        _ = try await pkmA.registerLocalProfile(profileId: "Profile 1", displayName: "Home")
+        _ = try await pkmA.registerLocalProfile(profileId: "Default", displayName: "Work", isDefault: true)
+        _ = try await pkmA.registerLocalProfile(profileId: "Profile 1", displayName: "Home", isDefault: false)
         // Same device, wiped mapping (fresh controller with empty store): 2 remotes, 1 local -> pairing.
         let (c, _) = makeController(api: api, provider: providerA, locals: [("Default", "Default")])
         await c.silentUnlockAndResolve()
@@ -196,8 +213,8 @@ final class SyncKeyControllerTests: XCTestCase {
         let store = MemoryMappingStore()
         // Every local is mapped; the account still holds one more profile.
         let pkm = ProfileKeyManager(api: api, keyManager: mgr, mappingStore: store)
-        let mine = try await pkm.registerLocalProfile(profileId: "Default", displayName: "Default")
-        let theirs = try await pkm.registerLocalProfile(profileId: "temp", displayName: "Work")
+        let mine = try await pkm.registerLocalProfile(profileId: "Default", displayName: "Default", isDefault: true)
+        let theirs = try await pkm.registerLocalProfile(profileId: "temp", displayName: "Work", isDefault: false)
         store.removeMapping(forProfileId: "temp")
 
         let getsBefore = api.getProfileKeyCalls
@@ -263,9 +280,226 @@ final class SyncKeyControllerTests: XCTestCase {
 
     // MARK: - I-1: a locked / signed-out controller stops serving keys
 
-    /// A resolve populates the cache; a later pass whose unlock fails must
-    /// empty it and ping so Chromium re-pulls nil and closes the gate.
-    func testUnlockFailureClearsResolvedAndPings() async throws {
+    /// A resolve populates the cache; this device's envelope then disappears
+    /// (remote revocation, server reset). A 404 is definitive even with the ARK
+    /// held: the later pass must empty the cache and ping so Chromium re-pulls
+    /// nil and closes the gate.
+    func testNeedsJoinWithTheAccountKeyHeldClearsResolvedAndPings() async throws {
+        let api = FakeAPI()
+        let provider = FakeDeviceKeyProvider()
+        _ = try await AccountKeyManager(api: api, deviceKeyProvider: provider).bootstrap()
+        var pings = 0
+        let (c, mgr) = makeController(api: api, provider: provider,
+                                      locals: [("Default", "Default")],
+                                      pinged: { pings += 1 })
+        await c.silentUnlockAndResolve()
+        XCTAssertFalse(c.resolved.isEmpty)
+        XCTAssertNotNil(mgr.currentARK)
+        XCTAssertEqual(pings, 1)
+
+        let deviceKeyId = try provider.deviceKeyId()
+        api.envelopes.removeValue(forKey: deviceKeyId)
+        await c.silentUnlockAndResolve()
+
+        XCTAssertTrue(c.resolved.isEmpty)
+        XCTAssertNil(c.profileSyncInfo(forProfileId: "Default"))
+        XCTAssertFalse(c.needsPairing)
+        XCTAssertEqual(pings, 2, "dropping a populated cache must ping so the fork re-pulls")
+    }
+
+    /// Without the ARK the unknown state still fails closed: a populated cache is
+    /// dropped on a thrown unlock, and the first successful unlock's
+    /// `.phiAccountKeyDidUnlock` is what retries.
+    func testUnlockFailureWithoutTheAccountKeyClearsResolvedAndPings() async throws {
+        let api = FakeAPI()
+        let provider = FakeDeviceKeyProvider()
+        _ = try await AccountKeyManager(api: api, deviceKeyProvider: provider).bootstrap()
+        var pings = 0
+        let (c, mgr) = makeController(api: api, provider: provider,
+                                      locals: [("Default", "Default")],
+                                      pinged: { pings += 1 })
+        await c.silentUnlockAndResolve()
+        XCTAssertFalse(c.resolved.isEmpty)
+        XCTAssertEqual(pings, 1)
+
+        mgr.discardARK()
+        api.deviceEnvelopeError = KeyAPIError.transport(URLError(.notConnectedToInternet))
+        await c.silentUnlockAndResolve()
+
+        XCTAssertTrue(c.resolved.isEmpty)
+        XCTAssertNil(c.profileSyncInfo(forProfileId: "Default"))
+        XCTAssertEqual(pings, 2)
+    }
+
+    /// A launch with the key service unreachable: the failed unlock fails closed, then
+    /// retries by itself (5 s doubling to 60 s in the app) until the service answers, so
+    /// the keys resolve without a login event or a Profile-list change.
+    func testUnlockFailureWithoutTheAccountKeyRetriesUntilTheServiceAnswers() async throws {
+        let api = FakeAPI()
+        let provider = FakeDeviceKeyProvider()
+        _ = try await AccountKeyManager(api: api, deviceKeyProvider: provider).bootstrap()
+        var pings = 0
+        var delaysAsked: [Int] = []
+        let (c, mgr) = makeController(api: api, provider: provider,
+                                      locals: [("Default", "Default")],
+                                      pinged: { pings += 1 },
+                                      unlockRetryDelay: { delaysAsked.append($0); return .milliseconds(1) })
+        api.deviceEnvelopeError = KeyAPIError.transport(URLError(.notConnectedToInternet))
+        await c.silentUnlockAndResolve()
+        XCTAssertTrue(c.resolved.isEmpty)
+        XCTAssertNil(mgr.currentARK)
+        let callsAfterFirstFailure = api.getDeviceEnvelopeCalls
+
+        // Still unreachable: the retry fails again and re-arms with a longer wait.
+        await waitUntil { api.getDeviceEnvelopeCalls >= callsAfterFirstFailure + 2 }
+        XCTAssertTrue(c.resolved.isEmpty)
+        XCTAssertEqual(Array(delaysAsked.prefix(3)), [0, 1, 2])
+
+        api.deviceEnvelopeError = nil
+        await waitUntil { !c.resolved.isEmpty }
+        XCTAssertNotNil(mgr.currentARK)
+        XCTAssertNotNil(c.profileSyncInfo(forProfileId: "Default"))
+        XCTAssertGreaterThanOrEqual(pings, 1)
+
+        // Settled: no further lookups once the key is held.
+        let settled = api.getDeviceEnvelopeCalls
+        try await Task.sleep(for: .milliseconds(30))
+        XCTAssertEqual(api.getDeviceEnvelopeCalls, settled)
+    }
+
+    /// Another flow can supply the account key before the retry; the pending recovery
+    /// still publishes Profile keys rather than treating the account key as completion.
+    func testUnlockRetryStillResolvesWhenAnotherFlowUnlockedMeanwhile() async throws {
+        let api = FakeAPI()
+        let provider = FakeDeviceKeyProvider()
+        _ = try await AccountKeyManager(api: api, deviceKeyProvider: provider).bootstrap()
+        let (c, mgr) = makeController(api: api, provider: provider,
+                                      locals: [("Default", "Default")],
+                                      unlockRetryDelay: { _ in .milliseconds(50) })
+        api.deviceEnvelopeError = KeyAPIError.transport(URLError(.notConnectedToInternet))
+        await c.silentUnlockAndResolve()  // arms a retry 50 ms out
+        XCTAssertNil(mgr.currentARK)
+
+        api.deviceEnvelopeError = nil
+        _ = try await mgr.unlockAtStartup()  // another unlock, before the retry fires
+        XCTAssertNotNil(mgr.currentARK)
+        XCTAssertTrue(c.resolved.isEmpty)
+        await waitUntil { !c.resolved.isEmpty }
+        XCTAssertNotNil(c.profileSyncInfo(forProfileId: "Default"))
+    }
+
+    /// The visible failure card uses loadAll(), not Sync Now (which is hidden while
+    /// locked). It must restore Chromium's keys before the 60-second retry fires, and,
+    /// like every pane open or reload (owner ruling 2026-10-12), only observe: the
+    /// status read after the Retry sees the resolved keys but requests no sync round.
+    func testPaneRetryResolvesBeforeThePendingUnlockRetry() async throws {
+        let api = FakeAPI()
+        let provider = FakeDeviceKeyProvider()
+        _ = try await AccountKeyManager(api: api, deviceKeyProvider: provider).bootstrap()
+        let (c, mgr) = makeController(api: api, provider: provider,
+                                      locals: [("Default", "Default")],
+                                      unlockRetryDelay: { _ in .seconds(60) })
+        defer { c.retire() }
+        api.deviceEnvelopeError = KeyAPIError.transport(URLError(.notConnectedToInternet))
+        await c.silentUnlockAndResolve()
+        let vm = DevicesSettingViewModel(manager: mgr, approvals: c.approvals)
+        vm.resolveMappingsAfterUnlock = { await c.resolveMappings() }
+        vm.pairingComplete = { true }
+        await vm.loadAll()
+        XCTAssertEqual(vm.unlockState, .failed(DevicesSettingViewModel.requestFailed))
+        XCTAssertFalse(vm.syncNowButton.isVisible)
+        XCTAssertTrue(c.resolved.isEmpty)
+        let calls = api.getDeviceEnvelopeCalls
+        var statusReads: [(requestSync: Bool, resolved: Bool)] = []
+        vm.syncReport = { requestSync in
+            statusReads.append((requestSync, c.profileSyncInfo(forProfileId: "Default") != nil))
+            return nil
+        }
+
+        api.deviceEnvelopeError = nil
+        await vm.loadAll() // The failure card's Retry action.
+        XCTAssertEqual(vm.unlockState, .unlocked)
+        XCTAssertEqual(api.getDeviceEnvelopeCalls, calls + 1, "one unlock, no second envelope lookup")
+        XCTAssertNotNil(c.profileSyncInfo(forProfileId: "Default"))
+        XCTAssertFalse(statusReads.isEmpty, "the Retry reads the sync status")
+        XCTAssertFalse(statusReads.contains { $0.requestSync }, "a pane Retry never requests a sync round")
+        XCTAssertTrue(statusReads.allSatisfy { $0.resolved }, "the status read sees the resolved keys")
+        await vm.stopPolling()
+    }
+
+    /// The retry schedule starts at 5 s and caps at 60 s.
+    func testDefaultUnlockRetryDelayDoublesFromFiveSecondsToAMinute() {
+        XCTAssertEqual((0...6).map { SyncKeyController.defaultUnlockRetryDelay(attempt: $0) },
+                       [5, 10, 20, 40, 60, 60, 60].map { Duration.seconds($0) })
+    }
+
+    /// Sync Now while locked runs an unlock at once and replaces the pending retry;
+    /// with the key held it does nothing.
+    func testKickSilentUnlockIfLockedRunsAPassOnlyWithoutTheKey() async throws {
+        let api = FakeAPI()
+        let provider = FakeDeviceKeyProvider()
+        _ = try await AccountKeyManager(api: api, deviceKeyProvider: provider).bootstrap()
+        let (c, mgr) = makeController(api: api, provider: provider,
+                                      locals: [("Default", "Default")],
+                                      unlockRetryDelay: { _ in .seconds(60) })
+        api.deviceEnvelopeError = KeyAPIError.transport(URLError(.notConnectedToInternet))
+        await c.silentUnlockAndResolve()
+        XCTAssertNil(mgr.currentARK)
+        let calls = api.getDeviceEnvelopeCalls
+
+        api.deviceEnvelopeError = nil
+        c.kickSilentUnlockIfLocked()
+        await waitUntil { !c.resolved.isEmpty }
+        XCTAssertEqual(api.getDeviceEnvelopeCalls, calls + 1)
+        XCTAssertNotNil(mgr.currentARK)
+
+        c.kickSilentUnlockIfLocked()
+        try await Task.sleep(for: .milliseconds(30))
+        XCTAssertEqual(api.getDeviceEnvelopeCalls, calls + 1)
+    }
+
+    /// BH-52: with the ARK held nothing would retry a cleared cache (the unlock
+    /// notification fires only on nil -> unlocked), so a transient unlock failure
+    /// keeps the keys and still runs a mapping pass.
+    func testTransientUnlockFailureWithTheAccountKeyHeldKeepsResolvedAndStillResolves() async throws {
+        let api = FakeAPI()
+        let provider = FakeDeviceKeyProvider()
+        _ = try await AccountKeyManager(api: api, deviceKeyProvider: provider).bootstrap()
+        var pings = 0
+        var locals = [(profileId: "Default", displayName: "Default")]
+        let (c, mgr) = makeController(api: api, provider: provider,
+                                      localsProvider: { locals },
+                                      pinged: { pings += 1 })
+        await c.silentUnlockAndResolve()
+        let before = try XCTUnwrap(c.profileSyncInfo(forProfileId: "Default"))
+        XCTAssertNotNil(mgr.currentARK)
+        XCTAssertEqual(pings, 1)
+        var outcomes: [SyncKeyController.MappingsOutcome] = []
+        let token = NotificationCenter.default.addObserver(
+            forName: .phiProfileMappingsDidResolve, object: c, queue: nil) { note in
+                if let outcome = (note.userInfo?[SyncKeyController.mappingsOutcomeKey] as? String)
+                    .flatMap(SyncKeyController.MappingsOutcome.init(rawValue:)) {
+                    outcomes.append(outcome)
+                }
+            }
+        defer { NotificationCenter.default.removeObserver(token) }
+
+        locals.append((profileId: "Profile 1", displayName: "Work"))
+        api.deviceEnvelopeError = KeyAPIError.transport(URLError(.timedOut))
+        await c.silentUnlockAndResolve()
+
+        XCTAssertFalse(outcomes.contains(.cleared), "a transient failure with the ARK held must not clear")
+        let after = try XCTUnwrap(c.profileSyncInfo(forProfileId: "Default"))
+        XCTAssertEqual(after.uuid, before.uuid)
+        XCTAssertEqual(after.passphrase, before.passphrase)
+        XCTAssertNotNil(c.profileSyncInfo(forProfileId: "Profile 1"), "the mapping pass still ran")
+        XCTAssertEqual(c.resolved.count, 2)
+        XCTAssertEqual(pings, 2, "one ping from the pass, none from a clear")
+    }
+
+    /// A 401 on a live controller with the ARK held is a token blip, not a
+    /// sign-out (sign-out retires the controller): the keys stay.
+    func testNotSignedInWithTheAccountKeyHeldKeepsResolved() async throws {
         let api = FakeAPI()
         let provider = FakeDeviceKeyProvider()
         _ = try await AccountKeyManager(api: api, deviceKeyProvider: provider).bootstrap()
@@ -274,16 +508,51 @@ final class SyncKeyControllerTests: XCTestCase {
                                     locals: [("Default", "Default")],
                                     pinged: { pings += 1 })
         await c.silentUnlockAndResolve()
-        XCTAssertFalse(c.resolved.isEmpty)
-        XCTAssertEqual(pings, 1)
+        let before = try XCTUnwrap(c.profileSyncInfo(forProfileId: "Default"))
 
         api.deviceEnvelopeError = KeyAPIError.http(401, "")
         await c.silentUnlockAndResolve()
 
-        XCTAssertTrue(c.resolved.isEmpty)
-        XCTAssertNil(c.profileSyncInfo(forProfileId: "Default"))
-        XCTAssertFalse(c.needsPairing)
-        XCTAssertEqual(pings, 2, "dropping a populated cache must ping so the fork re-pulls")
+        XCTAssertEqual(c.profileSyncInfo(forProfileId: "Default")?.uuid, before.uuid)
+        XCTAssertEqual(c.resolved.count, 1)
+        XCTAssertEqual(pings, 2, "one ping from the pass, none from a clear")
+    }
+
+    /// BH-52: the startup unlock and the Profile-list follow-up overlap. Unlock
+    /// passes are single-flight: callers that arrive while one is parked in the
+    /// device-envelope lookup coalesce into one follow-up pass, and every caller
+    /// returns only after it.
+    func testOverlappingSilentUnlocksRunOnePassAndOneFollowUp() async throws {
+        let api = FakeAPI()
+        let provider = FakeDeviceKeyProvider()
+        _ = try await AccountKeyManager(api: api, deviceKeyProvider: provider).bootstrap()
+        let (c, _) = makeController(api: api, provider: provider, locals: [("Default", "Default")])
+        let callsBefore = api.getDeviceEnvelopeCalls
+        var enteredContinuation: AsyncStream<Void>.Continuation?
+        let entered = AsyncStream<Void> { enteredContinuation = $0 }
+        var releaseContinuation: AsyncStream<Void>.Continuation?
+        let release = AsyncStream<Void> { releaseContinuation = $0 }
+        let enteredSignal = try XCTUnwrap(enteredContinuation)
+        let releaseSignal = try XCTUnwrap(releaseContinuation)
+        api.beforeGetDeviceEnvelopeOnce = {
+            enteredSignal.yield()
+            for await _ in release { break }
+        }
+
+        async let first: Void = c.silentUnlockAndResolve()
+        for await _ in entered { break }          // the first pass is parked inside the lookup
+        async let second: Void = c.silentUnlockAndResolve()
+        async let third: Void = c.silentUnlockAndResolve()
+        for _ in 0..<10 { await Task.yield() }    // let both callers arrive while it is parked
+        releaseSignal.yield()
+        _ = await (first, second, third)
+
+        XCTAssertLessThanOrEqual(api.getDeviceEnvelopeCalls - callsBefore, 2,
+                                 "one pass plus one coalesced follow-up")
+        XCTAssertEqual(api.maxGetDeviceEnvelopeInFlight, 1, "unlock passes never interleave")
+        XCTAssertEqual(c.resolved.count, 1)
+        XCTAssertNotNil(c.profileSyncInfo(forProfileId: "Default"))
+        XCTAssertEqual(api.profileEnvelopes.count, 1)
     }
 
     /// T17 run 4 (2026-09-11): the login unlock and the `$profiles` sink each
@@ -335,5 +604,132 @@ final class SyncKeyControllerTests: XCTestCase {
 
         XCTAssertEqual(c.resolved.count, 2, "the follow-up pass saw the profile added mid-pass")
         XCTAssertEqual(api.profileEnvelopes.count, 2)
+    }
+
+    // MARK: - R4: the registration wait follows the account's Profile entities
+
+    private func controllerWithRemote(view: @escaping @MainActor () -> AccountProfileEntityView?)
+    async throws -> (SyncKeyController, FakeAPI, String) {
+        let api = FakeAPI()
+        let provider = FakeDeviceKeyProvider()
+        let mgr = AccountKeyManager(api: api, deviceKeyProvider: provider)
+        _ = try await mgr.bootstrap()
+        let store = MemoryMappingStore()
+        let pkm = ProfileKeyManager(api: api, keyManager: mgr, mappingStore: store)
+        let other = try await pkm.registerLocalProfile(profileId: "temp", displayName: "Work", isDefault: false)
+        store.removeMapping(forProfileId: "temp")
+        let controller = SyncKeyController(
+            manager: mgr, approvals: DeviceApprovalService(api: api, keyManager: mgr, deviceKeyProvider: provider),
+            profileKeys: pkm, localProfilesProvider: { [(profileId: "Default", displayName: "Default")] },
+            notifyChromium: {}, isPairingComplete: { true }, profileEntityView: view)
+        return (controller, api, other.uuid)
+    }
+
+    /// F2: a deleted account Profile's registry row stays forever. It must neither hold this
+    /// Mac's registration nor keep `needsPairing` true.
+    func testADeletedAccountProfileHoldsNeitherRegistrationNorPairing() async throws {
+        let (c, api, _) = try await controllerWithRemote(view: {
+            AccountProfileEntityView(liveNames: [:], deletedUuids: [])
+        })
+        await c.silentUnlockAndResolve()
+        XCTAssertNotNil(c.profileSyncInfo(forProfileId: "Default"), "registered as a new account Profile")
+        XCTAssertEqual(api.profileEnvelopes.count, 2)
+        XCTAssertFalse(c.needsPairing)
+    }
+
+    func testALiveAccountProfileStillHoldsRegistration() async throws {
+        var liveUuid = ""
+        let (c, api, uuid) = try await controllerWithRemote(view: {
+            AccountProfileEntityView(liveNames: [liveUuid: "Work"], deletedUuids: [])
+        })
+        liveUuid = uuid
+        await c.silentUnlockAndResolve()
+        XCTAssertNil(c.profileSyncInfo(forProfileId: "Default"), "auto-create may still claim it")
+        XCTAssertEqual(api.profileEnvelopes.count, 1)
+        XCTAssertTrue(c.needsPairing)
+    }
+
+    /// Before the first full replay auto-create claims nothing, so nothing may wait on it: the
+    /// pause that wait causes would keep the replay from running.
+    func testBeforeTheFirstReplayNothingIsClaimable() async throws {
+        let (c, api, _) = try await controllerWithRemote(view: { nil })
+        await c.silentUnlockAndResolve()
+        XCTAssertNotNil(c.profileSyncInfo(forProfileId: "Default"))
+        XCTAssertEqual(api.profileEnvelopes.count, 2)
+    }
+
+    // MARK: - Per-Profile key withdrawal (Profile deletion)
+
+    func testAWithdrawnProfileKeepsNoKeyAndIsNeverUnmapped() async throws {
+        let api = FakeAPI()
+        let provider = FakeDeviceKeyProvider()
+        _ = try await AccountKeyManager(api: api, deviceKeyProvider: provider).bootstrap()
+        var pings = 0
+        let (c, _) = makeController(api: api, provider: provider,
+                                    locals: [("Default", "Default"), ("Profile 1", "Work")],
+                                    pinged: { pings += 1 })
+        await c.silentUnlockAndResolve()
+        XCTAssertNotNil(c.profileSyncInfo(forProfileId: "Profile 1"))
+        let pingsBefore = pings
+
+        c.withdrawProfileKey(profileId: "Profile 1")
+        XCTAssertNil(c.profileSyncInfo(forProfileId: "Profile 1"))
+        XCTAssertGreaterThan(pings, pingsBefore, "Chromium re-pulls and stops that Profile's sync")
+
+        await c.resolveMappings()
+        XCTAssertNil(c.profileSyncInfo(forProfileId: "Profile 1"), "a pass does not hand the key back")
+        XCTAssertFalse(c.knownUnmappedProfileIds.contains("Profile 1"))
+        XCTAssertFalse(c.needsPairing)
+
+        c.restoreProfileKey(profileId: "Profile 1")
+        await c.resolveMappings()
+        XCTAssertNotNil(c.profileSyncInfo(forProfileId: "Profile 1"), "a failed deletion gives it back")
+    }
+
+    /// A pass that resolved a Profile before its deletion started must not put the key back when
+    /// it resumes after the deletion finished (`profileIdsBeingDeleted` is empty again by then).
+    func testAPassSuspendedAcrossAWholeDeletionDoesNotRestoreTheKey() async throws {
+        let api = FakeAPI()
+        let provider = FakeDeviceKeyProvider()
+        _ = try await AccountKeyManager(api: api, deviceKeyProvider: provider).bootstrap()
+        var locals = [(profileId: "Default", displayName: "Default"), (profileId: "Profile 1", displayName: "Work")]
+        let (c, _) = makeController(api: api, provider: provider, localsProvider: { locals })
+        await c.silentUnlockAndResolve()
+        XCTAssertNotNil(c.profileSyncInfo(forProfileId: "Profile 1"))
+
+        // The pass has resolved "Profile 1" and is suspended on the account listing.
+        api.beforeListProfilesOnce = {
+            await MainActor.run {
+                c.withdrawProfileKey(profileId: "Profile 1")
+                locals.removeAll { $0.profileId == "Profile 1" }
+                c.finishProfileKeyWithdrawal(profileId: "Profile 1")
+            }
+        }
+        await c.resolveMappings()
+        XCTAssertNil(c.profileSyncInfo(forProfileId: "Profile 1"), "the resumed pass did not merge it back")
+        XCTAssertNotNil(c.profileSyncInfo(forProfileId: "Default"))
+
+        await c.resolveMappings()
+        XCTAssertNil(c.profileSyncInfo(forProfileId: "Profile 1"), "nor does a later pass")
+    }
+
+    /// A deletion that fails while a pass is suspended gives the key back as before.
+    func testAWithdrawalRestoredDuringAPassResolvesAgain() async throws {
+        let api = FakeAPI()
+        let provider = FakeDeviceKeyProvider()
+        _ = try await AccountKeyManager(api: api, deviceKeyProvider: provider).bootstrap()
+        let (c, _) = makeController(api: api, provider: provider,
+                                    locals: [("Default", "Default"), ("Profile 1", "Work")])
+        await c.silentUnlockAndResolve()
+
+        api.beforeListProfilesOnce = {
+            await MainActor.run {
+                c.withdrawProfileKey(profileId: "Profile 1")
+                c.restoreProfileKey(profileId: "Profile 1")
+            }
+        }
+        await c.resolveMappings()
+        await c.resolveMappings()
+        XCTAssertNotNil(c.profileSyncInfo(forProfileId: "Profile 1"))
     }
 }

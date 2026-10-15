@@ -26,6 +26,15 @@ struct PhiSyncInvalidation: Codable, Equatable, Sendable {
             && dataTypes.allSatisfy { $0 > 0 && $0 <= Int(Int32.max) }
             && sourceClientID.utf8.count <= 256
     }
+
+    /// The first Profile namespace among `hints` that names no persisted mapping on this Mac
+    /// and no account Profile already known not to open here. The service sends no hint of
+    /// its own for a Profile registration; the first Chromium commit of a newly registered
+    /// account Profile is what reaches the other devices, so this is the signal to look for it.
+    static func unmappedProfileUUID(in hints: [PhiSyncInvalidation], mapped: Set<String>,
+                                    ignoring undecryptable: Set<String>) -> String? {
+        hints.lazy.compactMap(\.profileUUID).first { !mapped.contains($0) && !undecryptable.contains($0) }
+    }
 }
 
 enum PhiSyncInvalidationError: Error {
@@ -111,6 +120,8 @@ struct PhiSyncInvalidationParser {
 
 enum PhiSyncInvalidationDemand: Equatable, Sendable {
     case catchUp
+    /// A catch-up the user asked for (Sync now); Chromium also skips its backoff.
+    case requestedCatchUp
     case changes([PhiSyncInvalidation])
 }
 
@@ -147,6 +158,7 @@ final class PhiSyncInvalidationCoordinator {
     private var attemptStarted: TimeInterval = 0
     private var nextPoll: TimeInterval = 0
     private var pendingCatchUp = false
+    private var pendingCatchUpRequested = false
     private var pendingHints: [String: PhiSyncInvalidation] = [:]
     private(set) var isRunning = false
     private(set) var isHealthy = false
@@ -185,6 +197,7 @@ final class PhiSyncInvalidationCoordinator {
         coalescingTask?.cancel(); coalescingTask = nil
         pullTask?.cancel(); pullTask = nil
         pendingCatchUp = false
+        pendingCatchUpRequested = false
         pendingHints.removeAll()
         isHealthy = false
     }
@@ -222,9 +235,11 @@ final class PhiSyncInvalidationCoordinator {
         reconnect()
     }
 
-    func requestCatchUp() {
+    /// `requested` (Sync now) survives coalescing with automatic catch-ups.
+    func requestCatchUp(requested: Bool = false) {
         guard isRunning else { return }
         pendingCatchUp = true
+        if requested { pendingCatchUpRequested = true }
         pendingHints.removeAll()
         schedulePull()
     }
@@ -313,9 +328,11 @@ final class PhiSyncInvalidationCoordinator {
 
     private func flush() {
         guard isRunning, pullTask == nil, pendingCatchUp || !pendingHints.isEmpty else { return }
-        let demand: PhiSyncInvalidationDemand = pendingCatchUp ? .catchUp
+        let demand: PhiSyncInvalidationDemand = pendingCatchUp
+            ? (pendingCatchUpRequested ? .requestedCatchUp : .catchUp)
             : .changes(pendingHints.values.sorted { $0.namespace < $1.namespace })
         pendingCatchUp = false
+        pendingCatchUpRequested = false
         pendingHints.removeAll()
         let epoch = generation
         let pull = self.pull
