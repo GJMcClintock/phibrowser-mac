@@ -59,6 +59,23 @@ final class ContentSurfaceHostingTests: XCTestCase {
         XCTAssertLessThan(sent.clip.width, sent.frame.width, "precondition: the page overruns its host")
     }
 
+    /// A web view attached again during a hold starts square and on top
+    /// while nothing is sent, so the first pass after the hold tells every
+    /// web view again, changed or not.
+    func testTheFirstPassAfterAHoldTellsEveryWebViewAgain() throws {
+        let fixture = try makeFixture()
+        let told = try XCTUnwrap(fixture.lastSent())
+        fixture.hosting.isHeld = true
+        RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+        let sendCount = fixture.sends.count
+
+        fixture.hosting.isHeld = false
+        RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+
+        XCTAssertEqual(fixture.sends.count, sendCount + 1)
+        XCTAssertEqual(fixture.lastSent(), told)
+    }
+
     // MARK: - Helpers
 
     private final class Fixture {
@@ -67,14 +84,16 @@ final class ContentSurfaceHostingTests: XCTestCase {
         let page: PageColorTestWebContentWrapper
         /// Held here: a wrapper's `nativeView` is weak.
         let webView: NSView
+        let hosting: ContentSurfaceHosting
         var sends: [(address: NSObject, hosting: ContentSurfaceHosting.Hosting)] = []
 
         init(container: WebContentContainerViewController, window: NSWindow,
-             page: PageColorTestWebContentWrapper, webView: NSView) {
+             page: PageColorTestWebContentWrapper, webView: NSView, hosting: ContentSurfaceHosting) {
             self.container = container
             self.window = window
             self.page = page
             self.webView = webView
+            self.hosting = hosting
         }
 
         func lastSent() -> ContentSurfaceHosting.Hosting? {
@@ -124,8 +143,9 @@ final class ContentSurfaceHostingTests: XCTestCase {
         _ = try XCTUnwrap(webView.window, "the page was never mounted")
 
         state.adoptContentSurface(NSView())
-        let fixture = Fixture(container: container, window: window, page: page, webView: webView)
         let hosting = try XCTUnwrap(container.contentSurfaceHostingForTesting)
+        let fixture = Fixture(container: container, window: window, page: page, webView: webView,
+                              hosting: hosting)
         hosting.sendForTesting = { [unowned fixture] in fixture.sends.append(($0, $1)) }
         RunLoop.main.run(until: Date().addingTimeInterval(0.1))
         return fixture

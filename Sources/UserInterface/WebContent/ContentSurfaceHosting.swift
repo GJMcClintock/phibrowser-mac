@@ -63,8 +63,9 @@ final class ContentSurfaceHosting {
     /// That slide is a Core Animation one, which sets every frame to its end
     /// value at once: a page whose frame sync is paused would be clipped to
     /// its narrowed host before the panel covers the rest. No pass sends
-    /// anything meanwhile; the first one after the hold tells the settled
-    /// layout.
+    /// anything meanwhile; the first one after the hold tells every web view
+    /// the settled layout, as one attached again meanwhile starts square and
+    /// on top.
     var isHeld = false
     /// Replaces the bridge sends in tests.
     var sendForTesting: ((_ address: NSObject, _ hosting: Hosting) -> Void)?
@@ -110,12 +111,11 @@ final class ContentSurfaceHosting {
         guard let container, let browserState,
               let bridge = ChromiumLauncher.sharedInstance().bridge,
               let window = container.window,
-              !container.isHiddenOrHasHiddenAncestor else {
+              !container.isHiddenOrHasHiddenAncestor, !isHeld else {
             // A web view attached again meanwhile has lost what it was told.
             sent.removeAll()
             return
         }
-        guard !isHeld else { return }
         if surfaceView?.superview !== sentUnder {
             sent.removeAll()
             sentUnder = surfaceView?.superview
