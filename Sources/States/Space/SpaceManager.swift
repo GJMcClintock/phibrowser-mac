@@ -9553,6 +9553,18 @@ final class SpaceWindowSlot: ObservableObject {
         manager?.applyPersistedTheme(to: controller, spaceId: spaceId)
     }
 
+    /// The shell is the window on screen, so it carries the title of
+    /// `controller`, the session it presents, which the Dock menu, the Window
+    /// menu and Mission Control list: its Browser's (the active tab's), or
+    /// the Space name while no tab gives one. A dormant session has no
+    /// Browser yet, and in placeholder mode Chromium leaves the closed last
+    /// tab's title on the window. `inPlaceholderMode` is passed in because
+    /// `BrowserState` publishes that flag before it changes.
+    func retitleShell(presenting controller: SpaceSessionController, inPlaceholderMode: Bool) {
+        shell?.window.title = (inPlaceholderMode ? nil : controller.hostedChromiumWindow?.title)
+            ?? manager?.spaces.first(where: { $0.spaceId == controller.spaceId })?.name ?? "Phi"
+    }
+
     /// Puts `controller`'s content in the shell and makes it the slot's
     /// visible session. The previous session is concealed first so its
     /// window-level surfaces are gone before the entering one takes them.
@@ -9606,11 +9618,8 @@ final class SpaceWindowSlot: ObservableObject {
         }
         visibleController = controller
         restoredSiblingsAwaitingPresent.remove(controller.spaceId)
-        // The shell is the window on screen, so it carries the presented
-        // Browser's title (its active tab's), which the Dock menu and the
-        // Window menu list. A dormant session has no Browser yet.
-        shell.window.title = controller.hostedChromiumWindow?.title
-            ?? manager?.spaces.first(where: { $0.spaceId == controller.spaceId })?.name ?? "Phi"
+        retitleShell(presenting: controller,
+                     inPlaceholderMode: controller.browserState.isInPlaceholderMode)
         Self.setRestoredSiblingConcealedIfSupported(false, windowId: Int64(controller.windowId))
         if !awaitsInitialChromiumShow {
             if shell.window.isMiniaturized {

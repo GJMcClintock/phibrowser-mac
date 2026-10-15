@@ -422,19 +422,31 @@ class SpaceSessionController: NSWindowController {
     /// Chromium titles the hidden window after its active tab, but only the
     /// shell is on screen, and the shell is what the Dock menu, the Window
     /// menu and Mission Control list. The slot sets the title when it
-    /// presents a session; this keeps it current through tab switches and
-    /// navigations, and catches up a dormant session presented before its
-    /// Browser arrived.
+    /// presents a session; this keeps it current through tab switches,
+    /// navigations and placeholder mode, and catches up a dormant session
+    /// presented before its Browser arrived. Leaving placeholder mode reads
+    /// the window's title again: Chromium does not set it again when the new
+    /// tab's title matches the one it left there.
     private func observeChromiumWindowTitle() {
         guard let chromiumWindow = hostedChromiumWindow else { return }
         chromiumTitleObservation = chromiumWindow.observe(\.title, options: [.initial]) {
             [weak self] _, _ in
             MainActor.assumeIsolated {
-                guard let self, self.isPresented, let window = self.window,
-                      let title = self.hostedChromiumWindow?.title else { return }
-                window.title = title
+                guard let self else { return }
+                self.retitleShell(inPlaceholderMode: self.browserState.isInPlaceholderMode)
             }
         }
+        browserState.$isInPlaceholderMode
+            .dropFirst()
+            .sink { [weak self] inPlaceholderMode in
+                self?.retitleShell(inPlaceholderMode: inPlaceholderMode)
+            }
+            .store(in: &cancellables)
+    }
+
+    private func retitleShell(inPlaceholderMode: Bool) {
+        guard isPresented else { return }
+        slot?.retitleShell(presenting: self, inPlaceholderMode: inPlaceholderMode)
     }
 
     /// Builds and hosts the dormant session's tree hidden, so a first switch

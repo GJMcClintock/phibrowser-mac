@@ -11,7 +11,8 @@ import XCTest
 /// presents, so the Dock menu, the Window menu and Mission Control read its
 /// title. It carries the presented instance's: the Space name until the
 /// instance's Browser exists, then the title Chromium gives the hidden
-/// window, which follows the active tab.
+/// window, which follows the active tab, and the Space name again while the
+/// Browser shows the placeholder page.
 @MainActor
 final class ShellWindowTitleTests: XCTestCase {
     private var store: LocalStore!
@@ -93,6 +94,35 @@ final class ShellWindowTitleTests: XCTestCase {
         XCTAssertEqual(shell.title, "Second page, next tab", "the switch hands the shell to the entering instance")
     }
 
+    /// With its last tab closed the Browser shows the placeholder page, and
+    /// Chromium leaves that tab's title on the window.
+    func testThePlaceholderPageTitlesTheShellWithTheSpaceName() throws {
+        let (slot, sessions) = try makeSlot()
+        let shell = try XCTUnwrap(slot.shell?.window)
+        attachChromiumWindow(titled: "New Tab", to: sessions[0])
+        XCTAssertEqual(shell.title, "New Tab", "precondition: the Browser titles the shell")
+
+        sessions[0].browserState.enterPlaceholderMode(
+            wrapper: PageColorTestWebContentWrapper(urlString: "chrome://dino/"))
+
+        XCTAssertEqual(shell.title, "First Space")
+    }
+
+    func testATabOpenedOnThePlaceholderPageTitlesTheShell() throws {
+        let (slot, sessions) = try makeSlot()
+        let shell = try XCTUnwrap(slot.shell?.window)
+        let chromiumWindow = attachChromiumWindow(titled: "New Tab", to: sessions[0])
+        sessions[0].browserState.enterPlaceholderMode(
+            wrapper: PageColorTestWebContentWrapper(urlString: "chrome://dino/"))
+
+        sessions[0].browserState.exitPlaceholderMode()
+
+        XCTAssertEqual(shell.title, "New Tab",
+                       "a new tab titled as the closed one leaves Chromium nothing to retitle")
+        chromiumWindow.title = "Example"
+        XCTAssertEqual(shell.title, "Example")
+    }
+
     // MARK: - Helpers
 
     private static let spaceIds = ["first", "second"]
@@ -119,6 +149,7 @@ final class ShellWindowTitleTests: XCTestCase {
 
     /// Stands in for the hidden window of the Browser Chromium spawns for
     /// `session`, titled as Chromium titles it.
+    @discardableResult
     private func attachChromiumWindow(titled title: String, to session: SpaceSessionController) -> NSWindow {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 700),
                               styleMask: [.titled, .closable], backing: .buffered, defer: true)
