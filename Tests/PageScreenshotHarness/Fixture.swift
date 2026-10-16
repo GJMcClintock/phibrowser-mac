@@ -7,7 +7,7 @@ final class ScreenshotFixtureApplication: NSApplication {
     var fixtureSource: CGImage?
     @objc func newScreenshot(_ sender: Any?) {
         guard let fixtureSource else { return }
-        ScreenshotEditorWindowController(canvas: fixtureSource, fileName: "Screenshot Fixture.jpg").showWindow(nil)
+        ScreenshotEditorWindowController(canvas: fixtureSource, fileName: "Screenshot Fixture.png").showWindow(nil)
     }
     override func terminate(_ sender: Any?) {
         if reviewScreenshotEditorsForTermination(completion: { [weak self] approved in
@@ -46,14 +46,14 @@ struct ScreenshotFixture {
         var title = ScreenshotAnnotation(kind: .text, frame: CGRect(x: 45, y: 22, width: 910, height: 70), text: "Phi Screenshot Editor")
         title.style.fontSize = 36; title.style.color = ScreenshotColor(red: 1, green: 1, blue: 1)
         ScreenshotSceneRenderer.draw(title, in: context)
-        var body = ScreenshotAnnotation(kind: .text, frame: CGRect(x: 65, y: 220, width: 500, height: 280), text: "Draw once, then select and edit.\n\nV Select   C Crop   A Arrow   P Freehand\nT Text   R Rectangle   O Ellipse   M Blur\n\nShift adds; Command marquee removes.\nOption resizes from the center.\nCrop changes JPG and PDF dimensions.")
+        var body = ScreenshotAnnotation(kind: .text, frame: CGRect(x: 65, y: 220, width: 500, height: 280), text: "Draw once, then select and edit.\n\nV Select   C Crop   A Arrow   P Freehand\nT Text   R Rectangle   O Ellipse   M Blur\n\nShift adds; Command marquee removes.\nOption resizes from the center.\nCrop changes PNG/JPG/PDF dimensions.")
         body.style.fontSize = 23; body.style.color = ScreenshotColor(red: 0.1, green: 0.15, blue: 0.2)
         ScreenshotSceneRenderer.draw(body, in: context)
         app.fixtureSource = context.makeImage()!
         if CommandLine.arguments.count == 3, CommandLine.arguments[1] == "--render" {
             let directory = URL(fileURLWithPath: CommandLine.arguments[2], isDirectory: true)
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-            let editor = ScreenshotEditorWindowController(canvas: app.fixtureSource!, fileName: "Fixture.jpg")
+            let editor = ScreenshotEditorWindowController(canvas: app.fixtureSource!, fileName: "Fixture.png")
             let model = editor.model
             model.selectTool(.arrow); model.beginInteraction(at: CGPoint(x: 620, y: 660), tolerance: 5)
             model.continueInteraction(at: CGPoint(x: 795, y: 300)); model.endInteraction()
@@ -65,6 +65,7 @@ struct ScreenshotFixture {
             model.continueInteraction(at: CGPoint(x: 410, y: 255)); model.endInteraction()
             model.select(nil); model.selectTool(.text)
             model.commitText("Editable objects", frame: CGRect(x: 80, y: 610, width: 370, height: 80))
+            try ScreenshotImageExport.write(model.snapshot(), format: .png, to: directory.appendingPathComponent("scene.png"))
             try ScreenshotImageExport.write(model.snapshot(), format: .jpg, to: directory.appendingPathComponent("scene.jpg"))
             try ScreenshotImageExport.write(model.snapshot(), format: .pdf, to: directory.appendingPathComponent("scene.pdf"))
             for (name, size) in [("editor-layout.png", CGSize(width: 1100, height: 780)), ("editor-minimum-layout.png", CGSize(width: 850, height: 400))] {
@@ -77,7 +78,7 @@ struct ScreenshotFixture {
                 }
             }
             editor.window?.close()
-            print("Rendered local fixture, scene JPG, and single-page PDF to \(directory.path). This is offscreen rendering, not GUI acceptance.")
+            print("Rendered local fixture, scene PNG/JPG, and single-page PDF to \(directory.path). This is offscreen rendering, not GUI acceptance.")
             return
         }
         app.newScreenshot(nil); app.windows.first?.title = "Phi Screenshot Editor — Synthetic Fixture"; app.activate(ignoringOtherApps: true); app.run()

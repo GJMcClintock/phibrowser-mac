@@ -13,7 +13,7 @@ final class PageScreenshotServiceTests: XCTestCase {
         return board
     }
 
-    private func jpeg(size: Int = 2, noise: Bool = false) throws -> Data {
+    private func png(size: Int = 2, noise: Bool = false) throws -> Data {
         let bitmap = try XCTUnwrap(NSBitmapImageRep(
             bitmapDataPlanes: nil, pixelsWide: size, pixelsHigh: size,
             bitsPerSample: 8, samplesPerPixel: 3, hasAlpha: false,
@@ -28,16 +28,16 @@ final class PageScreenshotServiceTests: XCTestCase {
                 bitmap.bitmapData![index] = UInt8(truncatingIfNeeded: seed)
             }
         }
-        return try XCTUnwrap(bitmap.representation(using: .jpeg, properties: [.compressionFactor: 0.85]))
+        return try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
     }
 
     func testSnapshotsTargetAndRejectsRepeatedInvocationUntilCompletion() async throws {
-        let board = pasteboard(), image = try jpeg()
+        let board = pasteboard(), image = try png()
         let started = expectation(description: "Capture starts")
         let completed = expectation(description: "Capture completes")
         var resume: CheckedContinuation<String?, Error>?
         var capturedTarget: String?
-        let service = PageScreenshotService(pasteboard: board, captureJPEG: { targetId, timeout in
+        let service = PageScreenshotService(pasteboard: board, capturePNG: { targetId, timeout in
             capturedTarget = targetId
             XCTAssertEqual(timeout, 60)
             return try await withCheckedThrowingContinuation {
@@ -59,33 +59,33 @@ final class PageScreenshotServiceTests: XCTestCase {
         try XCTUnwrap(resume).resume(returning: image.base64EncodedString())
         await fulfillment(of: [completed], timeout: 2)
         XCTAssertFalse(service.isCapturing)
-        XCTAssertEqual(board.data(forType: NSPasteboard.PasteboardType(UTType.jpeg.identifier)), image)
+        XCTAssertEqual(board.data(forType: NSPasteboard.PasteboardType(UTType.png.identifier)), image)
     }
 
-    func testSuccessCopiesBinaryJPEGAndCompletesOnce() async throws {
-        let board = pasteboard(), image = try jpeg()
-        let completed = expectation(description: "JPEG copied")
+    func testSuccessCopiesBinaryPNGAndCompletesOnce() async throws {
+        let board = pasteboard(), image = try png()
+        let completed = expectation(description: "PNG copied")
         var outcomes: [PageScreenshotService.Outcome] = []
-        let service = PageScreenshotService(pasteboard: board, captureJPEG: { _, _ in image.base64EncodedString() })
+        let service = PageScreenshotService(pasteboard: board, capturePNG: { _, _ in image.base64EncodedString() })
         service.start(targetId: "page-42", windowId: 7) { outcome in
             outcomes.append(outcome)
             completed.fulfill()
         }
         await fulfillment(of: [completed], timeout: 2)
-        XCTAssertEqual(board.data(forType: NSPasteboard.PasteboardType(UTType.jpeg.identifier)), image)
+        XCTAssertEqual(board.data(forType: NSPasteboard.PasteboardType(UTType.png.identifier)), image)
         XCTAssertNil(board.string(forType: .string))
         XCTAssertNotNil(NSImage(pasteboard: board))
-        XCTAssertNil(board.data(forType: .png))
+        XCTAssertNil(board.data(forType: NSPasteboard.PasteboardType(UTType.jpeg.identifier)))
         XCTAssertEqual(outcomes, [.copied(image)])
         XCTAssertFalse(service.isCapturing)
     }
 
     func testCaptureFailurePreservesClipboardAndAllowsRetry() async throws {
-        let board = pasteboard(), image = try jpeg()
+        let board = pasteboard(), image = try png()
         let failed = expectation(description: "Capture fails")
         let retried = expectation(description: "Retry succeeds")
         var shouldFail = true
-        let service = PageScreenshotService(pasteboard: board, captureJPEG: { _, _ in
+        let service = PageScreenshotService(pasteboard: board, capturePNG: { _, _ in
             if shouldFail { throw AppDevToolsPageSession.SessionError.connectionClosed }
             return image.base64EncodedString()
         })
@@ -106,9 +106,9 @@ final class PageScreenshotServiceTests: XCTestCase {
     }
 
     func testNewerUserCopyIsPreserved() async throws {
-        let board = pasteboard(), image = try jpeg()
+        let board = pasteboard(), image = try png()
         let completed = expectation(description: "New clipboard preserved")
-        let service = PageScreenshotService(pasteboard: board, captureJPEG: { _, _ in
+        let service = PageScreenshotService(pasteboard: board, capturePNG: { _, _ in
             board.clearContents()
             board.setString("newer user copy", forType: .string)
             return image.base64EncodedString()
@@ -119,14 +119,14 @@ final class PageScreenshotServiceTests: XCTestCase {
         }
         await fulfillment(of: [completed], timeout: 2)
         XCTAssertEqual(board.string(forType: .string), "newer user copy")
-        XCTAssertNil(board.data(forType: NSPasteboard.PasteboardType(UTType.jpeg.identifier)))
+        XCTAssertNil(board.data(forType: NSPasteboard.PasteboardType(UTType.png.identifier)))
     }
 
     func testExpiredDeadlineRejectsLateResponseAndPreservesClipboard() async throws {
-        let board = pasteboard(), image = try jpeg()
+        let board = pasteboard(), image = try png()
         var time: TimeInterval = 100
         let completed = expectation(description: "Late response rejected")
-        let service = PageScreenshotService(pasteboard: board, uptime: { time }, captureJPEG: { _, _ in
+        let service = PageScreenshotService(pasteboard: board, uptime: { time }, capturePNG: { _, _ in
             time = 160
             return image.base64EncodedString()
         })
@@ -143,7 +143,7 @@ final class PageScreenshotServiceTests: XCTestCase {
     func testCDPTimeoutPreservesClipboardAndReleasesCapture() async {
         let board = pasteboard()
         let completed = expectation(description: "CDP timeout reported")
-        let service = PageScreenshotService(pasteboard: board, captureJPEG: { _, _ in
+        let service = PageScreenshotService(pasteboard: board, capturePNG: { _, _ in
             throw AppDevToolsPageSession.SessionError.timedOut
         })
         let count = board.changeCount
@@ -156,11 +156,11 @@ final class PageScreenshotServiceTests: XCTestCase {
         XCTAssertFalse(service.isCapturing)
     }
 
-    func testMissingAndInvalidJPEGResponsesPreserveClipboard() async throws {
-        for data in [nil, "not base64", Data("not a JPEG".utf8).base64EncodedString()] as [String?] {
+    func testMissingAndInvalidPNGResponsesPreserveClipboard() async throws {
+        for data in [nil, "not base64", Data("not a PNG".utf8).base64EncodedString()] as [String?] {
             let board = pasteboard()
             let completed = expectation(description: "Invalid image rejected")
-            let service = PageScreenshotService(pasteboard: board, captureJPEG: { _, _ in data })
+            let service = PageScreenshotService(pasteboard: board, capturePNG: { _, _ in data })
             let count = board.changeCount
             service.start(targetId: "page-42", windowId: 7) { outcome in
                 XCTAssertEqual(outcome, .invalidImage)
@@ -172,24 +172,33 @@ final class PageScreenshotServiceTests: XCTestCase {
         }
     }
 
-    func testJPEGValidationRejectsTruncatedOversizedAndExcessiveDimensions() throws {
-        let image = try jpeg()
-        XCTAssertEqual(PageScreenshotService.validatedJPEG(image.base64EncodedString()), image)
-        XCTAssertNil(PageScreenshotService.validatedJPEG(image.prefix(33).base64EncodedString()))
-        XCTAssertNil(PageScreenshotService.validatedJPEG(String(repeating: "A", count: PageScreenshotService.maxBase64Bytes + 1)))
-        XCTAssertNil(PageScreenshotService.validatedJPEG(image.dropLast(2).base64EncodedString()))
+    func testPNGValidationRejectsTruncatedOversizedAndExcessiveDimensions() throws {
+        let image = try png()
+        XCTAssertEqual(PageScreenshotService.validatedPNG(image.base64EncodedString()), image)
+        XCTAssertNil(PageScreenshotService.validatedPNG(image.prefix(33).base64EncodedString()))
+        XCTAssertNil(PageScreenshotService.validatedPNG(String(repeating: "A", count: PageScreenshotService.maxBase64Bytes + 1)))
+        XCTAssertNil(PageScreenshotService.validatedPNG(image.dropLast(2).base64EncodedString()))
         let decoded = try XCTUnwrap(NSBitmapImageRep(data: image))
-        let png = try XCTUnwrap(decoded.representation(using: .png, properties: [:]))
-        XCTAssertNil(PageScreenshotService.validatedJPEG(png.base64EncodedString()))
-        // Patch the baseline JPEG frame header without allocating an oversized bitmap.
-        let frame = try XCTUnwrap(image.range(of: Data([0xff, 0xc0]))).lowerBound
+        let jpeg = try XCTUnwrap(decoded.representation(using: .jpeg, properties: [:]))
+        XCTAssertNil(PageScreenshotService.validatedPNG(jpeg.base64EncodedString()))
+        // Patch IHDR dimensions and its CRC without allocating an oversized bitmap.
         for (width, height) in [(0, 2), (32_769, 1), (8_001, 8_000)] {
             var bytes = image
-            for (offset, value) in [(frame + 7, width), (frame + 5, height)] {
-                bytes.replaceSubrange(offset..<(offset + 2), with: [UInt8(value >> 8), UInt8(value & 255)])
+            for (offset, value) in [(16, width), (20, height)] {
+                bytes.replaceSubrange(offset..<(offset + 4), with: bigEndianBytes(UInt32(value)))
             }
-            XCTAssertNil(PageScreenshotService.validatedJPEG(bytes.base64EncodedString()))
+            var crc: UInt32 = 0xffffffff
+            for byte in bytes[12..<29] {
+                crc ^= UInt32(byte)
+                for _ in 0..<8 { crc = (crc >> 1) ^ (crc & 1 == 1 ? 0xedb88320 : 0) }
+            }
+            bytes.replaceSubrange(29..<33, with: bigEndianBytes(crc ^ 0xffffffff))
+            XCTAssertNil(PageScreenshotService.validatedPNG(bytes.base64EncodedString()))
         }
+    }
+
+    private func bigEndianBytes(_ value: UInt32) -> [UInt8] {
+        [24, 16, 8, 0].map { UInt8(truncatingIfNeeded: value >> $0) }
     }
 
 
@@ -260,19 +269,19 @@ final class PageScreenshotServiceTests: XCTestCase {
         try await PageScreenshotService.capturePage(targetId: "page-42", timeout: timeout, openSession: fixture.open)
     }
 
-    func testCDPCaptureUsesJPEGQualityAndFullDocumentClip() async throws {
-        let image = try jpeg(), fixture = CDPFixture(data: image.base64EncodedString())
+    func testCDPCaptureUsesLosslessPNGAndFullDocumentClip() async throws {
+        let image = try png(), fixture = CDPFixture(data: image.base64EncodedString())
         fixture.size = ["x": 1.25, "y": -3.5, "width": 1200.1, "height": 4000.2]
         let result = try await capture(fixture)
         XCTAssertEqual(result, image.base64EncodedString())
-        XCTAssertEqual(PageScreenshotService.validatedJPEG(try XCTUnwrap(result)), image)
+        XCTAssertEqual(PageScreenshotService.validatedPNG(try XCTUnwrap(result)), image)
         XCTAssertEqual(fixture.openedTargets, ["page-42"])
         XCTAssertEqual(fixture.openTimeout, 10)
         XCTAssertEqual(fixture.closeCount, 1)
         XCTAssertEqual(fixture.calls.map(\.method), ["Page.getFrameTree", "Page.getLayoutMetrics", "Runtime.evaluate", "Page.captureScreenshot", "Page.getFrameTree"])
         let params = try XCTUnwrap(fixture.calls.first { $0.method == "Page.captureScreenshot" }?.params)
-        XCTAssertEqual(params["format"] as? String, "jpeg")
-        XCTAssertEqual(params["quality"] as? Int, 85)
+        XCTAssertEqual(params["format"] as? String, "png")
+        XCTAssertNil(params["quality"])
         XCTAssertEqual(params["fromSurface"] as? Bool, true)
         XCTAssertEqual(params["captureBeyondViewport"] as? Bool, true)
         let clip = try XCTUnwrap(params["clip"] as? [String: Double])
@@ -284,7 +293,7 @@ final class PageScreenshotServiceTests: XCTestCase {
 
     func testCDPCaptureFitsRetinaLongPagesInBothOrientations() async throws {
         for (width, height) in [(1719, 8718), (8718, 1719)] {
-            let fixture = CDPFixture(data: try jpeg().base64EncodedString())
+            let fixture = CDPFixture(data: try png().base64EncodedString())
             fixture.size = ["x": 0, "y": 0, "width": width, "height": height]
             fixture.dpr = 2
             _ = try await capture(fixture)
@@ -298,7 +307,7 @@ final class PageScreenshotServiceTests: XCTestCase {
 
     func testCDPCaptureKeepsUnitScaleAt16KBoundaryAndForNonRetinaPage() async throws {
         for (height, dpr) in [(8192, 2), (8718, 1)] {
-            let fixture = CDPFixture(data: try jpeg().base64EncodedString())
+            let fixture = CDPFixture(data: try png().base64EncodedString())
             fixture.size = ["x": 0, "y": 0, "width": 1719, "height": height]
             fixture.dpr = dpr
             _ = try await capture(fixture)
@@ -309,7 +318,7 @@ final class PageScreenshotServiceTests: XCTestCase {
 
     func testCDPCaptureRejectsInvalidDimensionsBeforeScreenshotAndCloses() async throws {
         for (key, value) in [("x", Double.nan as Any), ("y", "0" as Any), ("width", 0 as Any), ("height", -1 as Any), ("width", true as Any), ("height", NSNull() as Any)] {
-            let fixture = CDPFixture(data: try jpeg().base64EncodedString())
+            let fixture = CDPFixture(data: try png().base64EncodedString())
             fixture.size[key] = value
             do { _ = try await capture(fixture); XCTFail("Accepted invalid \(key)") }
             catch AppDevToolsPageSession.SessionError.commandFailed(let message) { XCTAssertEqual(message, "Invalid screenshot page dimensions") }
@@ -317,7 +326,7 @@ final class PageScreenshotServiceTests: XCTestCase {
             XCTAssertEqual(fixture.closeCount, 1)
         }
         for value: Any in [0, -1, Double.infinity, "2", true, NSNull()] {
-            let fixture = CDPFixture(data: try jpeg().base64EncodedString())
+            let fixture = CDPFixture(data: try png().base64EncodedString())
             fixture.dpr = value
             do { _ = try await capture(fixture); XCTFail("Accepted invalid DPR") }
             catch AppDevToolsPageSession.SessionError.commandFailed(let message) { XCTAssertEqual(message, "Invalid screenshot page dimensions") }
@@ -328,7 +337,7 @@ final class PageScreenshotServiceTests: XCTestCase {
 
     func testCDPCaptureScalesWideRetinaPagesBeforeApplyingPixelLimits() async throws {
         for width in [1719, 1904] {
-            let fixture = CDPFixture(data: try jpeg().base64EncodedString())
+            let fixture = CDPFixture(data: try png().base64EncodedString())
             fixture.size = ["x": 0, "y": 0, "width": width, "height": 9519]
             fixture.dpr = 2
             _ = try await capture(fixture)
@@ -344,7 +353,7 @@ final class PageScreenshotServiceTests: XCTestCase {
 
     func testCDPCaptureScalesOversizedPagesWithinRoundedOutputBudget() async throws {
         for (width, height, dpr) in [(16385, 1, 2), (1, 16385, 2), (8001, 8000, 1), (10000, 10000, 2), (20000, 10000, 1), (10000, 20000, 1)] {
-            let fixture = CDPFixture(data: try jpeg().base64EncodedString())
+            let fixture = CDPFixture(data: try png().base64EncodedString())
             fixture.size = ["x": 0, "y": 0, "width": width, "height": height]
             fixture.dpr = dpr
             _ = try await capture(fixture)
@@ -364,7 +373,7 @@ final class PageScreenshotServiceTests: XCTestCase {
     }
 
     func testCDPCapturePreservesUnitScaleAtPixelBudget() async throws {
-        let fixture = CDPFixture(data: try jpeg().base64EncodedString())
+        let fixture = CDPFixture(data: try png().base64EncodedString())
         fixture.size = ["x": 0, "y": 0, "width": 8000, "height": 8000]
         fixture.dpr = 1
         _ = try await capture(fixture)
@@ -373,7 +382,7 @@ final class PageScreenshotServiceTests: XCTestCase {
     }
 
     func testCDPCaptureRejectsOverflowingPhysicalDimensions() async throws {
-        let fixture = CDPFixture(data: try jpeg().base64EncodedString())
+        let fixture = CDPFixture(data: try png().base64EncodedString())
         fixture.size = ["x": 0, "y": 0, "width": Double.greatestFiniteMagnitude, "height": 100]
         fixture.dpr = 2
         do { _ = try await capture(fixture); XCTFail("Accepted overflowing dimensions") }
@@ -384,7 +393,7 @@ final class PageScreenshotServiceTests: XCTestCase {
 
     func testCDPCaptureChecksEveryDocumentIdentityFieldAndCloses() async throws {
         for key in ["id", "loaderId", "url"] {
-            let fixture = CDPFixture(data: try jpeg().base64EncodedString())
+            let fixture = CDPFixture(data: try png().base64EncodedString())
             fixture.afterFrame = fixture.frame
             fixture.afterFrame?[key] = "changed"
             do { _ = try await capture(fixture); XCTFail("Accepted changed \(key)") }
@@ -396,7 +405,7 @@ final class PageScreenshotServiceTests: XCTestCase {
 
     func testCDPCaptureRejectsMissingDocumentIdentityBeforeScreenshot() async throws {
         for key in ["id", "loaderId", "url"] {
-            let fixture = CDPFixture(data: try jpeg().base64EncodedString())
+            let fixture = CDPFixture(data: try png().base64EncodedString())
             fixture.frame[key] = ""
             do { _ = try await capture(fixture); XCTFail("Accepted empty \(key)") }
             catch AppDevToolsPageSession.SessionError.commandFailed(let message) { XCTAssertEqual(message, "Unable to identify the page document") }
@@ -407,7 +416,7 @@ final class PageScreenshotServiceTests: XCTestCase {
 
     func testCDPCaptureClosesAfterFailureAtEveryCommand() async throws {
         for method in ["Page.getFrameTree", "Page.getLayoutMetrics", "Runtime.evaluate", "Page.captureScreenshot"] {
-            let fixture = CDPFixture(data: try jpeg().base64EncodedString())
+            let fixture = CDPFixture(data: try png().base64EncodedString())
             fixture.failingMethod = method
             do { _ = try await capture(fixture); XCTFail("Ignored command failure") }
             catch AppDevToolsPageSession.SessionError.connectionClosed {}
@@ -416,9 +425,9 @@ final class PageScreenshotServiceTests: XCTestCase {
         }
     }
 
-    func testCDPCaptureRejectsInvalidJPEGReplyBeforeFinalFrameQuery() async throws {
-        for data: Any? in [nil, 42, "not a JPEG", "/9j/" + String(repeating: "A", count: PageScreenshotService.maxBase64Bytes)] {
-            let fixture = CDPFixture(data: try jpeg().base64EncodedString())
+    func testCDPCaptureRejectsInvalidPNGReplyBeforeFinalFrameQuery() async throws {
+        for data: Any? in [nil, 42, "not a PNG", "iVBORw0KGgo" + String(repeating: "A", count: PageScreenshotService.maxBase64Bytes)] {
+            let fixture = CDPFixture(data: try png().base64EncodedString())
             fixture.data = data
             do { _ = try await capture(fixture); XCTFail("Accepted invalid image") }
             catch AppDevToolsPageSession.SessionError.commandFailed(let message) { XCTAssertEqual(message, "Invalid or oversized screenshot image") }
@@ -428,7 +437,7 @@ final class PageScreenshotServiceTests: XCTestCase {
     }
 
     func testCDPCaptureClosesWhenTotalBudgetExpiresBetweenCommands() async throws {
-        let fixture = CDPFixture(data: try jpeg().base64EncodedString())
+        let fixture = CDPFixture(data: try png().base64EncodedString())
         fixture.commandDelay = 20_000_000
         do { _ = try await capture(fixture, timeout: 0.01); XCTFail("Ignored deadline") }
         catch AppDevToolsPageSession.SessionError.timedOut {}
@@ -437,7 +446,7 @@ final class PageScreenshotServiceTests: XCTestCase {
     }
 
     func testCDPCaptureDoesNotCloseAnUnacquiredSession() async throws {
-        let fixture = CDPFixture(data: try jpeg().base64EncodedString())
+        let fixture = CDPFixture(data: try png().base64EncodedString())
         fixture.openFails = true
         do { _ = try await capture(fixture); XCTFail("Ignored attach failure") }
         catch AppDevToolsPageSession.SessionError.upgradeFailed {}
@@ -448,7 +457,7 @@ final class PageScreenshotServiceTests: XCTestCase {
 
     func testCDPCaptureClosesAfterFinalFrameQueryFailureOrInvalidIdentity() async throws {
         for fails in [true, false] {
-            let fixture = CDPFixture(data: try jpeg().base64EncodedString())
+            let fixture = CDPFixture(data: try png().base64EncodedString())
             fixture.failFinalFrameQuery = fails
             fixture.afterFrame = [:]
             do { _ = try await capture(fixture); XCTFail("Accepted failed final frame query") }
@@ -463,7 +472,7 @@ final class PageScreenshotServiceTests: XCTestCase {
     }
 
     func testAreaCaptureMapsVisibleSelectionToScrolledCSSClipWithoutScalingTheFullPage() async throws {
-        let fixture = CDPFixture(data: try jpeg().base64EncodedString())
+        let fixture = CDPFixture(data: try png().base64EncodedString())
         fixture.size = ["x": 0, "y": 0, "width": 1904, "height": 90000]
         fixture.dpr = 2.5 // Retina at 125% page zoom.
         _ = try await PageScreenshotService.capturePage(targetId: "area", timeout: 60, selectRegion: { viewport, _ in
@@ -484,7 +493,7 @@ final class PageScreenshotServiceTests: XCTestCase {
 
     func testAreaCancellationAndViewportChangesNeverCaptureAndCloseTheSession() async throws {
         for scenario in 0..<4 {
-            let fixture = CDPFixture(data: try jpeg().base64EncodedString())
+            let fixture = CDPFixture(data: try png().base64EncodedString())
             let region = try XCTUnwrap(PageScreenshotRegion(selection: CGRect(x: 10, y: 500, width: 30, height: 40)))
             do {
                 _ = try await PageScreenshotService.capturePage(targetId: "area", timeout: 60, selectRegion: { _, _ in
@@ -502,9 +511,9 @@ final class PageScreenshotServiceTests: XCTestCase {
     }
 
     func testCancelledOriginPreservesClipboardAndAllowsRetry() async throws {
-        let board = pasteboard(), image = try jpeg()
+        let board = pasteboard(), image = try png()
         let completed = expectation(description: "Origin closed")
-        let service = PageScreenshotService(pasteboard: board, captureJPEG: { _, _ in image.base64EncodedString() })
+        let service = PageScreenshotService(pasteboard: board, capturePNG: { _, _ in image.base64EncodedString() })
         let count = board.changeCount
         service.start(targetId: "area", windowId: 7, isValid: { false }) { outcome in
             XCTAssertEqual(outcome, .cancelled)
@@ -516,7 +525,7 @@ final class PageScreenshotServiceTests: XCTestCase {
     }
 
     func testAreaCaptureAccountsForClassicScrollbarsAndPinchScale() async throws {
-        let fixture = CDPFixture(data: try jpeg().base64EncodedString())
+        let fixture = CDPFixture(data: try png().base64EncodedString())
         fixture.viewport = ["pageX": 10, "pageY": 500, "clientWidth": 400, "clientHeight": 300]
         fixture.viewportInfo = ["scrollbarWidth": 16, "scrollbarHeight": 12, "scale": 2]
         _ = try await PageScreenshotService.capturePage(targetId: "area", timeout: 60, selectRegion: { viewport, _ in
@@ -533,7 +542,7 @@ final class PageScreenshotServiceTests: XCTestCase {
     }
 
     func testAreaViewportChangesWhileScreenshotIsAwaitedRejectTheResultAndCloseSession() async throws {
-        let fixture = CDPFixture(data: try jpeg().base64EncodedString())
+        let fixture = CDPFixture(data: try png().base64EncodedString())
         let region = try XCTUnwrap(PageScreenshotRegion(selection: CGRect(x: 20, y: 510, width: 100, height: 100)))
         fixture.onScreenshot = { fixture.afterViewportInfo = ["scrollbarWidth": 0, "scrollbarHeight": 0, "scale": 1.25] }
         do {
@@ -545,7 +554,7 @@ final class PageScreenshotServiceTests: XCTestCase {
     }
 
     func testNavigationDuringFinalViewportReadIsRejected() async throws {
-        let fixture = CDPFixture(data: try jpeg().base64EncodedString())
+        let fixture = CDPFixture(data: try png().base64EncodedString())
         let region = try XCTUnwrap(PageScreenshotRegion(selection: CGRect(x: 20, y: 510, width: 100, height: 100)))
         fixture.onViewportInfo = { count in
             if count == 3 { fixture.afterFrame = ["id": "frame-1", "loaderId": "new-loader", "url": "https://example.invalid/"] }
@@ -560,7 +569,7 @@ final class PageScreenshotServiceTests: XCTestCase {
     }
 
     func testSelectionScrollExtendsDocumentClipWithOneScreenshot() async throws {
-        let fixture = CDPFixture(data: try jpeg().base64EncodedString())
+        let fixture = CDPFixture(data: try png().base64EncodedString())
         fixture.onScroll = {
             fixture.afterViewport = ["pageX": 10, "pageY": 1500, "clientWidth": 800, "clientHeight": 600]
         }
@@ -583,7 +592,7 @@ final class PageScreenshotServiceTests: XCTestCase {
 
     func testSelectionScrollRejectsNavigationZoomResizeAndScriptFailure() async throws {
         for scenario in 0..<5 {
-            let fixture = CDPFixture(data: try jpeg().base64EncodedString())
+            let fixture = CDPFixture(data: try png().base64EncodedString())
             fixture.onScroll = {
                 if scenario == 0 { fixture.afterFrame = ["id": "frame-1", "loaderId": "new", "url": "https://example.invalid/"] }
                 if scenario == 1 { fixture.dpr = 2 }
@@ -604,7 +613,7 @@ final class PageScreenshotServiceTests: XCTestCase {
     }
 
     func testScrollAfterSelectionStillRejectsScreenshot() async throws {
-        let fixture = CDPFixture(data: try jpeg().base64EncodedString())
+        let fixture = CDPFixture(data: try png().base64EncodedString())
         fixture.onScreenshot = { fixture.afterViewport = ["pageX": 10, "pageY": 900, "clientWidth": 800, "clientHeight": 600] }
         do {
             _ = try await PageScreenshotService.capturePage(targetId: "area", timeout: 60, selectRegion: { _, _ in
@@ -616,7 +625,7 @@ final class PageScreenshotServiceTests: XCTestCase {
     }
 
     func testNavigationDuringScrollContextCreationNeverOpensSelection() async throws {
-        let fixture = CDPFixture(data: try jpeg().base64EncodedString())
+        let fixture = CDPFixture(data: try png().base64EncodedString())
         fixture.afterFrame = ["id": "frame-1", "loaderId": "new-loader", "url": "https://example.invalid/"]
         do {
             _ = try await PageScreenshotService.capturePage(targetId: "area", timeout: 60, selectRegion: { _, _ in
@@ -631,7 +640,7 @@ final class PageScreenshotServiceTests: XCTestCase {
 
     func testUnrequestedScrollBeforeRefreshOrWheelInputCancelsWithoutMovingPage() async throws {
         for delta in [CGSize.zero, CGSize(width: 0, height: 100)] {
-            let fixture = CDPFixture(data: try jpeg().base64EncodedString())
+            let fixture = CDPFixture(data: try png().base64EncodedString())
             do {
                 _ = try await PageScreenshotService.capturePage(targetId: "area", timeout: 60, selectRegion: { _, scroll in
                     // The page moved after the initial snapshot, before the user began dragging.

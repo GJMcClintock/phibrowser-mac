@@ -7,11 +7,11 @@ import XCTest
 @MainActor
 final class PageScreenshotPresenterTests: XCTestCase {
     func testFileNameUsesThePageTitle() {
-        XCTAssertEqual(PageScreenshotPresenter.suggestedFileName(title: "Phi Browser"), "Phi Browser.jpg")
+        XCTAssertEqual(PageScreenshotPresenter.suggestedFileName(title: "Phi Browser"), "Phi Browser.png")
         XCTAssertEqual(PageScreenshotPresenter.suggestedFileName(title: "  Page / Section: Details  "),
-                       "Page Section Details.jpg")
-        XCTAssertEqual(PageScreenshotPresenter.suggestedFileName(title: ""), "Screenshot.jpg")
-        XCTAssertEqual(PageScreenshotPresenter.suggestedFileName(title: " / : "), "Screenshot.jpg")
+                       "Page Section Details.png")
+        XCTAssertEqual(PageScreenshotPresenter.suggestedFileName(title: ""), "Screenshot.png")
+        XCTAssertEqual(PageScreenshotPresenter.suggestedFileName(title: " / : "), "Screenshot.png")
     }
 
     func testSaveActionRetainsTheOriginalImageWindowAndFileName() throws {
@@ -21,19 +21,19 @@ final class PageScreenshotPresenterTests: XCTestCase {
         }, scheduler: { _, _ in AnyCancellable {} })
         let firstImage = Data([1, 2, 3]), secondImage = Data([4, 5, 6])
         var saved: [(Data, String, Int)] = []
-        PageScreenshotPresenter.showCopied(jpegData: firstImage, title: "First Page", windowId: 7,
+        PageScreenshotPresenter.showCopied(pngData: firstImage, title: "First Page", windowId: 7,
                                            toastCenter: center, save: { saved.append(($0, $1, $2)) })
         let firstToast = try XCTUnwrap(center.visibleToasts(for: 7).first)
         let firstAction = try XCTUnwrap(firstToast.action)
         XCTAssertEqual(firstAction.title, "Save")
         XCTAssertTrue(firstAction.isBordered)
         XCTAssertEqual(firstToast.duration, 6)
-        PageScreenshotPresenter.showCopied(jpegData: secondImage, title: "Second Page", windowId: 8,
+        PageScreenshotPresenter.showCopied(pngData: secondImage, title: "Second Page", windowId: 8,
                                            toastCenter: center, save: { saved.append(($0, $1, $2)) })
         firstAction.handler()
         let savedImage = try XCTUnwrap(saved.first)
         XCTAssertEqual(savedImage.0, firstImage)
-        XCTAssertEqual(savedImage.1, "First Page.jpg")
+        XCTAssertEqual(savedImage.1, "First Page.png")
         XCTAssertEqual(savedImage.2, 7)
         XCTAssertEqual(saved.count, 1)
     }
@@ -42,7 +42,7 @@ final class PageScreenshotPresenterTests: XCTestCase {
         let center = OverlayToastCenter(targetResolver: { _ in 7 },
                                         scheduler: { _, _ in AnyCancellable {} })
         var didSave = false
-        PageScreenshotPresenter.showCopied(jpegData: Data([1, 2, 3]), title: "Page", windowId: 7,
+        PageScreenshotPresenter.showCopied(pngData: Data([1, 2, 3]), title: "Page", windowId: 7,
                                            toastCenter: center, save: { _, _, _ in didSave = true })
         var toast = try XCTUnwrap(center.visibleToasts(for: 7).first)
         toast.shareURLs = [try XCTUnwrap(URL(string: "https://example.com"))]

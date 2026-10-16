@@ -5,7 +5,17 @@ import Foundation
 import ImageIO
 import UniformTypeIdentifiers
 
-enum ScreenshotExportFormat: String, CaseIterable, Sendable { case jpg, pdf }
+enum ScreenshotExportFormat: String, CaseIterable, Sendable {
+    case png, jpg, pdf
+
+    var contentType: UTType {
+        switch self {
+        case .png: return .png
+        case .jpg: return .jpeg
+        case .pdf: return .pdf
+        }
+    }
+}
 
 enum ScreenshotImageExport {
     enum ExportError: Error { case unsupportedSize, imageCreationFailed, encodingFailed }
@@ -34,11 +44,13 @@ enum ScreenshotImageExport {
     static func encode(_ snapshot: ScreenshotSnapshot, format: ScreenshotExportFormat) throws -> Data {
         guard isSizeSupported(width: snapshot.width, height: snapshot.height) else { throw ExportError.unsupportedSize }
         let data = NSMutableData()
-        if format == .jpg {
-            guard let destination = CGImageDestinationCreateWithData(data, UTType.jpeg.identifier as CFString, 1, nil) else { throw ExportError.encodingFailed }
-            CGImageDestinationAddImage(destination, try composite(snapshot), [kCGImageDestinationLossyCompressionQuality: 0.9] as CFDictionary)
+        switch format {
+        case .png, .jpg:
+            guard let destination = CGImageDestinationCreateWithData(data, format.contentType.identifier as CFString, 1, nil) else { throw ExportError.encodingFailed }
+            let properties: [CFString: Any] = format == .jpg ? [kCGImageDestinationLossyCompressionQuality: 0.9] : [:]
+            CGImageDestinationAddImage(destination, try composite(snapshot), properties as CFDictionary)
             guard CGImageDestinationFinalize(destination) else { throw ExportError.encodingFailed }
-        } else {
+        case .pdf:
             var box = CGRect(x: 0, y: 0, width: snapshot.width, height: snapshot.height)
             guard let consumer = CGDataConsumer(data: data), let context = CGContext(consumer: consumer, mediaBox: &box, nil) else { throw ExportError.encodingFailed }
             context.beginPDFPage(nil)

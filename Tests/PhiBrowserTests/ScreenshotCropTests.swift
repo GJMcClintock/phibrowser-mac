@@ -105,11 +105,13 @@ final class ScreenshotCropTests: XCTestCase {
         draw(m, .rectangle, CGPoint(x: 300, y: 200), CGPoint(x: 380, y: 280))
         selectCrop(m); m.cropToSelection(); m.setZoomExact(0.2)
         let snapshot = m.snapshot()
-        let jpg = try XCTUnwrap(ScreenshotImageExport.decode(data: ScreenshotImageExport.encode(snapshot, format: .jpg)))
-        XCTAssertEqual(jpg.width, 400); XCTAssertEqual(jpg.height, 400)
-        XCTAssertGreaterThan(pixel(jpg, x: 20, y: 20).r, 230); XCTAssertLessThan(pixel(jpg, x: 20, y: 20).b, 30)
-        XCTAssertGreaterThan(pixel(jpg, x: 20, y: 320).b, 230); XCTAssertLessThan(pixel(jpg, x: 20, y: 320).r, 30)
-        XCTAssertGreaterThan(pixel(jpg, x: 230, y: 130).g, 180); XCTAssertLessThan(pixel(jpg, x: 230, y: 130).r, 100)
+        for format in [ScreenshotExportFormat.png, .jpg] {
+            let raster = try XCTUnwrap(ScreenshotImageExport.decode(data: ScreenshotImageExport.encode(snapshot, format: format)))
+            XCTAssertEqual(raster.width, 400); XCTAssertEqual(raster.height, 400)
+            XCTAssertGreaterThan(pixel(raster, x: 20, y: 20).r, 230); XCTAssertLessThan(pixel(raster, x: 20, y: 20).b, 30)
+            XCTAssertGreaterThan(pixel(raster, x: 20, y: 320).b, 230); XCTAssertLessThan(pixel(raster, x: 20, y: 320).r, 30)
+            XCTAssertGreaterThan(pixel(raster, x: 230, y: 130).g, 180); XCTAssertLessThan(pixel(raster, x: 230, y: 130).r, 100)
+        }
         let pdf = try ScreenshotImageExport.encode(snapshot, format: .pdf)
         let document = try XCTUnwrap(CGPDFDocument(try XCTUnwrap(CGDataProvider(data: pdf as CFData))))
         let page = try XCTUnwrap(document.page(at: 1)); XCTAssertEqual(document.numberOfPages, 1)
