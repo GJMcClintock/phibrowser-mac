@@ -27,8 +27,12 @@ class ShortcutsViewModel: ObservableObject {
 
     @Published var sections: [(category: String, subtitle: String?, items: [ShortcutItem])] = []
     @Published private(set) var captureSessionID = UUID()
+    @Published private(set) var recordingModifiers: NSEvent.ModifierFlags = []
     @Published var capture: Capture? {
-        didSet { captureSessionID = UUID() }
+        didSet {
+            captureSessionID = UUID()
+            recordingModifiers = []
+        }
     }
     @Published var selectedCommand: CommandWrapper? {
         didSet {
@@ -86,8 +90,8 @@ class ShortcutsViewModel: ObservableObject {
         }
     }
 
-    /// Explicit selection starts recording; search-driven selection never takes focus.
-    func selectCommandForRecording(_ command: CommandWrapper) {
+    /// Only a shortcut control starts capture; row selection remains navigation.
+    func startRecording(for command: CommandWrapper) {
         guard sections.flatMap(\.items).contains(where: { $0.command == command }) else { return }
         selectedCommand = command
         recordingMessage = nil
@@ -104,7 +108,8 @@ class ShortcutsViewModel: ObservableObject {
         guard sections.flatMap(\.items).contains(where: { $0.command == command }) else { return }
         searchText = ""
         searchedKey = nil
-        selectCommandForRecording(command)
+        capture = nil
+        selectedCommand = command
     }
 
     func conflicts(for command: CommandWrapper) -> [ShortcutConflictItem] {
@@ -208,6 +213,7 @@ class ShortcutsViewModel: ObservableObject {
         return ShortcutItem(
             id: command, command: command, name: displayName(for: command),
             shortcutKey: key, shortcutDisplay: shortcutDisplay(for: command, key: key),
+            shortcutKeycapTokens: key.map { shortcutDisplayKey(for: command, key: $0).keycapTokens } ?? [],
             isOverridden: Shortcuts.isOverridden(command),
             conflictingCommandNames: findConflictingCommands(for: command).map { displayName(for: $0) },
             searchKeywords: searchKeywords(for: command),
@@ -227,25 +233,29 @@ class ShortcutsViewModel: ObservableObject {
             )
         }
 
+        return shortcutDisplayKey(for: command, key: key).displayString
+    }
+
+    private func shortcutDisplayKey(for command: CommandWrapper, key: ShortcutsKey) -> ShortcutsKey {
         // AppKit reports the shifted characters for these default events, so
         // execution stores "{" and "}". Keep the settings label in the
         // familiar physical-key notation without changing global key identity.
         guard key == Shortcuts.DefaultShortcuts[command] else {
-            return key.displayString
+            return key
         }
         switch command {
         case .IDC_SELECT_PREVIOUS_TAB:
             return ShortcutsKey(
                 characters: "[",
                 modifiers: key.modifiers
-            ).displayString
+            )
         case .IDC_SELECT_NEXT_TAB:
             return ShortcutsKey(
                 characters: "]",
                 modifiers: key.modifiers
-            ).displayString
+            )
         default:
-            return key.displayString
+            return key
         }
     }
     
@@ -293,6 +303,12 @@ class ShortcutsViewModel: ObservableObject {
     func matchesSearch(_ owner: ShortcutBinding.Owner) -> Bool {
         guard let searchedKey else { return true }
         return inventory.occupants(of: searchedKey).contains { $0.owner == owner }
+    }
+
+    func handleCaptureModifiers(_ modifiers: NSEvent.ModifierFlags) {
+        guard case .command = capture else { return }
+        let preview = modifiers.intersection([.command, .control, .option, .shift, .function])
+        if recordingModifiers != preview { recordingModifiers = preview }
     }
 
     func handleCaptureEvent(_ event: NSEvent) {
@@ -555,6 +571,7 @@ struct ShortcutItem: Identifiable {
     let name: String
     let shortcutKey: ShortcutsKey?
     let shortcutDisplay: String
+    let shortcutKeycapTokens: [String]
     let isOverridden: Bool
     let conflictingCommandNames: [String]
     let searchKeywords: [String]

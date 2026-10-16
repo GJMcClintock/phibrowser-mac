@@ -80,21 +80,28 @@ final class ShortcutSettingsUITests: XCTestCase {
         XCTAssertFalse(settings.buttons["Clear keys"].exists)
     }
 
-    func testSelectingRowsStartsRecordingAndSwitchesTarget() {
+    func testRowSelectionClosesNormallyAndShortcutButtonsStartRecording() {
         let newWindow = settings.descendants(matching: .any).matching(identifier: "shortcuts.command.34000").firstMatch
         let newTab = settings.descendants(matching: .any).matching(identifier: "shortcuts.command.34014").firstMatch
         XCTAssertTrue(newWindow.waitForExistence(timeout: 5))
         newWindow.click()
-        XCTAssertEqual(settings.buttons["shortcuts.record.34000"].label, "Press shortcut…")
-        newTab.click()
-        XCTAssertEqual(settings.buttons["shortcuts.record.34014"].label, "Press shortcut…")
-        app.typeKey(.escape, modifierFlags: [])
-        XCTAssertEqual(settings.buttons["shortcuts.record.34014"].label, "⌘T")
-        newTab.click()
-        XCTAssertEqual(settings.buttons["shortcuts.record.34014"].label, "Press shortcut…")
-        app.typeKey(.escape, modifierFlags: [])
-        search("New Window")
         XCTAssertEqual(settings.buttons["shortcuts.record.34000"].label, "⌘N")
+        app.typeKey("w", modifierFlags: .command)
+        XCTAssertTrue(settings.waitForNonExistence(timeout: 5))
+        openSettings()
+        newWindow.click()
+        XCTAssertEqual(settings.buttons["shortcuts.record.34000"].label, "⌘N")
+        settings.buttons["shortcuts.record.34000"].click()
+        XCTAssertEqual(settings.buttons["shortcuts.record.34000"].label, "Press shortcut…")
+        XCTAssertEqual(settings.buttons["shortcuts.record.34000"].value as? String, "⌘N")
+        newTab.click()
+        XCTAssertEqual(settings.buttons["shortcuts.record.34014"].label, "⌘T")
+        settings.buttons["shortcuts.listRecord.34000"].click()
+        XCTAssertEqual(settings.buttons["shortcuts.record.34000"].label, "Press shortcut…")
+        app.typeKey(.escape, modifierFlags: [])
+        XCTAssertEqual(settings.buttons["shortcuts.record.34000"].label, "⌘N")
+        search("New Tab")
+        XCTAssertEqual(settings.buttons["shortcuts.record.34014"].label, "⌘T")
     }
 
     func testDetailRestoreAndConflictNavigation() {
@@ -133,8 +140,6 @@ final class ShortcutSettingsUITests: XCTestCase {
         XCTAssertFalse(settings.sheets.firstMatch.exists)
         XCTAssertEqual(recorder.label, "⌘T")
         conflict.click()
-        XCTAssertEqual(settings.buttons["shortcuts.record.34014"].label, "Press shortcut…")
-        app.typeKey(.escape, modifierFlags: [])
         XCTAssertEqual(settings.buttons["shortcuts.record.34014"].label, "⌘T")
         XCTAssertFalse(settings.buttons["shortcuts.restore.34014"].isEnabled)
         settings.buttons["shortcuts.conflict.34000"].click()

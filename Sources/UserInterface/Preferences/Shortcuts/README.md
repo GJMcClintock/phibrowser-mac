@@ -43,11 +43,17 @@
 The search section sits above the command list and selected-command detail pane.
 List selection and both search filters belong to `ShortcutsViewModel`; recording,
 description, conflict, and restore sections are separate SwiftUI views.
-Explicit list selection starts recording in the detail pane. Conflict links
-clear both filters, select a visible command, and start recording there too.
-Initial selection and search-driven selection do not capture keys or take focus
-from search. Each capture session has its own responder identity so delayed
+List selection only navigates and keeps the native selection highlight. Recording
+starts only from the detail keycaps or the shortcut button in a list row. Conflict
+links clear both filters and select a visible command without recording. Initial
+selection and search-driven selection do not capture keys or take focus from search. Each capture session has its own responder identity so delayed
 cancellation from the previous selection cannot cancel the new recording.
+The recording section renders individual keycaps using the same display tokens
+as other shortcut surfaces. Assigned shortcuts remain visible throughout recording;
+only unassigned commands preview held modifiers and a placeholder. Modifier changes
+never save or restart capture. During recording, keycaps stay flat; completing a combination
+raises them and reveals their shadows. The view owns this cancellable animation,
+respects Reduce Motion, and resets its presentation when the selected command changes.
 Native actions and unlisted commands remain informational. The Restore button is always shown
 and enabled exactly when the selected command has a stored override, regardless
 of conflicts. Restoring can therefore expose an existing default-key conflict.

@@ -26,7 +26,9 @@ struct ShortcutsSettingsView: View {
                 ShortcutsListSection(
                     sections: viewModel.filteredSections,
                     reserved: viewModel.filteredReservedShortcuts,
-                    selection: Binding(get: { viewModel.selectedCommand }, set: selectCommand)
+                    selection: Binding(get: { viewModel.selectedCommand }, set: selectCommand),
+                    canRecord: viewModel.canEdit,
+                    record: startRecording
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
 
@@ -35,6 +37,8 @@ struct ShortcutsSettingsView: View {
                         item: item,
                         conflicts: viewModel.conflicts(for: item.command),
                         isRecording: viewModel.editingCommand == item.command,
+                        recordingModifiers: viewModel.recordingModifiers,
+                        canAnimateRelease: viewModel.persistenceFailure == nil,
                         canRecord: viewModel.canEdit,
                         record: { toggleRecording(for: item.command) },
                         restore: { viewModel.restoreDefaultShortcut(for: item.command) },
@@ -54,7 +58,8 @@ struct ShortcutsSettingsView: View {
             if viewModel.capture != nil {
                 let sessionID = viewModel.captureSessionID
                 KeyCaptureView(onKeyEvent: viewModel.handleCaptureEvent,
-                               onCancel: { viewModel.cancelCapture(sessionID: sessionID) })
+                               onCancel: { viewModel.cancelCapture(sessionID: sessionID) },
+                               onModifiersChanged: viewModel.handleCaptureModifiers)
                     .id(sessionID)
                     .allowsHitTesting(false)
             } else {
@@ -72,18 +77,21 @@ struct ShortcutsSettingsView: View {
     }
 
     private func toggleRecording(for command: CommandWrapper) {
+        if viewModel.editingCommand == command {
+            viewModel.capture = nil
+        } else {
+            startRecording(for: command)
+        }
+    }
+
+    private func startRecording(for command: CommandWrapper) {
         isSearchFieldFocused = false
-        viewModel.recordingMessage = nil
-        viewModel.editingCommand = viewModel.editingCommand == command ? nil : command
+        viewModel.startRecording(for: command)
     }
 
     private func selectCommand(_ command: CommandWrapper?) {
-        guard let command else {
-            viewModel.selectedCommand = nil
-            return
-        }
         isSearchFieldFocused = false
-        viewModel.selectCommandForRecording(command)
+        viewModel.selectedCommand = command
     }
 
     private func selectConflict(_ command: CommandWrapper) {
@@ -107,23 +115,27 @@ struct ShortcutsSettingsView: View {
 struct KeyCaptureView: NSViewRepresentable {
     let onKeyEvent: (NSEvent) -> Void
     let onCancel: () -> Void
+    var onModifiersChanged: ((NSEvent.ModifierFlags) -> Void)? = nil
     
     func makeNSView(context: Context) -> KeyCaptureNSView {
         let view = KeyCaptureNSView()
         view.onKeyEvent = onKeyEvent
         view.onCancel = onCancel
+        view.onModifiersChanged = onModifiersChanged
         return view
     }
     
     func updateNSView(_ nsView: KeyCaptureNSView, context: Context) {
         nsView.onKeyEvent = onKeyEvent
         nsView.onCancel = onCancel
+        nsView.onModifiersChanged = onModifiersChanged
     }
 }
 
 final class KeyCaptureNSView: NSView {
     var onKeyEvent: ((NSEvent) -> Void)?
     var onCancel: (() -> Void)?
+    var onModifiersChanged: ((NSEvent.ModifierFlags) -> Void)?
     private var eventMonitor: Any?
     private var resignObserver: NSObjectProtocol?
 
@@ -154,16 +166,21 @@ final class KeyCaptureNSView: NSView {
     }
 
     func process(_ event: NSEvent) -> NSEvent? {
-        guard eventMonitor != nil, event.type == .keyDown, let window, window.isKeyWindow, NSApp.isActive,
+        guard eventMonitor != nil, let window, window.isKeyWindow, NSApp.isActive,
               event.window === window, window.firstResponder === self,
               let onKeyEvent else { return event }
+        if event.type == .flagsChanged {
+            onModifiersChanged?(event.modifierFlags)
+            return event
+        }
+        guard event.type == .keyDown else { return event }
         onKeyEvent(event)
         return nil
     }
     
     private func startMonitoring() {
         stopMonitoring()
-        eventMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+        eventMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .flagsChanged]) { [weak self] event in
             guard let self else { return event }
             return self.process(event)
         }

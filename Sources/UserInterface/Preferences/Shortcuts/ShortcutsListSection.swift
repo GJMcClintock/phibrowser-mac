@@ -9,6 +9,8 @@ struct ShortcutsListSection: View {
     let sections: [(category: String, subtitle: String?, items: [ShortcutItem])]
     let reserved: [ReservedShortcutItem]
     @Binding var selection: CommandWrapper?
+    let canRecord: Bool
+    let record: (CommandWrapper) -> Void
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -16,13 +18,12 @@ struct ShortcutsListSection: View {
                 ForEach(sections, id: \.category) { section in
                     Section {
                         ForEach(section.items) { item in
-                            ShortcutListRow(item: item)
+                            ShortcutListRow(item: item, isSelected: selection == item.command,
+                                            canRecord: canRecord, record: { record(item.command) })
                                 .listRowInsets(EdgeInsets(top: 0, leading: 12, bottom: 0, trailing: 12))
+                                .listRowBackground(selection == item.command ? Color.accentColor : Color.clear)
                                 .tag(item.command)
                                 .id(item.command)
-                                .simultaneousGesture(TapGesture().onEnded {
-                                    selection = item.command
-                                })
                         }
                     } header: {
                         ShortcutListSectionHeader(title: section.category, subtitle: section.subtitle)
@@ -84,28 +85,39 @@ private struct ShortcutListSectionHeader: View {
 
 private struct ShortcutListRow: View {
     let item: ShortcutItem
+    let isSelected: Bool
+    let canRecord: Bool
+    let record: () -> Void
 
     var body: some View {
         HStack(spacing: 8) {
             Text(item.name)
+                .foregroundStyle(isSelected ? Color.white : Color.primary)
                 .frame(maxWidth: .infinity, alignment: .leading)
             if item.hasConflict {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .font(.system(size: 11))
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(isSelected ? Color.white : Color.orange)
                     .help(item.conflictingCommandNames.joined(separator: ", "))
             }
-            if item.shortcutKey != nil {
+            Button(action: record) {
                 Text(item.shortcutDisplay)
                     .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(isSelected ? Color.white : Color.secondary)
                     .fixedSize()
+                    .padding(.vertical, 4)
+                    .padding(.horizontal, 3)
+                    .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
+            .disabled(!canRecord)
+            .accessibilityIdentifier("shortcuts.listRecord.\(item.command.rawValue)")
+            .help(NSLocalizedString("settings.shortcuts.detail.recordHelp", value: "Click the shortcut to record a new combination.", comment: "Shortcuts settings - Hint below the shortcut recording button"))
         }
         .font(.system(size: 13))
         .padding(.vertical, 5)
         .contentShape(Rectangle())
-        .accessibilityElement(children: .combine)
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("shortcuts.command.\(item.command.rawValue)")
     }
 }

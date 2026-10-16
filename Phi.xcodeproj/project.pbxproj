@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		5AB2CC000A744E09B299ADE1 /* ShortcutRecordingSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5AB2CC000A744E09B299ADE2 /* ShortcutRecordingSection.swift */; };
 		04FE4637EFE3A1396687DD63 /* AISettingsConnectorViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8FCAEAE328C802016D87943 /* AISettingsConnectorViewModel.swift */; };
 		05170D58572AD0BE6C62021E /* KeyEnvelopeAPIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 254713996DC310106F1FF7A7 /* KeyEnvelopeAPIClient.swift */; };
 		0604A0F7564970C47522F57E /* AccountProfileSyncMappingStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8ED3785F123750CD029A126E /* AccountProfileSyncMappingStore.swift */; };
@@ -830,6 +831,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		5AB2CC000A744E09B299ADE2 /* ShortcutRecordingSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortcutRecordingSection.swift; sourceTree = "<group>"; };
 		01794B7EA4882E10EFB8D56C /* SelfRevokeStrings.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = SelfRevokeStrings.swift; path = UI/SelfRevokeStrings.swift; sourceTree = "<group>"; };
 		06BFC6B4281D3520EA713F93 /* SyncableProfiles.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SyncableProfiles.swift; sourceTree = "<group>"; };
 		0749CDB5BD32A8DC759F2C88 /* PhiURLRuleLocalAccess.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PhiURLRuleLocalAccess.swift; sourceTree = "<group>"; };
@@ -1843,6 +1845,7 @@
 				37C1B0DD2ED8081400DD4496 /* ShortcutsSettingsView.swift */,
 				9419D7F82339425185F5A3D8 /* ShortcutDescriptions.swift */,
 				F523BB13976A45DDA7FD12F1 /* ShortcutDetailSection.swift */,
+				5AB2CC000A744E09B299ADE2 /* ShortcutRecordingSection.swift */,
 				9832B3A1FE5C4D268B63C55C /* ShortcutsListSection.swift */,
 				02871C6C7E9D44C08F43D639 /* ShortcutsStatusSection.swift */,
 				964EAB29D5704D82B509194D /* ShortcutsSearchSection.swift */,
@@ -3835,6 +3838,7 @@
 				37C1B0DE2ED8081400DD4496 /* ShortcutsSettingsView.swift in Sources */,
 				DBF3654C3263432DA9310866 /* ShortcutDescriptions.swift in Sources */,
 				B42FB2BC67ED4B81A3995EA8 /* ShortcutDetailSection.swift in Sources */,
+				5AB2CC000A744E09B299ADE1 /* ShortcutRecordingSection.swift in Sources */,
 				F4AE5B2099AC4E24B856E89C /* ShortcutsListSection.swift in Sources */,
 				032F940519944127A19A4AD6 /* ShortcutsStatusSection.swift in Sources */,
 				5C9DFB8372DB4793A7BD5338 /* ShortcutsSearchSection.swift in Sources */,

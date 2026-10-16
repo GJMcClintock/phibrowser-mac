@@ -75,7 +75,7 @@ final class ShortcutSettingsPersistenceTests: XCTestCase {
         XCTAssertEqual(conflicts.first { $0.command == .IDC_RELOAD }?.keys, [customKey.displayString])
     }
 
-    func testConflictNavigationClearsBothFiltersAndRecordsDestination() throws {
+    func testConflictNavigationClearsBothFiltersWithoutRecording() throws {
         let model = ShortcutsViewModel(additionalBindings: { [] })
         model.searchText = "Duplicate Tab"
         model.searchedKey = customKey
@@ -83,19 +83,37 @@ final class ShortcutSettingsPersistenceTests: XCTestCase {
         model.selectConflict(.IDC_RELOAD)
         XCTAssertEqual(model.searchText, "")
         XCTAssertNil(model.searchedKey)
-        XCTAssertEqual(model.capture, .command(.IDC_RELOAD))
+        XCTAssertNil(model.capture)
         XCTAssertEqual(model.selectedItem?.command, .IDC_RELOAD)
         XCTAssertTrue(model.filteredSections.flatMap(\.items).contains { $0.command == .IDC_RELOAD })
     }
 
-    func testExplicitSelectionStartsRecordingAndTransfersToAnotherCommand() {
+    func testRowSelectionDoesNotCaptureWindowCloseShortcut() throws {
+        let model = ShortcutsViewModel(additionalBindings: { [] })
+        model.selectedCommand = .IDC_NEW_WINDOW
+        let original = Shortcuts.key(for: .IDC_NEW_WINDOW)
+        let close = try XCTUnwrap(NSEvent.keyEvent(
+            with: .keyDown, location: .zero, modifierFlags: .command,
+            timestamp: 0, windowNumber: 0, context: nil,
+            characters: "w", charactersIgnoringModifiers: "w", isARepeat: false, keyCode: 13
+        ))
+        model.handleCaptureEvent(close)
+        XCTAssertNil(model.capture)
+        XCTAssertEqual(Shortcuts.key(for: .IDC_NEW_WINDOW), original)
+        XCTAssertEqual(writeCount, 0)
+        model.startRecording(for: .IDC_NEW_WINDOW)
+        model.selectedCommand = .IDC_NEW_TAB
+        XCTAssertNil(model.capture)
+    }
+
+    func testShortcutControlStartsRecordingAndTransfersToAnotherCommand() {
         let model = ShortcutsViewModel(additionalBindings: { [] })
         XCTAssertNil(model.capture)
-        model.selectCommandForRecording(.IDC_NEW_WINDOW)
+        model.startRecording(for: .IDC_NEW_WINDOW)
         XCTAssertEqual(model.selectedCommand, .IDC_NEW_WINDOW)
         XCTAssertEqual(model.capture, .command(.IDC_NEW_WINDOW))
         let previousSession = model.captureSessionID
-        model.selectCommandForRecording(.IDC_NEW_TAB)
+        model.startRecording(for: .IDC_NEW_TAB)
         XCTAssertEqual(model.selectedCommand, .IDC_NEW_TAB)
         XCTAssertEqual(model.capture, .command(.IDC_NEW_TAB))
         model.cancelCapture(sessionID: previousSession)
@@ -103,11 +121,51 @@ final class ShortcutSettingsPersistenceTests: XCTestCase {
         XCTAssertEqual(writeCount, 0)
     }
 
-    func testReselectingSameCommandCreatesFreshCaptureAndIgnoresOldCancellation() {
+    func testModifierPreviewDoesNotSaveOrRestartCaptureAndClearsOnSelection() {
         let model = ShortcutsViewModel(additionalBindings: { [] })
-        model.selectCommandForRecording(.IDC_NEW_WINDOW)
+        model.startRecording(for: .IDC_NEW_WINDOW)
+        let session = model.captureSessionID
+        model.handleCaptureModifiers([.command, .shift, .capsLock])
+        XCTAssertEqual(model.recordingModifiers, [.command, .shift])
+        XCTAssertEqual(model.captureSessionID, session)
+        XCTAssertEqual(writeCount, 0)
+        model.handleCaptureModifiers(.command)
+        XCTAssertEqual(model.recordingModifiers, .command)
+        model.startRecording(for: .IDC_NEW_TAB)
+        XCTAssertEqual(model.recordingModifiers, [])
+        model.handleCaptureModifiers(.option)
+        model.cancelCapture(sessionID: model.captureSessionID)
+        XCTAssertEqual(model.recordingModifiers, [])
+        XCTAssertEqual(writeCount, 0)
+    }
+
+    func testModifierPreviewIgnoresSearchAndInactiveCapture() {
+        let model = ShortcutsViewModel(additionalBindings: { [] })
+        model.handleCaptureModifiers(.command)
+        XCTAssertEqual(model.recordingModifiers, [])
+        model.capture = .search
+        model.handleCaptureModifiers([.control, .option])
+        XCTAssertEqual(model.recordingModifiers, [])
+        XCTAssertEqual(model.capture, .search)
+        XCTAssertEqual(writeCount, 0)
+    }
+
+    func testDetailKeycapsPreserveDisplayNotationAndDisabledState() throws {
+        let model = ShortcutsViewModel(additionalBindings: { [] })
+        XCTAssertEqual(try item(.IDC_NEW_WINDOW, in: model).shortcutKeycapTokens, ["⌘", "N"])
+        XCTAssertEqual(try item(.IDC_SELECT_PREVIOUS_TAB, in: model).shortcutKeycapTokens, ["⇧", "⌘", "["])
+        XCTAssertEqual(try item(.IDC_SELECT_NEXT_TAB, in: model).shortcutKeycapTokens, ["⇧", "⌘", "]"])
+        model.setCustomShortcut(for: .IDC_NEW_WINDOW, key: customKey)
+        XCTAssertEqual(try item(.IDC_NEW_WINDOW, in: model).shortcutKeycapTokens, ["⌃", "⌘", "J"])
+        model.disableShortcut(for: .IDC_NEW_WINDOW)
+        XCTAssertEqual(try item(.IDC_NEW_WINDOW, in: model).shortcutKeycapTokens, [])
+    }
+
+    func testRestartingRecordingCreatesFreshCaptureAndIgnoresOldCancellation() {
+        let model = ShortcutsViewModel(additionalBindings: { [] })
+        model.startRecording(for: .IDC_NEW_WINDOW)
         let previousSession = model.captureSessionID
-        model.selectCommandForRecording(.IDC_NEW_WINDOW)
+        model.startRecording(for: .IDC_NEW_WINDOW)
         XCTAssertNotEqual(model.captureSessionID, previousSession)
         model.cancelCapture(sessionID: previousSession)
         XCTAssertEqual(model.capture, .command(.IDC_NEW_WINDOW))
@@ -116,11 +174,11 @@ final class ShortcutSettingsPersistenceTests: XCTestCase {
         XCTAssertEqual(writeCount, 0)
     }
 
-    func testSelectionDoesNotRecordWhenConfigurationCannotBeRead() {
+    func testShortcutControlDoesNotRecordWhenConfigurationCannotBeRead() {
         contents = Data("damaged configuration".utf8)
         _ = Shortcuts.reloadOverrides()
         let model = ShortcutsViewModel(additionalBindings: { [] })
-        model.selectCommandForRecording(.IDC_NEW_WINDOW)
+        model.startRecording(for: .IDC_NEW_WINDOW)
         XCTAssertEqual(model.selectedCommand, .IDC_NEW_WINDOW)
         XCTAssertNil(model.capture)
         XCTAssertEqual(writeCount, 0)
