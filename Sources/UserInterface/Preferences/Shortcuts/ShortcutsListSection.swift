@@ -1,0 +1,111 @@
+// Copyright 2026 Phinomenon Inc.
+//
+// Use of this source code is governed by an Apache license that can be
+// found in the LICENSE file.
+
+import SwiftUI
+
+struct ShortcutsListSection: View {
+    let sections: [(category: String, subtitle: String?, items: [ShortcutItem])]
+    let reserved: [ReservedShortcutItem]
+    @Binding var selection: CommandWrapper?
+
+    var body: some View {
+        ScrollViewReader { proxy in
+            List(selection: $selection) {
+                ForEach(sections, id: \.category) { section in
+                    Section {
+                        ForEach(section.items) { item in
+                            ShortcutListRow(item: item)
+                                .listRowInsets(EdgeInsets(top: 0, leading: 12, bottom: 0, trailing: 12))
+                                .tag(item.command)
+                                .id(item.command)
+                                .simultaneousGesture(TapGesture().onEnded {
+                                    selection = item.command
+                                })
+                        }
+                    } header: {
+                        ShortcutListSectionHeader(title: section.category, subtitle: section.subtitle)
+                    }
+                }
+                if !reserved.isEmpty {
+                    Section {
+                        ForEach(reserved) { item in
+                            HStack {
+                                Text(item.name)
+                                Spacer(minLength: 8)
+                                Text(Array(Set(item.keys.map(\.displayString))).sorted().joined(separator: ", "))
+                                    .foregroundStyle(.secondary)
+                            }
+                            .font(.system(size: 11))
+                            .padding(.vertical, 6)
+                            .selectionDisabled()
+                        }
+                    } header: {
+                        Text(NSLocalizedString("settings.shortcuts.reservedSection", value: "Other active shortcuts (read-only)", comment: "Shortcuts settings - Active native and browser bindings that this settings page cannot reassign"))
+                    }
+                }
+            }
+            .listStyle(.plain)
+            .listSectionSeparator(.hidden)
+            .environment(\.defaultMinListRowHeight, 34)
+            .scrollContentBackground(.hidden)
+            .onChange(of: selection) { _, command in
+                if let command { proxy.scrollTo(command) }
+            }
+            .overlay {
+                if sections.isEmpty && reserved.isEmpty {
+                    Text(NSLocalizedString("settings.shortcuts.searchResults.emptyMessage", value: "No Results", comment: "Shortcuts settings - Empty state text when no shortcuts match search"))
+                        .font(.system(size: 13))
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+        .settingsCardChrome()
+        .accessibilityIdentifier("shortcuts.list")
+    }
+}
+
+private struct ShortcutListSectionHeader: View {
+    let title: String
+    let subtitle: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title).font(.system(size: 12, weight: .semibold))
+            if let subtitle {
+                Text(subtitle).font(.system(size: 11)).fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .foregroundStyle(.secondary)
+        .padding(.vertical, 4)
+    }
+}
+
+private struct ShortcutListRow: View {
+    let item: ShortcutItem
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Text(item.name)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            if item.hasConflict {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.orange)
+                    .help(item.conflictingCommandNames.joined(separator: ", "))
+            }
+            if item.shortcutKey != nil {
+                Text(item.shortcutDisplay)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .fixedSize()
+            }
+        }
+        .font(.system(size: 13))
+        .padding(.vertical, 5)
+        .contentShape(Rectangle())
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("shortcuts.command.\(item.command.rawValue)")
+    }
+}

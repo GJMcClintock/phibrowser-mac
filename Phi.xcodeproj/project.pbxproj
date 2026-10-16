@@ -696,6 +696,11 @@
 		5C4EF3000000000000000001 /* ScreenshotEditorControls.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C4EF4000000000000000001 /* ScreenshotEditorControls.swift */; };
 		5C4EF3000000000000000002 /* ScreenshotAnnotationWidgets.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C4EF2000000000000000002 /* ScreenshotAnnotationWidgets.swift */; };
 		5C4EF3000000000000000003 /* ScreenshotEditorViewport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C4EF2000000000000000003 /* ScreenshotEditorViewport.swift */; };
+		5C9DFB8372DB4793A7BD5338 /* ShortcutsSearchSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 964EAB29D5704D82B509194D /* ShortcutsSearchSection.swift */; };
+		032F940519944127A19A4AD6 /* ShortcutsStatusSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02871C6C7E9D44C08F43D639 /* ShortcutsStatusSection.swift */; };
+		F4AE5B2099AC4E24B856E89C /* ShortcutsListSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9832B3A1FE5C4D268B63C55C /* ShortcutsListSection.swift */; };
+		B42FB2BC67ED4B81A3995EA8 /* ShortcutDetailSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = F523BB13976A45DDA7FD12F1 /* ShortcutDetailSection.swift */; };
+		DBF3654C3263432DA9310866 /* ShortcutDescriptions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9419D7F82339425185F5A3D8 /* ShortcutDescriptions.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -1528,6 +1533,11 @@
 		5C4EF4000000000000000001 /* ScreenshotEditorControls.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenshotEditorControls.swift; sourceTree = "<group>"; };
 		5C4EF2000000000000000002 /* ScreenshotAnnotationWidgets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenshotAnnotationWidgets.swift; sourceTree = "<group>"; };
 		5C4EF2000000000000000003 /* ScreenshotEditorViewport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenshotEditorViewport.swift; sourceTree = "<group>"; };
+		964EAB29D5704D82B509194D /* ShortcutsSearchSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortcutsSearchSection.swift; sourceTree = "<group>"; };
+		02871C6C7E9D44C08F43D639 /* ShortcutsStatusSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortcutsStatusSection.swift; sourceTree = "<group>"; };
+		9832B3A1FE5C4D268B63C55C /* ShortcutsListSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortcutsListSection.swift; sourceTree = "<group>"; };
+		F523BB13976A45DDA7FD12F1 /* ShortcutDetailSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortcutDetailSection.swift; sourceTree = "<group>"; };
+		9419D7F82339425185F5A3D8 /* ShortcutDescriptions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortcutDescriptions.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -1831,6 +1841,11 @@
 				37C1B0D72ED6DCBD00DD4496 /* Shortcuts.swift */,
 				37C1B0E82ED8531700DD4496 /* Shortcuts+Custom.swift */,
 				37C1B0DD2ED8081400DD4496 /* ShortcutsSettingsView.swift */,
+				9419D7F82339425185F5A3D8 /* ShortcutDescriptions.swift */,
+				F523BB13976A45DDA7FD12F1 /* ShortcutDetailSection.swift */,
+				9832B3A1FE5C4D268B63C55C /* ShortcutsListSection.swift */,
+				02871C6C7E9D44C08F43D639 /* ShortcutsStatusSection.swift */,
+				964EAB29D5704D82B509194D /* ShortcutsSearchSection.swift */,
 				37C1B0DF2ED809EA00DD4496 /* ShortcutsSettingHostingViewController.swift */,
 				37C1B0E12ED80CFB00DD4496 /* ShortcutsSettingViewController.swift */,
 				37C1B0E62ED851CE00DD4496 /* ShortcutsViewModel.swift */,
@@ -3818,6 +3833,11 @@
 				8E486A772F3EEF8A00078DEC /* StatusURLViewModel.swift in Sources */,
 				8E762CC62F16531A00631087 /* TabStripAnimation.swift in Sources */,
 				37C1B0DE2ED8081400DD4496 /* ShortcutsSettingsView.swift in Sources */,
+				DBF3654C3263432DA9310866 /* ShortcutDescriptions.swift in Sources */,
+				B42FB2BC67ED4B81A3995EA8 /* ShortcutDetailSection.swift in Sources */,
+				F4AE5B2099AC4E24B856E89C /* ShortcutsListSection.swift in Sources */,
+				032F940519944127A19A4AD6 /* ShortcutsStatusSection.swift in Sources */,
+				5C9DFB8372DB4793A7BD5338 /* ShortcutsSearchSection.swift in Sources */,
 				CC2708A52E7A65E500B65AB8 /* LocalStore.swift in Sources */,
 				AB7090710000000000000001 /* SiteMemorySettingsStore.swift in Sources */,
 				6A4750023B12345600000002 /* GuestDataMigration.swift in Sources */,

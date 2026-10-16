@@ -80,21 +80,66 @@ final class ShortcutSettingsUITests: XCTestCase {
         XCTAssertFalse(settings.buttons["Clear keys"].exists)
     }
 
-    func testReassignmentCanBeCanceledThenConfirmedWithBothRowsUpdated() {
+    func testSelectingRowsStartsRecordingAndSwitchesTarget() {
+        let newWindow = settings.descendants(matching: .any).matching(identifier: "shortcuts.command.34000").firstMatch
+        let newTab = settings.descendants(matching: .any).matching(identifier: "shortcuts.command.34014").firstMatch
+        XCTAssertTrue(newWindow.waitForExistence(timeout: 5))
+        newWindow.click()
+        XCTAssertEqual(settings.buttons["shortcuts.record.34000"].label, "Press shortcut…")
+        newTab.click()
+        XCTAssertEqual(settings.buttons["shortcuts.record.34014"].label, "Press shortcut…")
+        app.typeKey(.escape, modifierFlags: [])
+        XCTAssertEqual(settings.buttons["shortcuts.record.34014"].label, "⌘T")
+        newTab.click()
+        XCTAssertEqual(settings.buttons["shortcuts.record.34014"].label, "Press shortcut…")
+        app.typeKey(.escape, modifierFlags: [])
+        search("New Window")
+        XCTAssertEqual(settings.buttons["shortcuts.record.34000"].label, "⌘N")
+    }
+
+    func testDetailRestoreAndConflictNavigation() {
         search("Duplicate Tab")
+        let duplicateRestore = settings.buttons["shortcuts.restore.34027"]
+        XCTAssertTrue(duplicateRestore.waitForExistence(timeout: 5))
+        XCTAssertFalse(duplicateRestore.isEnabled)
         settings.buttons["shortcuts.record.34027"].click()
         app.typeKey("r", modifierFlags: .command)
-        let confirmation = settings.sheets.firstMatch
-        XCTAssertTrue(confirmation.buttons["Cancel"].waitForExistence(timeout: 5))
-        confirmation.buttons["Cancel"].click()
-        XCTAssertEqual(settings.buttons["shortcuts.record.34027"].label, "Add New")
-        settings.buttons["shortcuts.record.34027"].click()
-        app.typeKey("r", modifierFlags: .command)
-        XCTAssertTrue(confirmation.buttons["Reassign"].waitForExistence(timeout: 5))
-        confirmation.buttons["Reassign"].click()
-        XCTAssertEqual(settings.buttons["shortcuts.record.34027"].label, "⌘R")
+        XCTAssertTrue(settings.buttons["shortcuts.conflict.33002"].waitForExistence(timeout: 5))
+        XCTAssertFalse(settings.sheets.firstMatch.exists)
+        XCTAssertTrue(duplicateRestore.isEnabled)
+
         search("Reload Page")
-        XCTAssertEqual(settings.buttons["shortcuts.record.33002"].label, "Add New")
-        XCTAssertTrue(settings.buttons["shortcuts.restore.33002"].exists)
+        let reloadRestore = settings.buttons["shortcuts.restore.33002"]
+        XCTAssertFalse(reloadRestore.isEnabled)
+        let conflict = settings.buttons["shortcuts.conflict.34027"]
+        XCTAssertTrue(conflict.waitForExistence(timeout: 5))
+        conflict.click()
+        XCTAssertEqual(settings.textFields["shortcuts.search"].value as? String, "")
+        XCTAssertTrue(settings.buttons["shortcuts.record.34027"].waitForExistence(timeout: 5))
+        XCTAssertTrue(duplicateRestore.isEnabled)
+        duplicateRestore.click()
+        XCTAssertFalse(duplicateRestore.isEnabled)
+        XCTAssertFalse(settings.buttons["shortcuts.conflict.33002"].exists)
+    }
+
+    func testRecordingConflictingNewWindowKeyKeepsNewTabBinding() {
+        search("New Window")
+        let recorder = settings.buttons["shortcuts.record.34000"]
+        XCTAssertTrue(recorder.waitForExistence(timeout: 5))
+        recorder.click()
+        app.typeKey("t", modifierFlags: .command)
+        let conflict = settings.buttons["shortcuts.conflict.34014"]
+        XCTAssertTrue(conflict.waitForExistence(timeout: 5))
+        XCTAssertFalse(settings.sheets.firstMatch.exists)
+        XCTAssertEqual(recorder.label, "⌘T")
+        conflict.click()
+        XCTAssertEqual(settings.buttons["shortcuts.record.34014"].label, "Press shortcut…")
+        app.typeKey(.escape, modifierFlags: [])
+        XCTAssertEqual(settings.buttons["shortcuts.record.34014"].label, "⌘T")
+        XCTAssertFalse(settings.buttons["shortcuts.restore.34014"].isEnabled)
+        settings.buttons["shortcuts.conflict.34000"].click()
+        settings.buttons["shortcuts.restore.34000"].click()
+        XCTAssertEqual(settings.buttons["shortcuts.record.34000"].label, "⌘N")
+        XCTAssertFalse(settings.buttons["shortcuts.conflict.34014"].exists)
     }
 }

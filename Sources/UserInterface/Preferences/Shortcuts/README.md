@@ -33,10 +33,24 @@
   or native-selector ownership, source, and window scope. It is not a second
   configuration store. Conflict detection and captured-key search use it.
 - `ShortcutsViewModel` owns settings presentation, recording state, persistence
-  errors, and a pending reassignment confirmation.
+  errors, selection, and informational conflict details.
 - `CommandDispatcher` owns pre-Chromium interception for Kiosk-only commands
   and the commands listed in `phiInterceptedCommands`. Other commands continue
   through Chromium.
+
+## Settings Presentation
+
+The search section sits above the command list and selected-command detail pane.
+List selection and both search filters belong to `ShortcutsViewModel`; recording,
+description, conflict, and restore sections are separate SwiftUI views.
+Explicit list selection starts recording in the detail pane. Conflict links
+clear both filters, select a visible command, and start recording there too.
+Initial selection and search-driven selection do not capture keys or take focus
+from search. Each capture session has its own responder identity so delayed
+cancellation from the previous selection cannot cancel the new recording.
+Native actions and unlisted commands remain informational. The Restore button is always shown
+and enabled exactly when the selected command has a stored override, regardless
+of conflicts. Restoring can therefore expose an existing default-key conflict.
 
 ## Event Normalization and Input Sources
 
@@ -125,11 +139,10 @@ persistence continue to use the stored identity.
    Escape cancels and plain Backspace disables. Modified keys are bindings;
    Escape requires Command or Control. Shift-only printable keys are rejected.
 3. Captured-key search reads the inventory without saving or executing a command.
-   Editing checks every applicable owner and requests confirmation for conflicts.
-   Read-only owners cannot be reassigned here.
-4. Confirmation passes the displayed snapshot and rechecks its owners, account
-   URL, and configuration. `Shortcuts.setOverride(_:for:disabling:)` saves the
-   target and disabled conflicting commands in one atomic transaction.
+4. Recording saves only the selected command through `Shortcuts.setOverride`.
+   There is no conflict confirmation or automatic removal of another command's
+   keys. Conflicts, including read-only owners, appear in the detail pane after
+   saving so the user can choose which commands to edit or restore.
 5. After a successful changed configuration, `Shortcuts` refreshes the native
    intercepted-command map and Chromium menu. `shortcutsDidChange` also notifies
    open settings of loading or saving failures without publishing failed writes.
@@ -179,7 +192,7 @@ The delayed reveal rechecks the same hold keys and commits if their release was
 missed before monitoring began. Explicit events from another window are ignored;
 window or application deactivation cancels without activating a candidate.
 Chromium's separate Ctrl-Tab cycling commands remain suppressed, including after
-reassignment or disablement, as described below.
+rebinding or disablement, as described below.
 
 ### Product-Disabled Shortcut Commands
 
@@ -213,14 +226,15 @@ Non-keyboard command entry points and menu item visibility are unchanged.
   falsely conflicting with the browser's default Close Tab. Explicit overlapping
   custom close bindings still conflict in both directions.
 - Standard macOS editing/window services and native selectors remain in the
-  conflict inventory but are omitted from settings. They cannot be reassigned.
+  conflict inventory but are omitted from settings. Their bindings are never changed by recording another command.
 - Force Reload and Move Tab Left/Right are editable in their normal groups.
   Other recognized browser commands are discovered from the runtime inventory
   and saved overrides, including disabled overrides. Their default labels come
   from the runtime bindings when Phi has no default; no Chromium key table is
   duplicated. Unknown command IDs remain named read-only owners.
-  Reassignment disables all bindings of each conflicting command, not just the
-  alias that happened to match. The confirmation explains that scope.
+  Assigning a conflicting key preserves all other commands and their aliases.
+  Explicitly disabling a command still clears all of its own bindings. Restoring
+  defaults clears its override.
 - Uppercase menu equivalents display Shift explicitly; navigation and function
   keys have readable labels. Presentation does not change execution identity.
 - Select Previous/Next Tab use command-specific labels for their shifted bracket
@@ -518,7 +532,7 @@ Kiosk/Peek-only keys such as Command-O keep their separate contextual behavior.
 
 The existing override bridge still applies explicit user bindings to retained
 menu and hidden entries. User-created collisions continue through normal
-conflict detection and reassignment. Do not suppress every Phi-versus-Chromium
+conflict reporting without automatic reassignment. Do not suppress every Phi-versus-Chromium
 conflict or filter these entries only in the settings UI: matching, exported
 inventory, menu labels and conflict detection must use the same effective keys.
 A matching Framework build is required; an older Framework still exports its

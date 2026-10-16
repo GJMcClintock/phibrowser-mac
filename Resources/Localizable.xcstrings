@@ -253,6 +253,1326 @@
         }
       }
     },
+    "settings.shortcuts.description.addTabToGroup" : {
+      "comment" : "Shortcuts settings - Description of the addTabToGroup command",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Add a new tab to the current tab group."
+          }
+        }
+      }
+    },
+    "settings.shortcuts.description.back" : {
+      "comment" : "Shortcuts settings - Description of the back command",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Go to the previous page in this tab's history."
+          }
+        }
+      }
+    },
+    "settings.shortcuts.description.basicPrint" : {
+      "comment" : "Shortcuts settings - Description of the basicPrint command",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Print the current page using the system dialog."
+          }
+        }
+      }
+    },
+    "settings.shortcuts.description.bookmarkAllTabs" : {
+      "comment" : "Shortcuts settings - Description of the bookmarkAllTabs command",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bookmark all open tabs."
+          }
+        }
+      }
+    },
+    "settings.shortcuts.description.bookmarkBar" : {
+      "comment" : "Shortcuts settings - Description of the bookmarkBar command",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show or hide the bookmarks bar."
+          }
+        }
+      }
+    },
+    "settings.shortcuts.description.bookmarkTab" : {
+      "comment" : "Shortcuts settings - Description of the bookmarkTab command",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bookmark the current page."
+          }
+        }
+      }
+    },
+    "settings.shortcuts.description.bookmarks" : {
+      "comment" : "Shortcuts settings - Description of the bookmarks command",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open the bookmark manager."
+          }
+        }
+      }
+    },
+    "settings.shortcuts.description.chatbar" : {
+      "comment" : "Shortcuts settings - Description of the chatbar command",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show or hide the chat panel."
+          }
+        }
+      }
+    },
+    "settings.shortcuts.description.checkDocument" : {
+      "comment" : "Shortcuts settings - Description of the checkDocument command",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Check the document for spelling errors."
+          }
+        }
+      }
+    },
+    "settings.shortcuts.description.clearBrowsingData" : {
+      "comment" : "Shortcuts settings - Description of the clearBrowsingData command",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Choose which browsing data to clear."
+          }
+        }
+      }
+    },
+    "settings.shortcuts.description.closeAllWindows" : {
+      "comment" : "Shortcuts settings - Description of the closeAllWindows command",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Close all Phi windows."
+          }
+        }
+      }
+    },
+    "settings.shortcuts.description.closeOtherTabs" : {
+      "comment" : "Shortcuts settings - Description of the closeOtherTabs command",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Close the other tabs in the current window."
+          }
+        }
+      }
+    },
+    "settings.shortcuts.description.closeTab" : {
+      "comment" : "Shortcuts settings - Description of the closeTab command",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Close the current tab."
+          }
+        }
+      }
+    },
+    "settings.shortcuts.description.closeTabGroup" : {
+      "comment" : "Shortcuts settings - Description of the closeTabGroup command",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Close the current tab group."
+          }
+        }
+      }
+    },
+    "settings.shortcuts.description.closeTabsToRight" : {
+      "comment" : "Shortcuts settings - Description of the closeTabsToRight command",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Close tabs to the right of the current tab."
+          }
+        }
+      }
+    },
+    "settings.shortcuts.description.closeWindow" : {
+      "comment" : "Shortcuts settings - Description of the closeWindow command",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Close the current window."
+          }
+        }
+      }
+    },
+    "settings.shortcuts.description.console" : {
+      "comment" : "Shortcuts settings - Description of the console command",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open the JavaScript console for the current page."
+          }
+        }
+      }
+    },
+    "settings.shortcuts.description.copy" : {
+      "comment" : "Shortcuts settings - Description of the copy command",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Copy the selection to the clipboard."
+          }
+        }
+      }
+    },
+    "settings.shortcuts.description.copyURL" : {
+      "comment" : "Shortcuts settings - Description of the copyURL command",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Copy the current page's URL to the clipboard."
+          }
+        }
+      }
+    },
+    "settings.shortcuts.description.createTabGroup" : {
+      "comment" : "Shortcuts settings - Description of the createTabGroup command",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Create a new tab group."
+          }
+        }
+      }
+    },
+    "settings.shortcuts.description.cut" : {
+      "comment" : "Shortcuts settings - Description of the cut command",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cut the selection to the clipboard."
+          }
+        }
+      }
+    },
+    "settings.shortcuts.description.developerTools" : {
+      "comment" : "Shortcuts settings - Description of the developerTools command",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open Developer Tools for the current page."
+          }
+        }
+      }
+    },
+    "settings.shortcuts.description.downloads" : {
+      "comment" : "Shortcuts settings - Description of the downloads command",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "View your downloads."
+          }
+        }
+      }
+    },
+    "settings.shortcuts.description.duplicateTab" : {
+      "comment" : "Shortcuts settings - Description of the duplicateTab command",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Create a copy of the current tab."
+          }
+        }
+      }
+    },
+    "settings.shortcuts.description.extensions" : {
+      "comment" : "Shortcuts settings - Description of the extensions command",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Manage installed browser extensions."
+          }
+        }
+      }
+    },
+    "settings.shortcuts.description.feedback" : {
+      "comment" : "Shortcuts settings - Description of the feedback command",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open the feedback page."
+          }
+        }
+      }
+    },
+    "settings.shortcuts.description.find" : {
+      "comment" : "Shortcuts settings - Description of the find command",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Find text on the current page."
+          }
+        }
+      }
+    },
+    "settings.shortcuts.description.findNext" : {
+      "comment" : "Shortcuts settings - Description of the findNext command",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Move to the next matching text on the page."
+          }
+        }
+      }
+    },
+    "settings.shortcuts.description.findPrevious" : {
+      "comment" : "Shortcuts settings - Description of the findPrevious command",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Move to the previous matching text on the page."
+          }
+        }
+      }
+    },
+    "settings.shortcuts.description.focusLocation" : {
+      "comment" : "Shortcuts settings - Description of the focusLocation command",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Focus the address bar to enter a URL or search."
+          }
+        }
+      }
+    },
+    "settings.shortcuts.description.focusPopup" : {
+      "comment" : "Shortcuts settings - Description of the focusPopup command",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Move focus to an open popup."
+          }
+        }
+      }
+    },
+    "settings.shortcuts.description.focusSearch" : {
+      "comment" : "Shortcuts settings - Description of the focusSearch command",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Focus the address bar to search the web."
+          }
+        }
+      }
+    },
+    "settings.shortcuts.description.forceReload" : {
+      "comment" : "Shortcuts settings - Description of the forceReload command",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reload the current page without using cached content."
+          }
+        }
+      }
+    },
+    "settings.shortcuts.description.forward" : {
+      "comment" : "Shortcuts settings - Description of the forward command",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Go to the next page in this tab's history."
+          }
+        }
+      }
+    },
+    "settings.shortcuts.description.fullscreen" : {
+      "comment" : "Shortcuts settings - Description of the fullscreen command",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Enter or leave full screen."
+          }
+        }
+      }
+    },
+    "settings.shortcuts.description.fullscreenToolbar" : {
+      "comment" : "Shortcuts settings - Description of the fullscreenToolbar command",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show or hide the toolbar in full screen."
+          }
+        }
+      }
+    },
+    "settings.shortcuts.description.groupTab" : {
+      "comment" : "Shortcuts settings - Description of the groupTab command",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Change the group of the current tab."
+          }
+        }
+      }
+    },
+    "settings.shortcuts.description.help" : {
+      "comment" : "Shortcuts settings - Description of the help command",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open browser help."
+          }
+        }
+      }
+    },
+    "settings.shortcuts.description.hideApp" : {
+      "comment" : "Shortcuts settings - Description of the hideApp command",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hide Phi and its windows."
+          }
+        }
+      }
+    },
+    "settings.shortcuts.description.hideOthers" : {
+      "comment" : "Shortcuts settings - Description of the hideOthers command",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hide other applications."
+          }
+        }
+      }
+    },
+    "settings.shortcuts.description.history" : {
+      "comment" : "Shortcuts settings - Description of the history command",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "View your browsing history."
+          }
+        }
+      }
+    },
+    "settings.shortcuts.description.home" : {
+      "comment" : "Shortcuts settings - Description of the home command",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open the home page."
+          }
+        }
+      }
+    },
+    "settings.shortcuts.description.importSettings" : {
+      "comment" : "Shortcuts settings - Description of the importSettings command",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Import bookmarks and settings from another browser."
+          }
+        }
+      }
+    },
+    "settings.shortcuts.description.inspect" : {
+      "comment" : "Shortcuts settings - Description of the inspect command",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Inspect an element on the current page."
+          }
+        }
+      }
+    },
+    "settings.shortcuts.description.jumpToSelection" : {
+      "comment" : "Shortcuts settings - Description of the jumpToSelection command",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Scroll to the selected text."
+          }
+        }
+      }
+    },
+    "settings.shortcuts.description.kioskChooseSpace" : {
+      "comment" : "Shortcuts settings - Description of the kioskChooseSpace command",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Choose a Space for the current Peek or Kiosk page."
+          }
+        }
+      }
+    },
+    "settings.shortcuts.description.kioskOpenInSpace" : {
+      "comment" : "Shortcuts settings - Description of the kioskOpenInSpace command",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open the current Peek or Kiosk page in a Space."
+          }
+        }
+      }
+    },
+    "settings.shortcuts.description.lastTab" : {
+      "comment" : "Shortcuts settings - Description of the lastTab command",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Select the last tab."
+          }
+        }
+      }
+    },
+    "settings.shortcuts.description.minimize" : {
+      "comment" : "Shortcuts settings - Description of the minimize command",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Minimize the current window."
+          }
+        }
+      }
+    },
+    "settings.shortcuts.description.moveTabLeft" : {
+      "comment" : "Shortcuts settings - Description of the moveTabLeft command",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Move the current tab one position to the left."
+          }
+        }
+      }
+    },
+    "settings.shortcuts.description.moveTabRight" : {
+      "comment" : "Shortcuts settings - Description of the moveTabRight command",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Move the current tab one position to the right."
+          }
+        }
+      }
+    },
+    "settings.shortcuts.description.moveTabToWindow" : {
+      "comment" : "Shortcuts settings - Description of the moveTabToWindow command",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Move the current tab to a new window."
+          }
+        }
+      }
+    },
+    "settings.shortcuts.description.muteSite" : {
+      "comment" : "Shortcuts settings - Description of the muteSite command",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mute or unmute audio from the current site."
+          }
+        }
+      }
+    },
+    "settings.shortcuts.description.newConversation" : {
+      "comment" : "Shortcuts settings - Description of the newConversation command",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Start a new conversation in Phi Chat."
+          }
+        }
+      }
+    },
+    "settings.shortcuts.description.newIncognitoSpace" : {
+      "comment" : "Shortcuts settings - Description of the newIncognitoSpace command",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Create a new Incognito Space."
+          }
+        }
+      }
+    },
+    "settings.shortcuts.description.newIncognitoWindow" : {
+      "comment" : "Shortcuts settings - Description of the newIncognitoWindow command",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open a new Incognito window."
+          }
+        }
+      }
+    },
+    "settings.shortcuts.description.newKiosk" : {
+      "comment" : "Shortcuts settings - Description of the newKiosk command",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open a new Kiosk window."
+          }
+        }
+      }
+    },
+    "settings.shortcuts.description.newSplitTab" : {
+      "comment" : "Shortcuts settings - Description of the newSplitTab command",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open a tab in Split View."
+          }
+        }
+      }
+    },
+    "settings.shortcuts.description.newTab" : {
+      "comment" : "Shortcuts settings - Description of the newTab command",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open a new tab."
+          }
+        }
+      }
+    },
+    "settings.shortcuts.description.newTabToRight" : {
+      "comment" : "Shortcuts settings - Description of the newTabToRight command",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open a new tab to the right of the current tab."
+          }
+        }
+      }
+    },
+    "settings.shortcuts.description.newWindow" : {
+      "comment" : "Shortcuts settings - Description of the newWindow command",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open a new browser window."
+          }
+        }
+      }
+    },
+    "settings.shortcuts.description.nextPane" : {
+      "comment" : "Shortcuts settings - Description of the nextPane command",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Move focus to the next browser pane."
+          }
+        }
+      }
+    },
+    "settings.shortcuts.description.nextSpace" : {
+      "comment" : "Shortcuts settings - Description of the nextSpace command",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Switch to the next Space."
+          }
+        }
+      }
+    },
+    "settings.shortcuts.description.nextTab" : {
+      "comment" : "Shortcuts settings - Description of the nextTab command",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Select the next tab."
+          }
+        }
+      }
+    },
+    "settings.shortcuts.description.nextTabGroup" : {
+      "comment" : "Shortcuts settings - Description of the nextTabGroup command",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Move focus to the next tab group."
+          }
+        }
+      }
+    },
+    "settings.shortcuts.description.numberedSpace" : {
+      "comment" : "Shortcuts settings - Description for a numbered space; %d is its position",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Switch to Space %d in the current window."
+          }
+        }
+      }
+    },
+    "settings.shortcuts.description.numberedTab" : {
+      "comment" : "Shortcuts settings - Description for a numbered tab; %d is its position",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Switch to tab %d in the current window."
+          }
+        }
+      }
+    },
+    "settings.shortcuts.description.openFile" : {
+      "comment" : "Shortcuts settings - Description of the openFile command",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Choose a file to open in Phi."
+          }
+        }
+      }
+    },
+    "settings.shortcuts.description.openSettings" : {
+      "comment" : "Shortcuts settings - Description of the openSettings command",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open Phi settings."
+          }
+        }
+      }
+    },
+    "settings.shortcuts.description.organizeTabs" : {
+      "comment" : "Shortcuts settings - Description of the organizeTabs command",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Organize tabs with AI."
+          }
+        }
+      }
+    },
+    "settings.shortcuts.description.paste" : {
+      "comment" : "Shortcuts settings - Description of the paste command",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Paste the clipboard contents."
+          }
+        }
+      }
+    },
+    "settings.shortcuts.description.pasteMatchStyle" : {
+      "comment" : "Shortcuts settings - Description of the pasteMatchStyle command",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Paste text using the surrounding formatting."
+          }
+        }
+      }
+    },
+    "settings.shortcuts.description.pinTab" : {
+      "comment" : "Shortcuts settings - Description of the pinTab command",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pin or unpin the current tab."
+          }
+        }
+      }
+    },
+    "settings.shortcuts.description.previousPane" : {
+      "comment" : "Shortcuts settings - Description of the previousPane command",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Move focus to the previous browser pane."
+          }
+        }
+      }
+    },
+    "settings.shortcuts.description.previousSpace" : {
+      "comment" : "Shortcuts settings - Description of the previousSpace command",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Switch to the previous Space."
+          }
+        }
+      }
+    },
+    "settings.shortcuts.description.previousTab" : {
+      "comment" : "Shortcuts settings - Description of the previousTab command",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Select the previous tab."
+          }
+        }
+      }
+    },
+    "settings.shortcuts.description.previousTabGroup" : {
+      "comment" : "Shortcuts settings - Description of the previousTabGroup command",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Move focus to the previous tab group."
+          }
+        }
+      }
+    },
+    "settings.shortcuts.description.print" : {
+      "comment" : "Shortcuts settings - Description of the print command",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open print options for the current page."
+          }
+        }
+      }
+    },
+    "settings.shortcuts.description.profiles" : {
+      "comment" : "Shortcuts settings - Description of the profiles command",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open the profiles menu."
+          }
+        }
+      }
+    },
+    "settings.shortcuts.description.quitApp" : {
+      "comment" : "Shortcuts settings - Description of the quitApp command",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Quit Phi."
+          }
+        }
+      }
+    },
+    "settings.shortcuts.description.reader" : {
+      "comment" : "Shortcuts settings - Description of the reader command",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open or close Reader for the current page."
+          }
+        }
+      }
+    },
+    "settings.shortcuts.description.readingMode" : {
+      "comment" : "Shortcuts settings - Description of the readingMode command",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open Reading Mode for the current page."
+          }
+        }
+      }
+    },
+    "settings.shortcuts.description.redo" : {
+      "comment" : "Shortcuts settings - Description of the redo command",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Redo the last undone edit."
+          }
+        }
+      }
+    },
+    "settings.shortcuts.description.reload" : {
+      "comment" : "Shortcuts settings - Description of the reload command",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reload the current page."
+          }
+        }
+      }
+    },
+    "settings.shortcuts.description.resetZoom" : {
+      "comment" : "Shortcuts settings - Description of the resetZoom command",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reset the current page to its default zoom level."
+          }
+        }
+      }
+    },
+    "settings.shortcuts.description.restoreTab" : {
+      "comment" : "Shortcuts settings - Description of the restoreTab command",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reopen the most recently closed tab."
+          }
+        }
+      }
+    },
+    "settings.shortcuts.description.saveForLater" : {
+      "comment" : "Shortcuts settings - Description of the saveForLater command",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Save the current page for later."
+          }
+        }
+      }
+    },
+    "settings.shortcuts.description.savePage" : {
+      "comment" : "Shortcuts settings - Description of the savePage command",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Save the current page to a file."
+          }
+        }
+      }
+    },
+    "settings.shortcuts.description.selectAll" : {
+      "comment" : "Shortcuts settings - Description of the selectAll command",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Select all content in the focused area."
+          }
+        }
+      }
+    },
+    "settings.shortcuts.description.sharePage" : {
+      "comment" : "Shortcuts settings - Description of the sharePage command",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Share the current page."
+          }
+        }
+      }
+    },
+    "settings.shortcuts.description.sidebar" : {
+      "comment" : "Shortcuts settings - Description of the sidebar command",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show or hide the sidebar."
+          }
+        }
+      }
+    },
+    "settings.shortcuts.description.spellingGrammar" : {
+      "comment" : "Shortcuts settings - Description of the spellingGrammar command",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show spelling and grammar options."
+          }
+        }
+      }
+    },
+    "settings.shortcuts.description.stop" : {
+      "comment" : "Shortcuts settings - Description of the stop command",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Stop loading the current page."
+          }
+        }
+      }
+    },
+    "settings.shortcuts.description.tabSearch" : {
+      "comment" : "Shortcuts settings - Description of the tabSearch command",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Search open tabs."
+          }
+        }
+      }
+    },
+    "settings.shortcuts.description.tabSwitcher" : {
+      "comment" : "Shortcuts settings - Description of the tabSwitcher command",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show the tab switcher and move forward through recent tabs."
+          }
+        }
+      }
+    },
+    "settings.shortcuts.description.tabSwitcherReverse" : {
+      "comment" : "Shortcuts settings - Description of the tabSwitcherReverse command",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show the tab switcher and move backward through recent tabs."
+          }
+        }
+      }
+    },
+    "settings.shortcuts.description.tabletMode" : {
+      "comment" : "Shortcuts settings - Description of the tabletMode command",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Toggle tablet mode for browser debugging."
+          }
+        }
+      }
+    },
+    "settings.shortcuts.description.taskManager" : {
+      "comment" : "Shortcuts settings - Description of the taskManager command",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "View browser tasks and their resource usage."
+          }
+        }
+      }
+    },
+    "settings.shortcuts.description.undo" : {
+      "comment" : "Shortcuts settings - Description of the undo command",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Undo the last edit."
+          }
+        }
+      }
+    },
+    "settings.shortcuts.description.useSelection" : {
+      "comment" : "Shortcuts settings - Description of the useSelection command",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Use the selected text as the search text."
+          }
+        }
+      }
+    },
+    "settings.shortcuts.description.viewSource" : {
+      "comment" : "Shortcuts settings - Description of the viewSource command",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "View the source of the current page."
+          }
+        }
+      }
+    },
+    "settings.shortcuts.description.viewTree" : {
+      "comment" : "Shortcuts settings - Description of the viewTree command",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Print the browser view hierarchy for debugging."
+          }
+        }
+      }
+    },
+    "settings.shortcuts.description.viewTreeDetails" : {
+      "comment" : "Shortcuts settings - Description of the viewTreeDetails command",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Print the detailed browser view hierarchy for debugging."
+          }
+        }
+      }
+    },
+    "settings.shortcuts.description.zoomIn" : {
+      "comment" : "Shortcuts settings - Description of the zoomIn command",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Increase the zoom level of the current page."
+          }
+        }
+      }
+    },
+    "settings.shortcuts.description.zoomOut" : {
+      "comment" : "Shortcuts settings - Description of the zoomOut command",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Decrease the zoom level of the current page."
+          }
+        }
+      }
+    },
+    "settings.shortcuts.detail.conflicts" : {
+      "comment" : "Shortcuts settings - Heading above commands sharing an active shortcut",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This shortcut conflicts with:"
+          }
+        }
+      }
+    },
+    "settings.shortcuts.detail.empty" : {
+      "comment" : "Shortcuts settings - Detail pane when no editable command is selected",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Select a shortcut to view its details."
+          }
+        }
+      }
+    },
+    "settings.shortcuts.detail.goToCommand" : {
+      "comment" : "Shortcuts settings - Navigate to a conflicting command; %@ is its name",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Go to %@"
+          }
+        }
+      }
+    },
+    "settings.shortcuts.detail.recordHelp" : {
+      "comment" : "Shortcuts settings - Hint below the shortcut recording button",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Click the shortcut to record a new combination."
+          }
+        }
+      }
+    },
+    "settings.shortcuts.detail.recordingHelp" : {
+      "comment" : "Shortcuts settings - Instructions while recording a shortcut",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Press Escape to cancel, or Delete to remove the shortcut."
+          }
+        }
+      }
+    },
     "settings.shortcuts.recording.escapeModifiers" : {
       "comment": "Shortcuts settings - Explains which modifiers can be used when recording Escape",
       "extractionState": "manual",
@@ -287,13 +1607,14 @@
         }
       }
     },
-    "settings.shortcuts.reassignment.changed": {
-      "comment": "Shortcuts settings - A stale conflict confirmation was canceled without changing any bindings",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Shortcuts changed while you were reviewing them. Record the shortcut again to review the current conflicts."
+    "settings.shortcuts.reassignment.changed" : {
+      "comment" : "Shortcuts settings - A stale conflict confirmation was canceled without changing any bindings",
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Shortcuts changed while you were reviewing them. Record the shortcut again to review the current conflicts."
           }
         }
       }
@@ -353,57 +1674,62 @@
         }
       }
     },
-    "settings.shortcuts.reassignment.title": {
-      "comment": "Shortcuts settings - Title when a recorded key is already owned by another action",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Shortcut already in use"
+    "settings.shortcuts.reassignment.title" : {
+      "comment" : "Shortcuts settings - Title when a recorded key is already owned by another action",
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Shortcut already in use"
           }
         }
       }
     },
-    "settings.shortcuts.reassignment.confirm": {
-      "comment": "Shortcuts settings - Assign the recorded key and disable all bindings of the conflicting commands",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Reassign"
+    "settings.shortcuts.reassignment.confirm" : {
+      "comment" : "Shortcuts settings - Assign the recorded key and disable all bindings of the conflicting commands",
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reassign"
           }
         }
       }
     },
-    "settings.shortcuts.reassignment.cancel": {
-      "comment": "Shortcuts settings - Keep all existing bindings without assigning the recorded key",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cancel"
+    "settings.shortcuts.reassignment.cancel" : {
+      "comment" : "Shortcuts settings - Keep all existing bindings without assigning the recorded key",
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cancel"
           }
         }
       }
     },
-    "settings.shortcuts.reassignment.message": {
-      "comment": "Shortcuts settings - Conflict confirmation; first placeholder is the recorded key, second is a list of command names",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ is used by %@. Reassigning disables all shortcuts for those commands."
+    "settings.shortcuts.reassignment.message" : {
+      "comment" : "Shortcuts settings - Conflict confirmation; first placeholder is the recorded key, second is a list of command names",
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ is used by %@. Reassigning disables all shortcuts for those commands."
           }
         }
       }
     },
-    "settings.shortcuts.reassignment.reserved": {
-      "comment": "Shortcuts settings - Conflict with read-only bindings; first placeholder is the recorded key, second is their names",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ is used by %@. These shortcuts cannot be changed here. Choose a different key."
+    "settings.shortcuts.reassignment.reserved" : {
+      "comment" : "Shortcuts settings - Conflict with read-only bindings; first placeholder is the recorded key, second is their names",
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ is used by %@. These shortcuts cannot be changed here. Choose a different key."
           }
         }
       }
@@ -85806,7 +87132,7 @@
     },
     "settings.shortcuts.conflictMessage" : {
       "comment" : "Shortcuts settings - Warning text showing conflicting shortcuts",
-      "extractionState" : "extracted_with_value",
+      "extractionState" : "stale",
       "localizations" : {
         "de" : {
           "stringUnit" : {

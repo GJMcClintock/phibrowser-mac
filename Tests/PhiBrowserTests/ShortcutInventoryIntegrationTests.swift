@@ -108,7 +108,7 @@ final class ShortcutInventoryIntegrationTests: XCTestCase {
         XCTAssertTrue(try item(.IDC_DUPLICATE_TAB, in: model).conflictingCommandNames.contains(quit.name))
     }
 
-    func testSystemServicesAreHiddenButStillBlockConflictingAssignments() throws {
+    func testSystemServicesAreHiddenButStillReportConflictingAssignments() throws {
         let bindings: [ShortcutBinding] = [
             .init(commandID: CommandWrapper.IDC_CONTENT_CONTEXT_SELECTALL.rawValue,
                   key: .init(characters: "a", modifiers: .command), scope: .all, source: .menu, title: "Select All"),
@@ -125,10 +125,11 @@ final class ShortcutInventoryIntegrationTests: XCTestCase {
             XCTAssertFalse(model.reservedShortcuts.contains { $0.id == binding.owner })
             XCTAssertFalse(model.sections.flatMap(\.items).contains { $0.command.rawValue == binding.commandID })
             XCTAssertTrue(model.inventory.occupants(of: binding.key).contains(binding))
-            model.requestCustomShortcut(for: .IDC_DUPLICATE_TAB, key: binding.key)
-            let pending = try XCTUnwrap(model.reassignment)
-            XCTAssertFalse(pending.canReassign)
-            XCTAssertTrue(pending.names.contains(try XCTUnwrap(binding.title)))
+            install([.IDC_DUPLICATE_TAB: .custom(binding.key)])
+            model.rebuildSections()
+            let conflict = try XCTUnwrap(model.conflicts(for: .IDC_DUPLICATE_TAB).first { $0.id == binding.owner })
+            XCTAssertNil(conflict.command)
+            XCTAssertEqual(conflict.name, try XCTUnwrap(binding.title))
         }
         for command in [CommandWrapper.IDC_FIND, .IDC_FIND_NEXT, .IDC_FIND_PREVIOUS, .IDC_FOCUS_SEARCH] {
             XCTAssertNotNil(try item(command, in: model).shortcutKey)
@@ -146,8 +147,9 @@ final class ShortcutInventoryIntegrationTests: XCTestCase {
         XCTAssertEqual(try item(.IDC_ADD_NEW_TAB_TO_GROUP, in: model).shortcutKey, focus)
         XCTAssertEqual(try item(.IDC_RELOAD_BYPASSING_CACHE, in: model).shortcutKey,
                        ShortcutsKey(characters: "r", modifiers: [.command, .shift]))
-        model.requestCustomShortcut(for: .IDC_DUPLICATE_TAB, key: focus)
-        XCTAssertTrue(try XCTUnwrap(model.reassignment).canReassign)
+        install([.IDC_DUPLICATE_TAB: .custom(focus)])
+        model.rebuildSections()
+        XCTAssertTrue(model.conflicts(for: .IDC_DUPLICATE_TAB).contains { $0.command == .IDC_ADD_NEW_TAB_TO_GROUP })
 
         install([.IDC_ADD_NEW_TAB_TO_GROUP: .disabled])
         let disabled = ShortcutsViewModel(additionalBindings: { [] })

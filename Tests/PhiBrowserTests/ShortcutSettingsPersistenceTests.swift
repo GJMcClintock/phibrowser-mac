@@ -54,6 +54,107 @@ final class ShortcutSettingsPersistenceTests: XCTestCase {
         try XCTUnwrap(model.sections.flatMap(\.items).first { $0.command == command })
     }
 
+    func testConflictDetailsDeduplicateOwnersAndOnlyLinkVisibleCommands() throws {
+        let hiddenCommand = CommandWrapper.IDC_SHOW_READING_MODE_KEYBOARD
+        let model = ShortcutsViewModel(additionalBindings: {
+            [self.customNativeBinding(),
+             ShortcutBinding(commandID: hiddenCommand.rawValue, key: self.customKey,
+                             scope: .browser, source: .hidden, title: "Reading Mode"),
+             ShortcutBinding(commandID: CommandWrapper.IDC_RELOAD.rawValue, key: self.customKey,
+                             scope: .browser, source: .menu),
+             ShortcutBinding(commandID: CommandWrapper.IDC_RELOAD.rawValue, key: self.customKey,
+                             scope: .browser, source: .hidden)]
+        })
+        model.setCustomShortcut(for: .IDC_DUPLICATE_TAB, key: customKey)
+        let conflicts = model.conflicts(for: .IDC_DUPLICATE_TAB)
+        XCTAssertEqual(conflicts.count, 3)
+        XCTAssertEqual(conflicts.filter { $0.command == .IDC_RELOAD }.count, 1)
+        XCTAssertEqual(conflicts.first { $0.id == .nativeAction("copy:") }?.name, "Copy")
+        XCTAssertNil(try XCTUnwrap(conflicts.first { $0.id == .nativeAction("copy:") }).command)
+        XCTAssertNil(try XCTUnwrap(conflicts.first { $0.id == .command(hiddenCommand.rawValue) }).command)
+        XCTAssertEqual(conflicts.first { $0.command == .IDC_RELOAD }?.keys, [customKey.displayString])
+    }
+
+    func testConflictNavigationClearsBothFiltersAndRecordsDestination() throws {
+        let model = ShortcutsViewModel(additionalBindings: { [] })
+        model.searchText = "Duplicate Tab"
+        model.searchedKey = customKey
+        model.editingCommand = .IDC_DUPLICATE_TAB
+        model.selectConflict(.IDC_RELOAD)
+        XCTAssertEqual(model.searchText, "")
+        XCTAssertNil(model.searchedKey)
+        XCTAssertEqual(model.capture, .command(.IDC_RELOAD))
+        XCTAssertEqual(model.selectedItem?.command, .IDC_RELOAD)
+        XCTAssertTrue(model.filteredSections.flatMap(\.items).contains { $0.command == .IDC_RELOAD })
+    }
+
+    func testExplicitSelectionStartsRecordingAndTransfersToAnotherCommand() {
+        let model = ShortcutsViewModel(additionalBindings: { [] })
+        XCTAssertNil(model.capture)
+        model.selectCommandForRecording(.IDC_NEW_WINDOW)
+        XCTAssertEqual(model.selectedCommand, .IDC_NEW_WINDOW)
+        XCTAssertEqual(model.capture, .command(.IDC_NEW_WINDOW))
+        let previousSession = model.captureSessionID
+        model.selectCommandForRecording(.IDC_NEW_TAB)
+        XCTAssertEqual(model.selectedCommand, .IDC_NEW_TAB)
+        XCTAssertEqual(model.capture, .command(.IDC_NEW_TAB))
+        model.cancelCapture(sessionID: previousSession)
+        XCTAssertEqual(model.capture, .command(.IDC_NEW_TAB))
+        XCTAssertEqual(writeCount, 0)
+    }
+
+    func testReselectingSameCommandCreatesFreshCaptureAndIgnoresOldCancellation() {
+        let model = ShortcutsViewModel(additionalBindings: { [] })
+        model.selectCommandForRecording(.IDC_NEW_WINDOW)
+        let previousSession = model.captureSessionID
+        model.selectCommandForRecording(.IDC_NEW_WINDOW)
+        XCTAssertNotEqual(model.captureSessionID, previousSession)
+        model.cancelCapture(sessionID: previousSession)
+        XCTAssertEqual(model.capture, .command(.IDC_NEW_WINDOW))
+        model.cancelCapture(sessionID: model.captureSessionID)
+        XCTAssertNil(model.capture)
+        XCTAssertEqual(writeCount, 0)
+    }
+
+    func testSelectionDoesNotRecordWhenConfigurationCannotBeRead() {
+        contents = Data("damaged configuration".utf8)
+        _ = Shortcuts.reloadOverrides()
+        let model = ShortcutsViewModel(additionalBindings: { [] })
+        model.selectCommandForRecording(.IDC_NEW_WINDOW)
+        XCTAssertEqual(model.selectedCommand, .IDC_NEW_WINDOW)
+        XCTAssertNil(model.capture)
+        XCTAssertEqual(writeCount, 0)
+    }
+
+    func testFilteringSelectsVisibleCommandAndClearsDetailForNoResults() throws {
+        let model = ShortcutsViewModel(additionalBindings: { [] })
+        model.searchText = "Duplicate Tab"
+        XCTAssertEqual(model.selectedItem?.command, .IDC_DUPLICATE_TAB)
+        XCTAssertNil(model.capture)
+        model.editingCommand = .IDC_DUPLICATE_TAB
+        model.searchText = "no-shortcut-matches-this-query"
+        XCTAssertNil(model.selectedItem)
+        XCTAssertNil(model.capture)
+        model.searchText = ""
+        XCTAssertNotNil(model.selectedItem)
+    }
+
+    func testOverrideStateIsIndependentOfConflictsIncludingAfterRestore() throws {
+        let model = ShortcutsViewModel(additionalBindings: { [] })
+        let reload = try XCTUnwrap(Shortcuts.DefaultShortcuts[.IDC_RELOAD])
+        model.setCustomShortcut(for: .IDC_DUPLICATE_TAB, key: reload)
+        XCTAssertTrue(try item(.IDC_DUPLICATE_TAB, in: model).isOverridden)
+        XCTAssertTrue(try item(.IDC_DUPLICATE_TAB, in: model).hasConflict)
+        XCTAssertFalse(try item(.IDC_RELOAD, in: model).isOverridden)
+        XCTAssertTrue(try item(.IDC_RELOAD, in: model).hasConflict)
+        model.disableShortcut(for: .IDC_RELOAD)
+        XCTAssertTrue(try item(.IDC_RELOAD, in: model).isOverridden)
+        XCTAssertFalse(try item(.IDC_RELOAD, in: model).hasConflict)
+        model.restoreDefaultShortcut(for: .IDC_RELOAD)
+        XCTAssertFalse(try item(.IDC_RELOAD, in: model).isOverridden)
+        XCTAssertTrue(try item(.IDC_RELOAD, in: model).hasConflict)
+    }
+
     func testSaveFailureKeepsUIAndBridgeAtPreviousBindingThenRetrySucceeds() throws {
         let model = ShortcutsViewModel()
         let command = CommandWrapper.PHI_COPY_URL
@@ -166,67 +267,70 @@ final class ShortcutSettingsPersistenceTests: XCTestCase {
         XCTAssertEqual(contents, Data("[]".utf8))
     }
 
-    func testReassignmentRequiresConfirmationAndCommitsAllOwnersTogether() throws {
-        let model = ShortcutsViewModel(additionalBindings: { [] })
-        let reload = try XCTUnwrap(Shortcuts.DefaultShortcuts[.IDC_RELOAD])
-        model.requestCustomShortcut(for: .IDC_DUPLICATE_TAB, key: reload)
-        XCTAssertTrue(try XCTUnwrap(model.reassignment).canReassign)
-        XCTAssertEqual(writeCount, 0)
-        XCTAssertNil(Shortcuts.overrideState(for: CommandWrapper.IDC_DUPLICATE_TAB.rawValue))
-        model.confirmReassignment(model.reassignment)
+    func testRecordingNewWindowOnNewTabKeyKeepsBothBindingsAndReportsConflict() throws {
+        let model = ShortcutsViewModel()
+        let newTabKey = try XCTUnwrap(Shortcuts.DefaultShortcuts[.IDC_NEW_TAB])
+        model.selectedCommand = .IDC_NEW_WINDOW
+        model.editingCommand = .IDC_NEW_WINDOW
+        let event = try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero,
+            modifierFlags: .command, timestamp: 0, windowNumber: 0, context: nil,
+            characters: "t", charactersIgnoringModifiers: "t", isARepeat: false, keyCode: 17))
+        model.handleCaptureEvent(event)
+        XCTAssertNil(model.capture)
         XCTAssertEqual(writeCount, 1)
-        XCTAssertEqual(Shortcuts.overrideState(for: CommandWrapper.IDC_RELOAD.rawValue), .disabled)
-        XCTAssertEqual(Shortcuts.overrideState(for: CommandWrapper.IDC_DUPLICATE_TAB.rawValue), .custom(reload))
+        XCTAssertEqual(Shortcuts.key(for: .IDC_NEW_WINDOW), newTabKey)
+        XCTAssertEqual(Shortcuts.key(for: .IDC_NEW_TAB), newTabKey)
+        XCTAssertEqual(Shortcuts.configuration.overrides, [CommandWrapper.IDC_NEW_WINDOW.rawValue: .custom(newTabKey)])
+        XCTAssertEqual(model.selectedItem?.command, .IDC_NEW_WINDOW)
+        XCTAssertTrue(model.conflicts(for: .IDC_NEW_WINDOW).contains { $0.command == .IDC_NEW_TAB })
+        XCTAssertTrue(model.conflicts(for: .IDC_NEW_TAB).contains { $0.command == .IDC_NEW_WINDOW })
+        try Shortcuts.reloadOverrides().get()
+        model.rebuildSections()
+        XCTAssertEqual(Set(model.inventory.occupants(of: newTabKey).map(\.owner)),
+                       [.command(CommandWrapper.IDC_NEW_WINDOW.rawValue), .command(CommandWrapper.IDC_NEW_TAB.rawValue)])
+        model.restoreDefaultShortcut(for: .IDC_NEW_WINDOW)
+        XCTAssertEqual(Shortcuts.key(for: .IDC_NEW_TAB), newTabKey)
+        XCTAssertFalse(try item(.IDC_NEW_WINDOW, in: model).hasConflict)
     }
 
-    func testReassignmentConfirmationUsesPresentedSnapshotAfterAlertDismissal() throws {
-        let model = ShortcutsViewModel(additionalBindings: { [] })
-        let reload = try XCTUnwrap(Shortcuts.DefaultShortcuts[.IDC_RELOAD])
-        model.requestCustomShortcut(for: .IDC_DUPLICATE_TAB, key: reload)
-        let presented = try XCTUnwrap(model.reassignment)
-        model.reassignment = nil
-        model.confirmReassignment(presented)
-        XCTAssertEqual(writeCount, 1)
-        XCTAssertEqual(Shortcuts.overrideState(for: CommandWrapper.IDC_RELOAD.rawValue), .disabled)
-        XCTAssertEqual(Shortcuts.overrideState(for: CommandWrapper.IDC_DUPLICATE_TAB.rawValue), .custom(reload))
-    }
 
-    func testFailedReassignmentRetainsEveryBindingAndCanBeRetried() throws {
+    func testFailedConflictingRecordingRetainsEveryBindingAndCanBeRetried() throws {
         let model = ShortcutsViewModel(additionalBindings: { [] })
         let reload = try XCTUnwrap(Shortcuts.DefaultShortcuts[.IDC_RELOAD])
-        model.requestCustomShortcut(for: .IDC_DUPLICATE_TAB, key: reload)
         rejectsWrites = true
-        model.confirmReassignment(model.reassignment)
+        model.setCustomShortcut(for: .IDC_DUPLICATE_TAB, key: reload)
         XCTAssertEqual(model.persistenceFailure, .save)
         XCTAssertTrue(Shortcuts.configuration.overrides.isEmpty)
         XCTAssertEqual(contents, Data("[]".utf8))
         rejectsWrites = false
-        model.requestCustomShortcut(for: .IDC_DUPLICATE_TAB, key: reload)
-        model.confirmReassignment(model.reassignment)
+        model.setCustomShortcut(for: .IDC_DUPLICATE_TAB, key: reload)
         XCTAssertEqual(writeCount, 1)
+        XCTAssertEqual(Shortcuts.key(for: .IDC_RELOAD), reload)
+        XCTAssertEqual(Shortcuts.key(for: .IDC_DUPLICATE_TAB), reload)
     }
 
-    func testCancelingReassignmentDoesNotWrite() throws {
+    func testCancelingRecordingDoesNotWrite() throws {
         let model = ShortcutsViewModel(additionalBindings: { [] })
-        model.requestCustomShortcut(for: .IDC_DUPLICATE_TAB,
-                                    key: try XCTUnwrap(Shortcuts.DefaultShortcuts[.IDC_RELOAD]))
-        XCTAssertNotNil(model.reassignment)
-        model.reassignment = nil
-        model.confirmReassignment(model.reassignment)
+        model.editingCommand = .IDC_DUPLICATE_TAB
+        let event = try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero,
+            modifierFlags: [], timestamp: 0, windowNumber: 0, context: nil,
+            characters: "\u{1B}", charactersIgnoringModifiers: "\u{1B}", isARepeat: false, keyCode: 53))
+        model.handleCaptureEvent(event)
+        XCTAssertNil(model.capture)
         XCTAssertEqual(writeCount, 0)
         XCTAssertTrue(Shortcuts.configuration.overrides.isEmpty)
     }
 
-    func testNativeActionConflictIsReadOnlyAndCannotBeReassigned() throws {
+    func testNativeActionConflictIsSavedAndReportedWithoutChangingNativeBinding() throws {
         let model = ShortcutsViewModel(additionalBindings: { [self.customNativeBinding()] })
-        model.requestCustomShortcut(for: .IDC_DUPLICATE_TAB, key: customKey)
-        let pending = try XCTUnwrap(model.reassignment)
-        XCTAssertFalse(pending.canReassign)
-        XCTAssertTrue(pending.names.contains("Copy"))
-        model.confirmReassignment(model.reassignment)
-        XCTAssertEqual(writeCount, 0)
+        model.setCustomShortcut(for: .IDC_DUPLICATE_TAB, key: customKey)
+        XCTAssertEqual(writeCount, 1)
+        XCTAssertEqual(Shortcuts.key(for: .IDC_DUPLICATE_TAB), customKey)
+        let conflict = try XCTUnwrap(model.conflicts(for: .IDC_DUPLICATE_TAB).first { $0.id == .nativeAction("copy:") })
+        XCTAssertEqual(conflict.name, "Copy")
+        XCTAssertNil(conflict.command)
         XCTAssertFalse(model.reservedShortcuts.contains { $0.id == .nativeAction("copy:") })
-        XCTAssertFalse(model.inventory.occupants(of: customKey).isEmpty)
+        XCTAssertTrue(model.inventory.occupants(of: customKey).contains(customNativeBinding()))
     }
 
     private func customNativeBinding() -> ShortcutBinding {
@@ -234,22 +338,70 @@ final class ShortcutSettingsPersistenceTests: XCTestCase {
                         scope: .all, source: .menu, title: "Copy")
     }
 
-    func testStaleReassignmentCannotOverwriteExternallyReloadedConfiguration() throws {
-        let model = ShortcutsViewModel(additionalBindings: { [] })
-        model.requestCustomShortcut(for: .IDC_DUPLICATE_TAB,
-                                    key: try XCTUnwrap(Shortcuts.DefaultShortcuts[.IDC_RELOAD]))
-        let presented = try XCTUnwrap(model.reassignment)
-        contents = Data("[{\"commandId\":\(CommandWrapper.IDC_RELOAD.rawValue),\"key\":null}]".utf8)
-        let external = contents
-        _ = Shortcuts.reloadOverrides()
-        model.reassignment = nil
-        model.confirmReassignment(presented)
-        XCTAssertEqual(writeCount, 0)
-        XCTAssertEqual(contents, external)
-        XCTAssertNil(Shortcuts.overrideState(for: CommandWrapper.IDC_DUPLICATE_TAB.rawValue))
+
+    func testConflictingForwardAliasPreservesAllKeysAcrossReloadAndRestore() throws {
+        let bridge = try XCTUnwrap(ChromiumLauncher.sharedInstance().bridge)
+        let arrow = ShortcutsKey(characters: "\u{F703}", modifiers: .command)
+        let bracket = ShortcutsKey(characters: "]", modifiers: .command)
+        for (taken, retained) in [(arrow, bracket), (bracket, arrow)] {
+            bridge.requestRebuildMainMenu()
+            let model = ShortcutsViewModel()
+            model.setCustomShortcut(for: .IDC_DUPLICATE_TAB, key: taken)
+            XCTAssertNil(Shortcuts.overrideState(for: CommandWrapper.IDC_FORWARD.rawValue))
+            XCTAssertEqual(try item(.IDC_FORWARD, in: model).shortcutKey, Shortcuts.DefaultShortcuts[.IDC_FORWARD])
+            for _ in 0..<2 {
+                // Inspect actual menu and Framework exports, not only UI filtering.
+                let bindings = Shortcuts.additionalBindings().filter { $0.commandID == CommandWrapper.IDC_FORWARD.rawValue }
+                XCTAssertTrue(bindings.contains { $0.key.menuKeyEquivalent == retained.menuKeyEquivalent })
+                XCTAssertTrue(bindings.contains { $0.key.menuKeyEquivalent == taken.menuKeyEquivalent })
+                XCTAssertEqual(Set(model.inventory.occupants(of: taken).map(\.owner)),
+                               [.command(CommandWrapper.IDC_DUPLICATE_TAB.rawValue), .command(CommandWrapper.IDC_FORWARD.rawValue)])
+                _ = Shortcuts.reloadOverrides()
+                bridge.requestRebuildMainMenu()
+                model.rebuildSections()
+            }
+            model.disableShortcut(for: .IDC_FORWARD)
+            XCTAssertTrue(Shortcuts.additionalBindings().filter { $0.commandID == CommandWrapper.IDC_FORWARD.rawValue }.isEmpty)
+            model.restoreDefaultShortcut(for: .IDC_DUPLICATE_TAB)
+            model.restoreDefaultShortcut(for: .IDC_FORWARD)
+            let restored = Shortcuts.additionalBindings().filter { $0.commandID == CommandWrapper.IDC_FORWARD.rawValue }
+            XCTAssertTrue(restored.contains { $0.key.menuKeyEquivalent == arrow.menuKeyEquivalent })
+            XCTAssertTrue(restored.contains { $0.key.menuKeyEquivalent == bracket.menuKeyEquivalent })
+        }
     }
 
-    func testSearchCaptureDoesNotWriteOrExecuteAReassignment() throws {
+    func testConflictingHiddenTabAliasPreservesPrimaryAndAliasBindings() throws {
+        let bridge = try XCTUnwrap(ChromiumLauncher.sharedInstance().bridge)
+        bridge.requestRebuildMainMenu()
+        let model = ShortcutsViewModel()
+        let pageDown = ShortcutsKey(characters: "\u{F72D}", modifiers: .control)
+        let original = try XCTUnwrap(try item(.IDC_SELECT_NEXT_TAB, in: model).shortcutKey)
+        model.setCustomShortcut(for: .IDC_DUPLICATE_TAB, key: pageDown)
+        let remaining = Shortcuts.additionalBindings().filter { $0.commandID == CommandWrapper.IDC_SELECT_NEXT_TAB.rawValue }
+        XCTAssertTrue(remaining.contains { $0.key.menuKeyEquivalent == pageDown.menuKeyEquivalent })
+        XCTAssertTrue(remaining.contains { $0.key.menuKeyEquivalent == original.menuKeyEquivalent })
+        XCTAssertEqual(try item(.IDC_SELECT_NEXT_TAB, in: model).shortcutKey, original)
+    }
+
+    func testSuccessiveConflictingRecordingsPreserveAllOtherCommandAliases() throws {
+        let command = CommandWrapper.IDC_FORWARD
+        let first = ShortcutsKey(characters: "\u{F703}", modifiers: .command)
+        let second = ShortcutsKey(characters: "f", modifiers: [.control, .option])
+        let primary = try XCTUnwrap(Shortcuts.DefaultShortcuts[command])
+        let model = ShortcutsViewModel(additionalBindings: {
+            [first, second].filter { Shortcuts.overrideState(for: command.rawValue)?.excludes($0) != true }
+                .map { ShortcutBinding(commandID: command.rawValue, key: $0, scope: .browser, source: .hidden) }
+        })
+        model.setCustomShortcut(for: .IDC_DUPLICATE_TAB, key: first)
+        model.setCustomShortcut(for: .IDC_WINDOW_MUTE_SITE, key: second)
+        XCTAssertNil(Shortcuts.overrideState(for: command.rawValue))
+        XCTAssertEqual(try item(command, in: model).shortcutKey, primary)
+        XCTAssertEqual(Set(model.inventory.occupants(of: first).map(\.owner)), [.command(CommandWrapper.IDC_DUPLICATE_TAB.rawValue), .command(command.rawValue)])
+        XCTAssertEqual(Set(model.inventory.occupants(of: second).map(\.owner)), [.command(CommandWrapper.IDC_WINDOW_MUTE_SITE.rawValue), .command(command.rawValue)])
+    }
+
+
+    func testSearchCaptureDoesNotWriteAnyBinding() throws {
         let model = ShortcutsViewModel(additionalBindings: { [self.customNativeBinding()] })
         model.capture = .search
         let event = try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero,
@@ -260,7 +412,6 @@ final class ShortcutSettingsPersistenceTests: XCTestCase {
         XCTAssertNil(model.capture)
         XCTAssertTrue(model.matchesSearch(.nativeAction("copy:")))
         XCTAssertFalse(model.matchesSearch(.command(CommandWrapper.IDC_RELOAD.rawValue)))
-        XCTAssertNil(model.reassignment)
         XCTAssertEqual(writeCount, 0)
     }
 
@@ -342,18 +493,14 @@ final class ShortcutSettingsPersistenceTests: XCTestCase {
                       "Product defaults must not be persisted as user disables")
     }
 
-    func testExplicitUserConflictWithProductKeyStillRequiresReassignment() throws {
+    func testExplicitUserConflictWithProductKeyPreservesBothBindings() throws {
         try XCTUnwrap(ChromiumLauncher.sharedInstance().bridge).requestRebuildMainMenu()
         let model = ShortcutsViewModel()
         let copyKey = try XCTUnwrap(Shortcuts.DefaultShortcuts[.PHI_COPY_URL])
-        model.requestCustomShortcut(for: .IDC_DEV_TOOLS_INSPECT, key: copyKey)
-        let pending = try XCTUnwrap(model.reassignment)
-        XCTAssertEqual(pending.owners, [.command(CommandWrapper.PHI_COPY_URL.rawValue)])
-        XCTAssertTrue(pending.canReassign)
-        model.confirmReassignment(pending)
-        XCTAssertNil(Shortcuts.key(for: .PHI_COPY_URL))
+        model.setCustomShortcut(for: .IDC_DEV_TOOLS_INSPECT, key: copyKey)
+        XCTAssertEqual(Shortcuts.key(for: .PHI_COPY_URL), copyKey)
         XCTAssertEqual(Set(model.inventory.occupants(of: copyKey).map(\.owner)),
-                       [.command(CommandWrapper.IDC_DEV_TOOLS_INSPECT.rawValue)])
+                       [.command(CommandWrapper.IDC_DEV_TOOLS_INSPECT.rawValue), .command(CommandWrapper.PHI_COPY_URL.rawValue)])
         XCTAssertTrue(model.inventory.bindings(for: CommandWrapper.IDC_DEV_TOOLS_INSPECT.rawValue).contains {
             $0.source == .hidden && $0.key.menuKeyEquivalent == copyKey.menuKeyEquivalent
         }, "Explicit user overrides must still reach the Framework")
@@ -381,7 +528,7 @@ final class ShortcutSettingsPersistenceTests: XCTestCase {
         XCTAssertEqual(Set(model.inventory.occupants(of: oldKey).map(\.owner)), [.command(CommandWrapper.PHI_TAB_SWITCHER_FORWARD.rawValue)])
     }
 
-    func testLiveHiddenOwnersHaveNamesAndBrowserBindingsCanBeReassigned() throws {
+    func testLiveHiddenOwnersHaveNamesAndConflictingBindingsArePreserved() throws {
         let bridge = try XCTUnwrap(ChromiumLauncher.sharedInstance().bridge)
         XCTAssertTrue(bridge.responds(to: NSSelectorFromString("shortcutBindings")))
         bridge.requestRebuildMainMenu()
@@ -399,12 +546,11 @@ final class ShortcutSettingsPersistenceTests: XCTestCase {
         let row = try item(.IDC_MOVE_TAB_NEXT, in: model)
         XCTAssertEqual(row.name, "Move Tab Right")
         XCTAssertEqual(row.shortcutKey, reserved.key)
-        model.requestCustomShortcut(for: .IDC_DUPLICATE_TAB, key: reserved.key)
-        XCTAssertTrue(try XCTUnwrap(model.reassignment).canReassign)
-        model.confirmReassignment(model.reassignment)
+        model.setCustomShortcut(for: .IDC_DUPLICATE_TAB, key: reserved.key)
         XCTAssertEqual(writeCount, 1)
-        XCTAssertEqual(Shortcuts.overrideState(for: CommandWrapper.IDC_MOVE_TAB_NEXT.rawValue), .disabled)
-        XCTAssertNil(try item(.IDC_MOVE_TAB_NEXT, in: model).shortcutKey)
+        XCTAssertNil(Shortcuts.overrideState(for: CommandWrapper.IDC_MOVE_TAB_NEXT.rawValue))
+        XCTAssertEqual(try item(.IDC_MOVE_TAB_NEXT, in: model).shortcutKey, reserved.key)
+        XCTAssertTrue(model.conflicts(for: .IDC_DUPLICATE_TAB).contains { $0.command == .IDC_MOVE_TAB_NEXT })
     }
 
     func testBrowserCommandsCanBeCustomizedDisabledAndRestoredInLiveTables() throws {
@@ -487,8 +633,7 @@ final class ShortcutSettingsPersistenceTests: XCTestCase {
             return nil
         }
         for (_, key, keyCode) in productDisabledKeys {
-            model.requestCustomShortcut(for: .IDC_RELOAD, key: key)
-            XCTAssertNil(model.reassignment)
+            model.setCustomShortcut(for: .IDC_RELOAD, key: key)
             XCTAssertEqual(Shortcuts.key(for: .IDC_RELOAD), key)
             XCTAssertEqual(Set(model.inventory.occupants(of: key).map(\.owner)),
                            [.command(CommandWrapper.IDC_RELOAD.rawValue)])

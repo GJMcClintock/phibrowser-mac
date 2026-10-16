@@ -12,17 +12,6 @@ class ShortcutsViewModel: ObservableObject {
         case search
     }
 
-    struct Reassignment: Identifiable {
-        let id = UUID()
-        let command: CommandWrapper
-        let key: ShortcutsKey
-        let owners: Set<ShortcutBinding.Owner>
-        let names: [String]
-        let canReassign: Bool
-        let configuration: [Int: ShortcutOverride]
-        let fileURL: URL?
-    }
-
     enum PersistenceFailure {
         case load, save
 
@@ -37,9 +26,24 @@ class ShortcutsViewModel: ObservableObject {
     }
 
     @Published var sections: [(category: String, subtitle: String?, items: [ShortcutItem])] = []
-    @Published var capture: Capture?
-    @Published var searchedKey: ShortcutsKey?
-    @Published var reassignment: Reassignment?
+    @Published private(set) var captureSessionID = UUID()
+    @Published var capture: Capture? {
+        didSet { captureSessionID = UUID() }
+    }
+    @Published var selectedCommand: CommandWrapper? {
+        didSet {
+            if selectedCommand != oldValue {
+                capture = nil
+                recordingMessage = nil
+            }
+        }
+    }
+    @Published var searchText = "" {
+        didSet { reconcileSelection() }
+    }
+    @Published var searchedKey: ShortcutsKey? {
+        didSet { reconcileSelection() }
+    }
     @Published var recordingMessage: String?
     @Published private(set) var reservedShortcuts: [ReservedShortcutItem] = []
     @Published var hiddenGroups: Set<Shortcuts.Group> = [.help, .bookmarks]
@@ -49,6 +53,75 @@ class ShortcutsViewModel: ObservableObject {
     private(set) var inventory = ShortcutInventory(bindings: [])
 
     var canEdit: Bool { persistenceFailure != .load }
+
+    var selectedItem: ShortcutItem? {
+        sections.flatMap(\.items).first { $0.command == selectedCommand }
+    }
+
+    var filteredSections: [(category: String, subtitle: String?, items: [ShortcutItem])] {
+        sections.compactMap { section in
+            let items = section.items.filter { item in
+                matchesSearch(.command(item.command.rawValue)) && (searchText.isEmpty ||
+                    item.name.localizedStandardContains(searchText) ||
+                    item.shortcutDisplay.localizedStandardContains(searchText) ||
+                    item.aliases.contains { $0.displayString.localizedStandardContains(searchText) } ||
+                    item.searchKeywords.contains { $0.localizedStandardContains(searchText) })
+            }
+            return items.isEmpty ? nil : (section.category, section.subtitle, items)
+        }
+    }
+
+    var filteredReservedShortcuts: [ReservedShortcutItem] {
+        reservedShortcuts.filter { item in
+            matchesSearch(item.id) && (searchText.isEmpty ||
+                item.name.localizedStandardContains(searchText) ||
+                item.keys.contains { $0.displayString.localizedStandardContains(searchText) })
+        }
+    }
+
+    private func reconcileSelection() {
+        let commands = filteredSections.flatMap(\.items).map(\.command)
+        if !commands.contains(where: { $0 == selectedCommand }) {
+            selectedCommand = commands.first
+        }
+    }
+
+    /// Explicit selection starts recording; search-driven selection never takes focus.
+    func selectCommandForRecording(_ command: CommandWrapper) {
+        guard sections.flatMap(\.items).contains(where: { $0.command == command }) else { return }
+        selectedCommand = command
+        recordingMessage = nil
+        capture = canEdit ? .command(command) : nil
+    }
+
+    func cancelCapture(sessionID: UUID) {
+        // A previous responder can resign after the next recording has started.
+        guard captureSessionID == sessionID else { return }
+        capture = nil
+    }
+
+    func selectConflict(_ command: CommandWrapper) {
+        guard sections.flatMap(\.items).contains(where: { $0.command == command }) else { return }
+        searchText = ""
+        searchedKey = nil
+        selectCommandForRecording(command)
+    }
+
+    func conflicts(for command: CommandWrapper) -> [ShortcutConflictItem] {
+        let visibleCommands = Set(sections.flatMap(\.items).map(\.command))
+        let bindings = inventory.bindings(for: command.rawValue).flatMap { binding in
+            inventory.conflicts(for: command.rawValue, key: binding.key, in: binding.scope)
+        }
+        let owners = Dictionary(grouping: bindings, by: \.owner)
+        return owners.keys.sorted { $0.precedes($1) }.map { owner in
+            let target = owner.commandID.flatMap(CommandWrapper.init(rawValue:))
+                .flatMap { visibleCommands.contains($0) ? $0 : nil }
+            return ShortcutConflictItem(
+                id: owner, name: displayName(for: owner), command: target,
+                keys: Array(Set(owners[owner, default: []].map { $0.key.displayString })).sorted()
+            )
+        }
+    }
 
     var editingCommand: CommandWrapper? {
         get {
@@ -71,7 +144,6 @@ class ShortcutsViewModel: ObservableObject {
             .sink { [weak self] _ in
                 guard let self else { return }
                 self.capture = nil
-                self.reassignment = nil
                 self.refreshLoadFailure()
                 self.rebuildSections()
             }
@@ -123,6 +195,7 @@ class ShortcutsViewModel: ObservableObject {
                                  keys: Array(Set(unlisted[owner, default: []].map(\.key)))
                                     .sorted { $0.displayString < $1.displayString })
         }
+        reconcileSelection()
     }
 
     private func makeItem(_ command: CommandWrapper) -> ShortcutItem {
@@ -235,48 +308,12 @@ class ShortcutsViewModel: ObservableObject {
         case .disable:
             disableShortcut(for: command)
         case .key(let key):
-            requestCustomShortcut(for: command, key: key)
+            setCustomShortcut(for: command, key: key)
         case .unsupported:
             recordingMessage = event.keyCode == 53
                 ? NSLocalizedString("settings.shortcuts.recording.escapeModifiers", value: "Escape shortcuts require Command or Control.", comment: "Shortcuts settings - macOS menu matching does not support Escape with only Shift or Option")
                 : NSLocalizedString("settings.shortcuts.recording.unsupported", value: "Use a modifier key. Letters and symbols require Command, Control, or Option.", comment: "Shortcuts settings - Recording rejected an unmodified key or a Shift-only printable key to preserve normal typing")
         }
-    }
-
-    func requestCustomShortcut(for command: CommandWrapper, key: ShortcutsKey) {
-        capture = nil
-        recordingMessage = nil
-        rebuildSections()
-        let owners = Set(inventory.conflicts(for: command.rawValue, key: key,
-                                            in: command.shortcutScope).map(\.owner))
-        guard !owners.isEmpty else {
-            setCustomShortcut(for: command, key: key)
-            return
-        }
-        let configurable = Set(sections.flatMap(\.items).map { $0.command.rawValue })
-        reassignment = Reassignment(
-            command: command, key: key, owners: owners,
-            names: owners.sorted { $0.precedes($1) }.map { displayName(for: $0) },
-            canReassign: owners.allSatisfy { $0.commandID.map(configurable.contains) ?? false },
-            configuration: Shortcuts.configuration.overrides,
-            fileURL: Shortcuts.configuration.fileURL
-        )
-    }
-
-    func confirmReassignment(_ pending: Reassignment?) {
-        guard let pending, pending.canReassign else { return }
-        reassignment = nil
-        rebuildSections()
-        let currentOwners = Set(inventory.conflicts(for: pending.command.rawValue,
-                                                   key: pending.key, in: pending.command.shortcutScope).map(\.owner))
-        guard currentOwners == pending.owners,
-              Shortcuts.configuration.overrides == pending.configuration,
-              Shortcuts.configuration.fileURL == pending.fileURL else {
-            recordingMessage = NSLocalizedString("settings.shortcuts.reassignment.changed", value: "Shortcuts changed while you were reviewing them. Record the shortcut again to review the current conflicts.", comment: "Shortcuts settings - A stale conflict confirmation was canceled without changing any bindings")
-            return
-        }
-        apply(Shortcuts.setOverride(.custom(pending.key), for: pending.command,
-                                   disabling: pending.owners.compactMap(\.commandID)))
     }
 
     private func searchKeywords(for command: CommandWrapper) -> [String] {
@@ -292,7 +329,9 @@ class ShortcutsViewModel: ObservableObject {
         return Array(Set(keywords.map { $0.lowercased() }))
     }
     
+    /// Save only this command. Conflicts remain visible for the user to resolve.
     func setCustomShortcut(for command: CommandWrapper, key: ShortcutsKey) {
+        recordingMessage = nil
         apply(Shortcuts.setOverride(.custom(key), for: command))
     }
     
@@ -528,4 +567,12 @@ struct ReservedShortcutItem: Identifiable {
     let id: ShortcutBinding.Owner
     let name: String
     let keys: [ShortcutsKey]
+}
+
+/// A conflict destination exists only for commands shown in the editable list.
+struct ShortcutConflictItem: Identifiable {
+    let id: ShortcutBinding.Owner
+    let name: String
+    let command: CommandWrapper?
+    let keys: [String]
 }
