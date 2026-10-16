@@ -171,16 +171,26 @@ enum SaveForLaterService {
     /// feature's characteristic failure — a site markup change making a
     /// trigger rule misfire and spray files to disk — stoppable without an
     /// app release or a rules refresh. Manual saves are not behind it.
+    ///
+    /// Default on. Like `featureEnabled` on Canary, the raw flag is read so
+    /// nil keeps meaning "undecided" — not loaded yet, offline, or the key
+    /// absent from the project — and only an explicit false from PostHog
+    /// hides the toggle. `isFeatureEnabled` would collapse nil to false and
+    /// blank the row on every launch that renders Settings before flags
+    /// arrive. A multivariate value counts as on.
     static var autoTriggerFlagEnabled: Bool {
         #if DEBUG
-        // Local development: `-SaveForLaterAutoTriggerFlag YES` stands in
-        // for the PostHog flag so the trigger chain is testable before the
-        // flag exists in the project.
+        // Local development: `-SaveForLaterAutoTriggerFlag NO` stands in
+        // for the PostHog kill switch so the off path is testable without
+        // touching the project.
         if UserDefaults.standard.object(forKey: "SaveForLaterAutoTriggerFlag") != nil {
             return UserDefaults.standard.bool(forKey: "SaveForLaterAutoTriggerFlag")
         }
         #endif
-        return PostHogSDK.shared.isFeatureEnabled("save-for-later-auto-trigger")
+        guard let flag = PostHogSDK.shared.getFeatureFlag("save-for-later-auto-trigger") else {
+            return true
+        }
+        return (flag as? Bool) ?? true
     }
 
     /// Effective arming: Folio on && flag && user opt-in.
