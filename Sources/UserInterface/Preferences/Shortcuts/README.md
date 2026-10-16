@@ -234,7 +234,9 @@ Non-keyboard command entry points and menu item visibility are unchanged.
   duplicated. Unknown command IDs remain named read-only owners.
   Assigning a conflicting key preserves all other commands and their aliases.
   Explicitly disabling a command still clears all of its own bindings. Restoring
-  defaults clears its override.
+  defaults clears its override, including exclusions saved by earlier versions.
+  The paired Framework must support `excludedKeyEquivalents` to honor those
+  existing configurations in menu, hidden, and delayed binding matching.
 - Uppercase menu equivalents display Shift explicitly; navigation and function
   keys have readable labels. Presentation does not change execution identity.
 - Select Previous/Next Tab use command-specific labels for their shifted bracket
@@ -426,13 +428,17 @@ registration; toggling the preference off and on provides an explicit retry.
 
 ## Persistence and Compatibility
 
-`CustomShortcuts.json` represents three states:
+`CustomShortcuts.json` represents four states:
 
 - No command entry: use the default shortcut.
-- Entry with a null key: explicitly disabled.
+- Entry with a null key and no exclusions: explicitly disabled.
 - Entry with a key: custom override.
+- Entry with `excludedKeys` and a null key: inherit defaults except those keys.
 
-In memory these are absence, `ShortcutOverride.disabled`, and `.custom(key)`.
+In memory these are absence, `ShortcutOverride.disabled`, `.custom(key)`, and
+`.excluding(keys)`. Existing custom/disabled records keep their original format.
+Older clients interpret an exclusion record as a full disable, so using this
+configuration with an older client does not retain the partial-default behavior.
 The store writes a candidate before replacing its in-memory value; a failed
 write leaves the previous runtime bindings and file intact. Unknown command IDs
 survive unrelated edits. Legacy records with an omitted key also mean disabled.

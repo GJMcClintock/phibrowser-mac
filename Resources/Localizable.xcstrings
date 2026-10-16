@@ -1687,7 +1687,7 @@
       }
     },
     "settings.shortcuts.reassignment.confirm" : {
-      "comment" : "Shortcuts settings - Assign the recorded key and disable all bindings of the conflicting commands",
+      "comment" : "Shortcuts settings - Assign the recorded key and remove only the matching bindings from conflicting commands",
       "extractionState" : "stale",
       "localizations" : {
         "en" : {
@@ -1717,7 +1717,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%@ is used by %@. Reassigning disables all shortcuts for those commands."
+            "value" : "%@ is used by %@. Reassigning removes only this shortcut from those commands. Their other shortcuts stay active."
           }
         }
       }

@@ -185,7 +185,8 @@ extension Shortcuts {
     static func key(for command: CommandWrapper) -> ShortcutsKey? {
         guard !disabledShortcutCommands.contains(command) else { return nil }
         if let override = overrideState(for: command.rawValue) {
-            return override.key
+            if !override.inheritsDefaults { return override.key }
+            return DefaultShortcuts[command].flatMap { override.excludes($0) ? nil : $0 }
         }
         return DefaultShortcuts[command]
     }
@@ -205,14 +206,14 @@ extension Shortcuts {
     @discardableResult
     static func setOverride(
         _ state: ShortcutOverride?, for command: CommandWrapper,
-        disabling conflicts: [Int] = []
+        updating conflicts: [Int: ShortcutOverride] = [:]
     ) -> Result<Void, Error> {
         var override = state
         if case .custom(let key) = state, key == DefaultShortcuts[command] {
             override = nil
         }
         return changeConfiguration {
-            try $0.set(override, for: command.rawValue, disabling: conflicts, at: customShortcutsFileURL)
+            try $0.set(override, for: command.rawValue, updating: conflicts, at: customShortcutsFileURL)
         }
     }
     
@@ -623,7 +624,7 @@ extension Shortcuts {
         let effectiveKey: ShortcutsKey?
         if isShortcutDisabled(for: item.tag) {
             effectiveKey = nil
-        } else if let override = overrideState(for: item.tag) {
+        } else if let override = overrideState(for: item.tag), !override.inheritsDefaults {
             effectiveKey = override.key
         } else {
             guard let command = CommandWrapper(rawValue: item.tag),
@@ -631,7 +632,7 @@ extension Shortcuts {
                 // Preserve menu items that do not participate in shortcut settings.
                 return
             }
-            effectiveKey = defaultKey
+            effectiveKey = overrideState(for: item.tag)?.excludes(defaultKey) == true ? nil : defaultKey
         }
 
         if let key = effectiveKey {

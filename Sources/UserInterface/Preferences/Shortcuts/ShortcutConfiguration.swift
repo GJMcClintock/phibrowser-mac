@@ -8,10 +8,25 @@ import Foundation
 enum ShortcutOverride: Equatable {
     case disabled
     case custom(ShortcutsKey)
+    case excluding([ShortcutsKey])
+
+    var excludedKeys: [ShortcutsKey] {
+        if case .excluding(let keys) = self { return keys }
+        return []
+    }
+
+    func excludes(_ key: ShortcutsKey) -> Bool {
+        excludedKeys.contains { $0.menuKeyEquivalent == key.menuKeyEquivalent }
+    }
+
+    var inheritsDefaults: Bool {
+        if case .excluding = self { return true }
+        return false
+    }
 
     var key: ShortcutsKey? {
         switch self {
-        case .disabled: return nil
+        case .disabled, .excluding: return nil
         case .custom(let key): return key
         }
     }
@@ -45,26 +60,34 @@ struct ShortcutConfiguration {
     private struct Record: Codable {
         let commandId: Int
         let key: ShortcutsKey?
+        let excludedKeys: [ShortcutsKey]?
 
         enum CodingKeys: String, CodingKey {
-            case commandId, key
+            case commandId, key, excludedKeys
         }
 
-        init(commandId: Int, key: ShortcutsKey?) {
+        init(commandId: Int, state: ShortcutOverride) {
             self.commandId = commandId
-            self.key = key
+            key = state.key
+            excludedKeys = state.inheritsDefaults ? state.excludedKeys : nil
         }
 
         init(from decoder: Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
             commandId = try container.decode(Int.self, forKey: .commandId)
             key = try container.decodeIfPresent(ShortcutsKey.self, forKey: .key)
+            excludedKeys = try container.decodeIfPresent([ShortcutsKey].self, forKey: .excludedKeys)
+            if excludedKeys != nil && key != nil {
+                throw DecodingError.dataCorruptedError(forKey: .excludedKeys, in: container,
+                    debugDescription: "A shortcut cannot replace and exclude defaults simultaneously")
+            }
         }
 
         func encode(to encoder: Encoder) throws {
             var container = encoder.container(keyedBy: CodingKeys.self)
             try container.encode(commandId, forKey: .commandId)
             try container.encode(key, forKey: .key)
+            try container.encodeIfPresent(excludedKeys, forKey: .excludedKeys)
         }
     }
 
@@ -113,7 +136,8 @@ struct ShortcutConfiguration {
                 guard loaded[record.commandId] == nil else {
                     throw Failure.duplicateCommand(record.commandId)
                 }
-                loaded[record.commandId] = record.key.map(ShortcutOverride.custom) ?? .disabled
+                loaded[record.commandId] = record.excludedKeys.map(ShortcutOverride.excluding)
+                    ?? record.key.map(ShortcutOverride.custom) ?? .disabled
             }
             overrides = loaded
             loadError = nil
@@ -126,13 +150,13 @@ struct ShortcutConfiguration {
     mutating func set(
         _ override: ShortcutOverride?,
         for commandId: Int,
-        disabling conflicts: [Int] = [],
+        updating conflicts: [Int: ShortcutOverride] = [:],
         at url: URL
     ) throws {
         try prepareForWrite(at: url)
         var updated = overrides
-        for conflict in conflicts where conflict != commandId {
-            updated[conflict] = .disabled
+        for (conflict, state) in conflicts where conflict != commandId {
+            updated[conflict] = state
         }
         updated[commandId] = override
         try commit(updated, at: url)
@@ -167,8 +191,8 @@ struct ShortcutConfiguration {
     }
 
     private mutating func commit(_ updated: [Int: ShortcutOverride], at url: URL) throws {
-        let records = updated.keys.sorted().map {
-            Record(commandId: $0, key: updated[$0]?.key)
+        let records = updated.sorted { $0.key < $1.key }.map {
+            Record(commandId: $0.key, state: $0.value)
         }
         let data = try JSONEncoder().encode(records)
         try files.write(data, url.standardizedFileURL)

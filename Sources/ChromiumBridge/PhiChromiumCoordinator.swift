@@ -1937,6 +1937,13 @@ extension PhiChromiumCoordinator: PhiChromiumBridgeDelegate {
             return nil
         }
         
+        if state.inheritsDefaults {
+            return ["excludedKeyEquivalents": state.excludedKeys.map { key in
+                let equivalent = key.menuKeyEquivalent
+                return ["keyEquivalent": equivalent.characters,
+                        "modifierFlags": equivalent.modifiers.rawValue] as [String: Any]
+            }]
+        }
         if let key = state.key {
             let menuKey = key.menuKeyEquivalent
             return [

@@ -202,7 +202,9 @@ class ShortcutsViewModel: ObservableObject {
         let bindings = inventory.bindings(for: command.rawValue)
         // Chromium owns defaults for commands absent from Phi's default table.
         // An explicit disable must never fall back to a stale runtime snapshot.
-        let key = Shortcuts.key(for: command) ?? (Shortcuts.isOverridden(command) ? nil : bindings.first?.key)
+        let override = Shortcuts.overrideState(for: command.rawValue)
+        let inheritsDefaults = override == nil || override?.inheritsDefaults == true
+        let key = Shortcuts.key(for: command) ?? (inheritsDefaults ? bindings.first?.key : nil)
         return ShortcutItem(
             id: command, command: command, name: displayName(for: command),
             shortcutKey: key, shortcutDisplay: shortcutDisplay(for: command, key: key),

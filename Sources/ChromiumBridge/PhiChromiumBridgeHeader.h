@@ -727,7 +727,8 @@ typedef NS_ENUM(NSInteger, PhiGhostMaterializeOutcome) {
 /// call when the replay produced one.
 - (void)restoredWindowSnapshot:(NSDictionary<NSString *, id> *)snapshot
                       windowId:(int64_t)windowId;
-// Returns a custom shortcut override, or nil to use Chromium defaults.
+// Returns keyEquivalent/modifierFlags to replace all bindings, or
+// excludedKeyEquivalents to remove matching defaults only. Nil inherits defaults.
 - (nullable NSDictionary<NSString*, id>*)keyEquivalentOverrideForCommand:
     (int)commandId;
 

@@ -199,9 +199,49 @@ final class ShortcutConfigurationTests: XCTestCase {
         XCTAssertEqual(items.compactMap { $0["commandId"] as? Int }, [3, 99])
     }
 
+    func testAliasExclusionsRoundTripAtomicallyWithReassignedTarget() throws {
+        let arrow = ShortcutsKey(characters: "\u{F703}", modifiers: .command)
+        let forward = CommandWrapper.IDC_FORWARD.rawValue
+        var configuration = ShortcutConfiguration()
+        try configuration.set(custom, for: reloadID, updating: [forward: .excluding([arrow])], at: url)
+        var loaded = ShortcutConfiguration()
+        try loaded.reload(from: url)
+        XCTAssertEqual(loaded.overrides[forward], .excluding([arrow]))
+        XCTAssertEqual(loaded.overrides[reloadID], custom)
+        XCTAssertFalse(try XCTUnwrap(loaded.overrides[forward]).excludes(
+            ShortcutsKey(characters: "]", modifiers: .command)))
+        try loaded.set(nil, for: forward, at: url)
+        try configuration.reload(from: url)
+        XCTAssertNil(configuration.overrides[forward])
+    }
+
+    func testFailedAliasReassignmentPreservesDiskAndPreviousExclusions() throws {
+        let arrow = ShortcutsKey(characters: "\u{F703}", modifiers: .command)
+        let bracket = ShortcutsKey(characters: "]", modifiers: .command)
+        let forward = CommandWrapper.IDC_FORWARD.rawValue
+        var original = ShortcutConfiguration()
+        try original.set(.excluding([arrow]), for: forward, at: url)
+        let data = try Data(contentsOf: url)
+        var files = ShortcutConfiguration.FileAccess.live
+        files.write = { [denied] _, _ in throw denied }
+        var configuration = ShortcutConfiguration(files: files)
+        try configuration.reload(from: url)
+        XCTAssertThrowsError(try configuration.set(custom, for: reloadID,
+            updating: [forward: .excluding([arrow, bracket])], at: url))
+        XCTAssertEqual(configuration.overrides[forward], .excluding([arrow]))
+        XCTAssertNil(configuration.overrides[reloadID])
+        XCTAssertEqual(try Data(contentsOf: url), data)
+    }
+
+    func testExclusionsCompareMenuEquivalentShiftRepresentations() {
+        let state = ShortcutOverride.excluding([.init(characters: "r", modifiers: [.command, .shift])])
+        XCTAssertTrue(state.excludes(.init(characters: "R", modifiers: .command)))
+        XCTAssertFalse(state.excludes(.init(characters: "r", modifiers: .command)))
+    }
+
     func testReassignmentPersistsTargetAndDisablesAllConflictingCommandsTogether() throws {
         var configuration = try seed()
-        try configuration.set(custom, for: 99, disabling: [reloadID, 100, 99], at: url)
+        try configuration.set(custom, for: 99, updating: [reloadID: .disabled, 100: .disabled, 99: .disabled], at: url)
         var loaded = ShortcutConfiguration()
         try loaded.reload(from: url)
         XCTAssertEqual(loaded.overrides[99], custom)
@@ -216,7 +256,7 @@ final class ShortcutConfigurationTests: XCTestCase {
         files.write = { [denied] _, _ in throw denied }
         var configuration = ShortcutConfiguration(files: files)
         try configuration.reload(from: url)
-        XCTAssertThrowsError(try configuration.set(custom, for: 99, disabling: [reloadID, 100], at: url))
+        XCTAssertThrowsError(try configuration.set(custom, for: 99, updating: [reloadID: .disabled, 100: .disabled], at: url))
         XCTAssertEqual(configuration.overrides[reloadID], custom)
         XCTAssertNil(configuration.overrides[99])
         XCTAssertNil(configuration.overrides[100])
