@@ -610,7 +610,8 @@ final class ScreenshotEditorTests: XCTestCase {
         let textLayer = try XCTUnwrap(scene.sublayers?.last)
         let preview = try XCTUnwrap(textLayer.contents) as! CGImage
         XCTAssertLessThanOrEqual(preview.width * preview.height, 4_010_000)
-        XCTAssertEqual(model.selected?.frame, CGRect(x: 0, y: 0, width: 3200, height: 7500))
+        XCTAssertEqual(model.selected?.frame.width, 3200)
+        XCTAssertLessThan(try XCTUnwrap(model.selected).frame.height, 100)
         XCTAssertEqual(model.selected?.style.fontSize, 24)
         XCTAssertTrue(canvas.backgroundImage === model.source)
     }

@@ -138,9 +138,12 @@ Mixed selections adjust each object's size independently and each keypress is
 one undo step. Active text entry keeps its normal keyboard handling.
 
 Completed annotations remain separate editable objects. Select and drag an
-object to move it; drag bounding-box handles to resize shapes/freehand/text, or
+object to move it; drag bounding-box handles to resize shapes/freehand, or
 an arrow's two endpoint handles to change its geometry. Double-click retained
-text to edit its content using a native NSTextView. Text box resize reflows and fits display text while retaining its base font size.
+text to edit its content using a native NSTextView. Text exposes only left/right
+width handles. Width changes reflow text at the configured font size; height follows
+the content, including during typing and font-size changes.
+Preview and export never shrink text to fit a fixed height.
 Marquee and Command-A select multiple objects; move, resize, style, duplicate,
 delete and clipboard operations apply to the selected set.
 

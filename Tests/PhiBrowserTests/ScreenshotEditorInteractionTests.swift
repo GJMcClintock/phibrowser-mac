@@ -174,14 +174,74 @@ final class ScreenshotEditorInteractionTests: XCTestCase {
         m.continueInteraction(at: CGPoint(x: 314, y: 214)); m.endInteraction()
         XCTAssertEqual(m.annotations[0].points[1], CGPoint(x: 310, y: 210))
     }
-    func testTextFontFitsSmallerBoxWithoutChangingStoredFontOrOrigin() {
-        var item = ScreenshotAnnotation(kind: .text, frame: CGRect(x: 50, y: 60, width: 240, height: 90), text: "A paragraph that wraps on multiple lines.")
-        item.style.fontSize = 44
-        let font = ScreenshotSceneRenderer.fittedFontSize(for: item)
-        let smaller = item.editing(handle: .bottom, at: CGPoint(x: 170, y: 100))
-        XCTAssertLessThan(ScreenshotSceneRenderer.fittedFontSize(for: smaller), font)
-        XCTAssertEqual(smaller.style.fontSize, 44); XCTAssertEqual(smaller.frame.origin, item.frame.origin)
+    func testTextWidthHandlesReflowAtFixedFontAndPreserveTopEdge() throws {
+        let m = model()
+        m.textSize = 44
+        m.commitText("A paragraph that wraps on multiple lines.", frame: CGRect(x: 50, y: 60, width: 480, height: 1))
+        let original = try XCTUnwrap(m.selected)
+        XCTAssertEqual(m.selectionHandles.map(\.0), [.left, .right])
+        let right = try XCTUnwrap(m.selectionHandles.last?.1)
+        m.beginInteraction(at: right, tolerance: 2)
+        m.continueInteraction(at: CGPoint(x: right.x - 240, y: right.y + 100))
+        m.endInteraction()
+        let narrow = try XCTUnwrap(m.selected)
+        XCTAssertEqual(narrow.frame.width, 240)
+        XCTAssertGreaterThan(narrow.frame.height, original.frame.height)
+        XCTAssertEqual(narrow.style.fontSize, 44)
+        XCTAssertEqual(narrow.frame.origin, original.frame.origin)
+        XCTAssertEqual(narrow.editing(handle: .bottom, at: .zero), narrow)
+        let left = narrow.editing(handle: .left, at: CGPoint(x: 100, y: 700))
+        XCTAssertEqual(left.frame.maxX, narrow.frame.maxX)
+        XCTAssertEqual(left.frame.minY, narrow.frame.minY)
+        let minimum = narrow.editing(handle: .right, at: .zero)
+        XCTAssertEqual(minimum.frame.width, 12)
+        XCTAssertEqual(minimum.style.fontSize, 44)
+        let mirrored = narrow.editing(handle: .left, at: CGPoint(x: 100, y: 700), mirrored: true)
+        XCTAssertEqual(mirrored.frame.midX, narrow.frame.midX)
+        XCTAssertEqual(mirrored.frame.minY, narrow.frame.minY)
+        m.undo(); XCTAssertEqual(m.selected, original)
+        m.redo(); XCTAssertEqual(m.selected, narrow)
     }
+
+    func testTextHeightTracksFontChangesContentAndGroupResize() throws {
+        let m = model()
+        m.commitText("First line\nSecond line\n", frame: CGRect(x: 50, y: 60, width: 240, height: 1))
+        let original = try XCTUnwrap(m.selected)
+        m.textSize = 48
+        let enlarged = try XCTUnwrap(m.selected)
+        XCTAssertGreaterThan(enlarged.frame.height, original.frame.height)
+        XCTAssertEqual(enlarged.frame.width, original.frame.width)
+        m.undo(); XCTAssertEqual(m.selected, original)
+        m.redo(); XCTAssertEqual(m.selected, enlarged)
+        m.commitText("Short", frame: enlarged.frame, id: enlarged.id)
+        XCTAssertLessThan(try XCTUnwrap(m.selected).frame.height, enlarged.frame.height)
+        let transformed = original.transformed(from: original.frame,
+            to: CGRect(x: 20, y: 30, width: 120, height: 1))
+        XCTAssertEqual(transformed.style.fontSize, original.style.fontSize)
+        XCTAssertGreaterThan(transformed.frame.height, 1)
+        XCTAssertEqual(transformed.frame.width, 120)
+    }
+
+    func testNativeTextHeightGrowsPastImageBottomAndReservesTrailingLine() throws {
+        let m = model(), canvas = ScreenshotCanvasView()
+        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 1000, height: 800),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false; canvas.model = m; window.contentView = canvas
+        defer { window.close() }
+        canvas.beginText(at: CGPoint(x: 100, y: 780))
+        let entry = try XCTUnwrap(canvas.textEntry)
+        entry.insertText("One", replacementRange: NSRange(location: NSNotFound, length: 0))
+        let oneLineHeight = entry.frame.height
+        entry.insertText("\n", replacementRange: NSRange(location: NSNotFound, length: 0))
+        XCTAssertEqual(entry.string, "One\n")
+        XCTAssertGreaterThan(entry.frame.height, oneLineHeight)
+        XCTAssertGreaterThan(entry.frame.maxY, CGFloat(m.height))
+        XCTAssertEqual(entry.font?.pointSize, 24)
+        let editingHeight = entry.frame.height
+        canvas.commitText()
+        XCTAssertEqual(m.selected?.frame.height, editingHeight)
+    }
+
     func testOptionMirrorReflectionUsesOriginalExtentThreshold() {
         let item = ScreenshotAnnotation(kind: .freehand, points: [CGPoint(x: 100, y: 100), CGPoint(x: 200, y: 200)])
         let resized = item.editing(handle: .right, at: CGPoint(x: 140, y: 150), mirrored: true)

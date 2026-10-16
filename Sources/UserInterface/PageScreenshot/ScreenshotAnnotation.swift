@@ -58,6 +58,14 @@ struct ScreenshotAnnotation: Identifiable, Codable, Equatable, Sendable {
                     y: rect.minY + (old.height > 0 ? (point.y - old.minY) / old.height : 0.5) * rect.height)
         }
         result.frame = rect
+        return result.fittingText()
+    }
+
+    func fittingText() -> Self {
+        guard kind == .text else { return self }
+        var result = self
+        result.frame.size.width = max(12, frame.width)
+        result.frame.size.height = ScreenshotSceneRenderer.textHeight(for: result)
         return result
     }
 
@@ -107,6 +115,9 @@ struct ScreenshotAnnotation: Identifiable, Codable, Equatable, Sendable {
     var handles: [(Handle, CGPoint)] {
         if kind == .arrow, points.count == 2 { return [(.start, points[0]), (.end, points[1])] }
         let b = bounds
+        if kind == .text {
+            return [(.left, CGPoint(x: b.minX, y: b.midY)), (.right, CGPoint(x: b.maxX, y: b.midY))]
+        }
         return [(.topLeft, CGPoint(x: b.minX, y: b.minY)), (.top, CGPoint(x: b.midX, y: b.minY)),
                 (.topRight, CGPoint(x: b.maxX, y: b.minY)), (.right, CGPoint(x: b.maxX, y: b.midY)),
                 (.bottomRight, CGPoint(x: b.maxX, y: b.maxY)), (.bottom, CGPoint(x: b.midX, y: b.maxY)),
@@ -124,6 +135,21 @@ struct ScreenshotAnnotation: Identifiable, Codable, Equatable, Sendable {
             return result
         }
         let b = bounds
+        if kind == .text {
+            guard handle == .left || handle == .right else { return self }
+            let minimumWidth: CGFloat = 12
+            if mirrored {
+                let halfWidth = max(minimumWidth / 2, handle == .left ? b.midX - point.x : point.x - b.midX)
+                result.frame.origin.x = b.midX - halfWidth
+                result.frame.size.width = halfWidth * 2
+            } else if handle == .left {
+                result.frame.origin.x = min(point.x, b.maxX - minimumWidth)
+                result.frame.size.width = b.maxX - result.frame.minX
+            } else {
+                result.frame.size.width = max(minimumWidth, point.x - b.minX)
+            }
+            return result.fittingText()
+        }
         var x1 = b.minX, x2 = b.maxX, y1 = b.minY, y2 = b.maxY
         if [.topLeft, .left, .bottomLeft].contains(handle) { x1 = point.x }
         if [.topRight, .right, .bottomRight].contains(handle) { x2 = point.x }
@@ -151,7 +177,7 @@ struct ScreenshotAnnotation: Identifiable, Codable, Equatable, Sendable {
         result.points = points.map(map)
         let a = map(frame.origin), b = map(CGPoint(x: frame.maxX, y: frame.maxY))
         result.frame = CGRect(x: min(a.x, b.x), y: min(a.y, b.y), width: abs(b.x - a.x), height: abs(b.y - a.y))
-        return result
+        return result.fittingText()
     }
 }
 
@@ -165,28 +191,18 @@ struct ScreenshotSnapshot: @unchecked Sendable {
 
 /// Both the export compositor and retained text layers use this text layout.
 enum ScreenshotSceneRenderer {
-    /// The original font size stays in the model; a smaller box only changes presentation.
-    /// Binary search uses CoreText measurements to fit the text within the available height.
-    static func fittedFontSize(for annotation: ScreenshotAnnotation) -> CGFloat {
-        let rect = annotation.frame.insetBy(dx: 4, dy: 4)
-        guard rect.width > 0, rect.height > 0 else { return 0.2 }
-        func fits(_ size: CGFloat) -> Bool {
-            let text = NSAttributedString(string: annotation.text.isEmpty ? " " : annotation.text, attributes: [
-                NSAttributedString.Key(kCTFontAttributeName as String): CTFontCreateWithName(".AppleSystemUIFont" as CFString, size, nil)
-            ])
-            let height = CTFramesetterSuggestFrameSizeWithConstraints(CTFramesetterCreateWithAttributedString(text),
-                CFRange(location: 0, length: 0), nil, CGSize(width: rect.width, height: .greatestFiniteMagnitude), nil).height
-            // CoreText drops a whole line if even its final fractional point does not fit.
-            return height <= rect.height
-        }
-        let base = annotation.style.fontSize
-        if fits(base) { return base }
-        var lower: CGFloat = 0, upper = base
-        while upper - lower > 0.2 {
-            let mid = (lower + upper) / 2
-            if fits(mid) { lower = mid } else { upper = mid }
-        }
-        return max(0.2, lower)
+    /// Height is derived from the configured font and width, never used to shrink the font.
+    static func textHeight(for annotation: ScreenshotAnnotation) -> CGFloat {
+        // Include the empty final line so Return leaves room for the insertion point.
+        let text = annotation.text.isEmpty || annotation.text.hasSuffix("\n") || annotation.text.hasSuffix("\r")
+            ? annotation.text + " " : annotation.text
+        let attributed = NSAttributedString(string: text, attributes: [
+            NSAttributedString.Key(kCTFontAttributeName as String): CTFontCreateWithName(".AppleSystemUIFont" as CFString, annotation.style.fontSize, nil)
+        ])
+        let size = CTFramesetterSuggestFrameSizeWithConstraints(CTFramesetterCreateWithAttributedString(attributed),
+            CFRange(location: 0, length: 0), nil,
+            CGSize(width: max(4, annotation.frame.width - 8), height: .greatestFiniteMagnitude), nil)
+        return ceil(size.height) + 8
     }
     static func draw(_ annotation: ScreenshotAnnotation, in context: CGContext) {
         context.saveGState()
@@ -199,7 +215,7 @@ enum ScreenshotSceneRenderer {
             let rect = annotation.frame.insetBy(dx: 4, dy: 4)
             guard rect.width > 0, rect.height > 0 else { return }
             let attributed = NSAttributedString(string: annotation.text, attributes: [
-                NSAttributedString.Key(kCTFontAttributeName as String): CTFontCreateWithName(".AppleSystemUIFont" as CFString, fittedFontSize(for: annotation), nil),
+                NSAttributedString.Key(kCTFontAttributeName as String): CTFontCreateWithName(".AppleSystemUIFont" as CFString, annotation.style.fontSize, nil),
                 NSAttributedString.Key(kCTForegroundColorAttributeName as String): annotation.style.color.cgColor,
             ])
             let setter = CTFramesetterCreateWithAttributedString(attributed)
