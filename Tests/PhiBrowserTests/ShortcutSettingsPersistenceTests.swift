@@ -79,11 +79,9 @@ final class ShortcutSettingsPersistenceTests: XCTestCase {
         let model = ShortcutsViewModel(additionalBindings: { [] })
         model.filter = .customized
         model.searchText = "Duplicate Tab"
-        model.searchedKey = customKey
         model.editingCommand = .IDC_DUPLICATE_TAB
         model.selectConflict(.IDC_RELOAD)
         XCTAssertEqual(model.searchText, "")
-        XCTAssertNil(model.searchedKey)
         XCTAssertEqual(model.filter, .all)
         XCTAssertNil(model.capture)
         XCTAssertEqual(model.selectedItem?.command, .IDC_RELOAD)
@@ -125,13 +123,12 @@ final class ShortcutSettingsPersistenceTests: XCTestCase {
         XCTAssertEqual(model.filteredSections.flatMap(\.items).map(\.command), section.items.map(\.command))
         XCTAssertTrue(model.filteredReservedShortcuts.isEmpty)
         model.searchText = try item(.IDC_RELOAD, in: model).name
-        model.searchedKey = Shortcuts.key(for: .IDC_RELOAD)
-        XCTAssertEqual(model.filteredSections.flatMap(\.items).map(\.command), [.IDC_RELOAD])
+        XCTAssertEqual(Set(model.filteredSections.flatMap(\.items).map(\.command)),
+                       [.IDC_RELOAD, .IDC_RELOAD_BYPASSING_CACHE])
         model.searchText = "no-shortcut-matches-this-query"
         XCTAssertTrue(model.filteredSections.isEmpty)
         XCTAssertNil(model.selectedCommand)
         model.searchText = ""
-        model.searchedKey = nil
         model.filter = .all
         XCTAssertEqual(model.filteredSections.map(\.category), model.sections.map(\.category))
     }
@@ -187,14 +184,10 @@ final class ShortcutSettingsPersistenceTests: XCTestCase {
         XCTAssertEqual(writeCount, 0)
     }
 
-    func testModifierPreviewIgnoresSearchAndInactiveCapture() {
+    func testModifierPreviewIgnoresInactiveCapture() {
         let model = ShortcutsViewModel(additionalBindings: { [] })
         model.handleCaptureModifiers(.command)
         XCTAssertEqual(model.recordingModifiers, [])
-        model.capture = .search
-        model.handleCaptureModifiers([.control, .option])
-        XCTAssertEqual(model.recordingModifiers, [])
-        XCTAssertEqual(model.capture, .search)
         XCTAssertEqual(writeCount, 0)
     }
 
@@ -507,18 +500,164 @@ final class ShortcutSettingsPersistenceTests: XCTestCase {
     }
 
 
-    func testSearchCaptureDoesNotWriteAnyBinding() throws {
-        let model = ShortcutsViewModel(additionalBindings: { [self.customNativeBinding()] })
-        model.capture = .search
-        let event = try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero,
-            modifierFlags: customKey.modifiers, timestamp: 0, windowNumber: 0, context: nil,
-            characters: "j", charactersIgnoringModifiers: "j", isARepeat: false, keyCode: 38))
-        model.handleCaptureEvent(event)
-        XCTAssertEqual(model.searchedKey, customKey)
-        XCTAssertNil(model.capture)
-        XCTAssertTrue(model.matchesSearch(.nativeAction("copy:")))
-        XCTAssertFalse(model.matchesSearch(.command(CommandWrapper.IDC_RELOAD.rawValue)))
+    func testTextSearchMatchesModifierNamesSymbolsAndKeyCombinationsWithoutWriting() {
+        let key = ShortcutsKey(characters: "s", modifiers: [.command, .control])
+        let model = ShortcutsViewModel(additionalBindings: {
+            [ShortcutBinding(commandID: CommandWrapper.IDC_DUPLICATE_TAB.rawValue,
+                             key: key, scope: .browser, source: .hidden)]
+        })
+        for query in ["command", "CMD", "control", "CTRL", "S", "⌘", "⌃",
+                      "cmd ctrl s", "COMMAND+CONTROL+S", "⌘⌃S", "⌃ ⌘ s",
+                      "  cMd + CtRl + s  ", "command CMD control CTRL S"] {
+            model.searchText = query
+            XCTAssertTrue(model.filteredSections.flatMap(\.items).contains {
+                $0.command == .IDC_DUPLICATE_TAB
+            }, query)
+            XCTAssertNil(model.capture)
+        }
+        for query in ["cmd ctrl x", "cmd option s", "shift ctrl s", "cmd ctrl a"] {
+            model.searchText = query
+            XCTAssertFalse(model.filteredSections.flatMap(\.items).contains {
+                $0.command == .IDC_DUPLICATE_TAB
+            }, query)
+        }
         XCTAssertEqual(writeCount, 0)
+    }
+
+    func testTextSearchMatchesOtherModifiersAndReadOnlyBindings() {
+        let command = CommandWrapper.IDC_SHOW_READING_MODE_KEYBOARD
+        let key = ShortcutsKey(characters: "s", modifiers: [.option, .shift, .function])
+        let model = ShortcutsViewModel(additionalBindings: {
+            [ShortcutBinding(commandID: command.rawValue, key: key,
+                             scope: .browser, source: .hidden, title: "Reading Mode")]
+        })
+        for query in ["option", "OPT", "alt", "⌥", "shift", "⇧", "fn", "function", "🌐",
+                      "alt shift fn s", "🌐⌥⇧S", "Reading Mode"] {
+            model.searchText = query
+            XCTAssertTrue(model.filteredReservedShortcuts.contains {
+                $0.id == .command(command.rawValue)
+            }, query)
+        }
+        model.searchText = "cmd s"
+        XCTAssertTrue(model.filteredReservedShortcuts.isEmpty)
+        XCTAssertEqual(writeCount, 0)
+    }
+
+    func testTextSearchDoesNotCombineSeparateAliases() {
+        let command = CommandWrapper.IDC_DUPLICATE_TAB
+        let model = ShortcutsViewModel(additionalBindings: {
+            [ShortcutsKey(characters: "s", modifiers: .command),
+             ShortcutsKey(characters: "j", modifiers: .control)].map {
+                ShortcutBinding(commandID: command.rawValue, key: $0, scope: .browser, source: .hidden)
+            }
+        })
+        model.searchText = "cmd ctrl s"
+        XCTAssertFalse(model.filteredSections.flatMap(\.items).contains { $0.command == command })
+        model.searchText = "control j"
+        XCTAssertTrue(model.filteredSections.flatMap(\.items).contains { $0.command == command })
+    }
+
+    func testTextSearchTracksRebindDisableAndRestore() {
+        let model = ShortcutsViewModel(additionalBindings: { [] })
+        model.setCustomShortcut(for: .IDC_NEW_WINDOW,
+                                key: ShortcutsKey(characters: "s", modifiers: [.command, .control]))
+        model.searchText = "cmd ctrl s"
+        XCTAssertTrue(model.filteredSections.flatMap(\.items).contains { $0.command == .IDC_NEW_WINDOW })
+        model.disableShortcut(for: .IDC_NEW_WINDOW)
+        XCTAssertFalse(model.filteredSections.flatMap(\.items).contains { $0.command == .IDC_NEW_WINDOW })
+        model.searchText = "New Window"
+        XCTAssertTrue(model.filteredSections.flatMap(\.items).contains { $0.command == .IDC_NEW_WINDOW })
+        model.restoreDefaultShortcut(for: .IDC_NEW_WINDOW)
+        model.searchText = "cmd n"
+        XCTAssertTrue(model.filteredSections.flatMap(\.items).contains { $0.command == .IDC_NEW_WINDOW })
+    }
+
+    func testTextSearchPreservesDisplayedKeysAndLiteralPlus() {
+        let model = ShortcutsViewModel(additionalBindings: { [] })
+        model.searchText = "cmd shift ["
+        XCTAssertTrue(model.filteredSections.flatMap(\.items).contains { $0.command == .IDC_SELECT_PREVIOUS_TAB })
+        model.setCustomShortcut(for: .IDC_DUPLICATE_TAB,
+                                key: ShortcutsKey(characters: "+", modifiers: [.command, .shift]))
+        for query in ["+", "cmd shift +", "command+shift++", "⌘⇧+"] {
+            model.searchText = query
+            XCTAssertTrue(model.filteredSections.flatMap(\.items).contains { $0.command == .IDC_DUPLICATE_TAB }, query)
+        }
+        model.searchText = "   \n "
+        XCTAssertEqual(model.filteredSections.flatMap(\.items).count, model.sections.flatMap(\.items).count)
+    }
+
+    func testIncrementalModifierSearchKeepsMatchingWhileTyping() {
+        let model = ShortcutsViewModel(additionalBindings: { [] })
+        model.setCustomShortcut(for: .IDC_NEW_WINDOW,
+                                key: ShortcutsKey(characters: "s", modifiers: [.command, .control]))
+        for query in ["co", "com", "comm", "comma", "comman", "command", "cm", "cmd",
+                      "cmd+", "cmd + ", "cmd+co", "cmd+con", "cmd+cont", "cmd+contr",
+                      "cmd+contro", "cmd+control", "cmd+control+", "cmd+control+s", "CMD + CTR + S"] {
+            model.searchText = query
+            XCTAssertTrue(model.filteredSections.flatMap(\.items).contains { $0.command == .IDC_NEW_WINDOW }, query)
+        }
+        model.setCustomShortcut(for: .IDC_DUPLICATE_TAB,
+                                key: ShortcutsKey(characters: "z", modifiers: [.option, .shift, .function]))
+        for query in ["op", "opti", "al", "sh", "shif", "fu", "funct", "op sh fu z"] {
+            model.searchText = query
+            XCTAssertTrue(model.filteredSections.flatMap(\.items).contains { $0.command == .IDC_DUPLICATE_TAB }, query)
+        }
+        for query in ["cmd s", "op a", "op s", "op f"] {
+            model.searchText = query
+            XCTAssertFalse(model.filteredSections.flatMap(\.items).contains { $0.command == .IDC_DUPLICATE_TAB }, query)
+        }
+    }
+
+    func testIncompleteSeparatorDoesNotRequireLiteralPlus() {
+        let model = ShortcutsViewModel(additionalBindings: { [] })
+        model.setCustomShortcut(for: .IDC_NEW_WINDOW,
+                                key: ShortcutsKey(characters: "n", modifiers: [.command, .shift]))
+        model.setCustomShortcut(for: .IDC_DUPLICATE_TAB,
+                                key: ShortcutsKey(characters: "+", modifiers: [.command, .shift]))
+        for query in ["cmd+", "cmd + ", "cmd+shift+", "cmd shift +"] {
+            model.searchText = query
+            let commands = Set(model.filteredSections.flatMap(\.items).map(\.command))
+            XCTAssertTrue(commands.contains(.IDC_NEW_WINDOW), query)
+            XCTAssertTrue(commands.contains(.IDC_DUPLICATE_TAB), query)
+        }
+        for query in ["+", "cmd++", "cmd+shift++", "⌘⇧+"] {
+            model.searchText = query
+            let commands = Set(model.filteredSections.flatMap(\.items).map(\.command))
+            XCTAssertFalse(commands.contains(.IDC_NEW_WINDOW), query)
+            XCTAssertTrue(commands.contains(.IDC_DUPLICATE_TAB), query)
+        }
+    }
+
+    func testSearchSnapshotRefreshesEditableAndReadOnlyAliases() {
+        var key = ShortcutsKey(characters: "j", modifiers: .command)
+        let command = CommandWrapper.IDC_DUPLICATE_TAB
+        let reservedCommand = CommandWrapper.IDC_SHOW_READING_MODE_KEYBOARD
+        let model = ShortcutsViewModel(additionalBindings: {
+            [command, reservedCommand].map {
+                ShortcutBinding(commandID: $0.rawValue, key: key, scope: .browser, source: .hidden)
+            }
+        })
+        model.searchText = "cmd j"
+        XCTAssertTrue(model.filteredSections.flatMap(\.items).contains { $0.command == command })
+        XCTAssertTrue(model.filteredReservedShortcuts.contains { $0.id == .command(reservedCommand.rawValue) })
+        key = ShortcutsKey(characters: "x", modifiers: .control)
+        model.rebuildSections()
+        XCTAssertFalse(model.filteredSections.flatMap(\.items).contains { $0.command == command })
+        XCTAssertTrue(model.filteredReservedShortcuts.isEmpty)
+        model.searchText = "ctrl x"
+        XCTAssertTrue(model.filteredSections.flatMap(\.items).contains { $0.command == command })
+        XCTAssertTrue(model.filteredReservedShortcuts.contains { $0.id == .command(reservedCommand.rawValue) })
+        let commands = model.filteredSections.flatMap(\.items).map(\.command)
+        model.selectedCommand = command
+        model.startRecording(for: command)
+        XCTAssertEqual(model.filteredSections.flatMap(\.items).map(\.command), commands)
+        model.filter = .reserved
+        XCTAssertTrue(model.filteredSections.isEmpty)
+        XCTAssertNil(model.selectedCommand)
+        XCTAssertTrue(model.filteredReservedShortcuts.contains { $0.id == .command(reservedCommand.rawValue) })
+        model.filter = .all
+        XCTAssertEqual(model.filteredSections.flatMap(\.items).map(\.command), commands)
+        XCTAssertNotNil(model.selectedItem)
     }
 
     func testPairedFrameworkExportsAliasesAndHonorsRebindDisableRestore() throws {

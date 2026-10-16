@@ -30,7 +30,6 @@ class ShortcutsViewModel: ObservableObject {
 
     enum Capture: Equatable {
         case command(CommandWrapper)
-        case search
     }
 
     enum PersistenceFailure {
@@ -64,15 +63,16 @@ class ShortcutsViewModel: ObservableObject {
         }
     }
     @Published var searchText = "" {
-        didSet { reconcileSelection() }
-    }
-    @Published var searchedKey: ShortcutsKey? {
-        didSet { reconcileSelection() }
+        didSet {
+            guard searchText != oldValue else { return }
+            updateFilteredResults()
+        }
     }
     @Published var filter: Filter = .all {
         didSet {
+            guard filter != oldValue else { return }
             capture = nil
-            reconcileSelection()
+            updateFilteredResults()
         }
     }
     @Published var recordingMessage: String?
@@ -82,6 +82,9 @@ class ShortcutsViewModel: ObservableObject {
     private var cancellables = Set<AnyCancellable>()
     private let additionalBindings: () -> [ShortcutBinding]
     private(set) var inventory = ShortcutInventory(bindings: [])
+    private var searchEntries: [ShortcutBinding.Owner: ShortcutSearchEntry] = [:]
+    @Published private(set) var filteredSections: [(category: String, subtitle: String?, items: [ShortcutItem])] = []
+    @Published private(set) var filteredReservedShortcuts: [ReservedShortcutItem] = []
 
     var canEdit: Bool { persistenceFailure != .load }
 
@@ -89,25 +92,36 @@ class ShortcutsViewModel: ObservableObject {
         sections.flatMap(\.items).first { $0.command == selectedCommand }
     }
 
-    var filteredSections: [(category: String, subtitle: String?, items: [ShortcutItem])] {
-        sections.compactMap { section in
+    /// Selection and the view share one result snapshot per search or inventory change.
+    private func updateFilteredResults() {
+        let query = ShortcutSearchQuery(searchText)
+        filteredSections = sections.compactMap { section in
             let items = section.items.filter { item in
-                matchesFilter(item, category: section.category) &&
-                matchesSearch(.command(item.command.rawValue)) && (searchText.isEmpty ||
-                    item.name.localizedStandardContains(searchText) ||
-                    item.shortcutDisplay.localizedStandardContains(searchText) ||
-                    item.aliases.contains { $0.displayString.localizedStandardContains(searchText) } ||
-                    item.searchKeywords.contains { $0.localizedStandardContains(searchText) })
+                guard matchesFilter(item, category: section.category),
+                      let entry = searchEntries[.command(item.command.rawValue)] else { return false }
+                return query.matches(entry)
             }
             return items.isEmpty ? nil : (section.category, section.subtitle, items)
         }
+        filteredReservedShortcuts = reservedShortcuts.filter { item in
+            guard matchesFilter(item), let entry = searchEntries[item.id] else { return false }
+            return query.matches(entry)
+        }
+        reconcileSelection()
     }
 
-    var filteredReservedShortcuts: [ReservedShortcutItem] {
-        reservedShortcuts.filter { item in
-            matchesFilter(item) && matchesSearch(item.id) && (searchText.isEmpty ||
-                item.name.localizedStandardContains(searchText) ||
-                item.keys.contains { $0.displayString.localizedStandardContains(searchText) })
+    private func rebuildSearchEntries() {
+        searchEntries.removeAll(keepingCapacity: true)
+        for item in sections.flatMap(\.items) {
+            let keys = item.shortcutKey.map {
+                [$0, shortcutDisplayKey(for: item.command, key: $0)]
+            } ?? []
+            searchEntries[.command(item.command.rawValue)] = ShortcutSearchEntry(
+                keywords: [item.name] + item.searchKeywords, keys: keys + item.aliases
+            )
+        }
+        for item in reservedShortcuts {
+            searchEntries[item.id] = ShortcutSearchEntry(keywords: [item.name], keys: item.keys)
         }
     }
 
@@ -155,7 +169,6 @@ class ShortcutsViewModel: ObservableObject {
     func selectConflict(_ command: CommandWrapper) {
         guard sections.flatMap(\.items).contains(where: { $0.command == command }) else { return }
         searchText = ""
-        searchedKey = nil
         filter = .all
         capture = nil
         selectedCommand = command
@@ -249,7 +262,8 @@ class ShortcutsViewModel: ObservableObject {
                                  keys: Array(Set(unlisted[owner, default: []].map(\.key)))
                                     .sorted { $0.displayString < $1.displayString })
         }
-        reconcileSelection()
+        rebuildSearchEntries()
+        updateFilteredResults()
     }
 
     private func makeItem(_ command: CommandWrapper) -> ShortcutItem {
@@ -349,11 +363,6 @@ class ShortcutsViewModel: ObservableObject {
         return NSLocalizedString("settings.shortcuts.reservedOwner", value: "Reserved browser shortcut", comment: "Shortcuts settings - An active browser binding that cannot be customized in this version")
     }
 
-    func matchesSearch(_ owner: ShortcutBinding.Owner) -> Bool {
-        guard let searchedKey else { return true }
-        return inventory.occupants(of: searchedKey).contains { $0.owner == owner }
-    }
-
     func handleCaptureModifiers(_ modifiers: NSEvent.ModifierFlags) {
         guard case .command = capture else { return }
         let preview = modifiers.intersection([.command, .control, .option, .shift, .function])
@@ -363,11 +372,6 @@ class ShortcutsViewModel: ObservableObject {
     func handleCaptureEvent(_ event: NSEvent) {
         guard event.type == .keyDown, let capture else { return }
         let action = ShortcutsKey.recordingAction(for: event)
-        if capture == .search {
-            if action != .cancel { searchedKey = ShortcutsKey.eventKeys(for: event)?.canonical }
-            self.capture = nil
-            return
-        }
         guard case .command(let command) = capture else { return }
         switch action {
         case .cancel:
@@ -643,4 +647,87 @@ struct ShortcutConflictItem: Identifiable {
     let name: String
     let command: CommandWrapper?
     let keys: [String]
+}
+
+/// Normalize and deduplicate bindings only when the shortcut inventory changes.
+private struct ShortcutSearchEntry {
+    struct Key {
+        let modifiers: Set<String>
+        let characters: Set<String>
+    }
+
+    let keywords: [String]
+    let keys: [Key]
+
+    init(keywords: [String], keys: [ShortcutsKey]) {
+        self.keywords = Array(Set(keywords))
+        self.keys = Set(keys).map { key in
+            let keycaps = key.keycapTokens.map { $0.lowercased() }
+            return Key(modifiers: Set(keycaps.dropLast()),
+                       characters: [key.characters.lowercased(), keycaps.last ?? ""])
+        }
+    }
+}
+
+/// Match every key term against one binding so aliases cannot form a nonexistent chord.
+private struct ShortcutSearchQuery {
+    private static let modifierAliases = [
+        "command": "⌘", "cmd": "⌘", "⌘": "⌘",
+        "control": "⌃", "ctrl": "⌃", "ctl": "⌃", "⌃": "⌃",
+        "option": "⌥", "opt": "⌥", "alt": "⌥", "⌥": "⌥",
+        "shift": "⇧", "⇧": "⇧",
+        "function": "fn", "fn": "fn", "🌐": "fn",
+    ]
+    private static let modifierSymbols = ["⌘", "⌃", "⌥", "⇧", "🌐"]
+
+    private enum Token {
+        case modifier(Set<String>)
+        case text(String)
+    }
+
+    private let text: String
+    private let tokens: [Token]
+
+    init(_ searchText: String) {
+        text = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        var separated = text.lowercased()
+        for symbol in Self.modifierSymbols {
+            separated = separated.replacingOccurrences(of: symbol, with: " \(symbol) ")
+        }
+        var terms = separated.split { $0.isWhitespace || $0 == "+" }.map(String.init)
+        // A trailing separator is incomplete input (cmd+). Keep literal plus for
+        // standalone +, doubled ++, or compact symbol notation such as ⌘⇧+.
+        let followsSymbol = text.dropLast().last.map { Self.modifierSymbols.contains(String($0)) } ?? false
+        if text == "+" || text.hasSuffix("++") || (text.hasSuffix("+") && followsSymbol) {
+            terms.append("+")
+        }
+        tokens = terms.map { term in
+            if let modifier = Self.modifierAliases[term] { return .modifier([modifier]) }
+            // Keep single letters as keys; longer prefixes allow typing comm or ctr.
+            if term.count > 1 {
+                let modifiers = Set(Self.modifierAliases.filter { $0.key.hasPrefix(term) }.values)
+                if !modifiers.isEmpty { return .modifier(modifiers) }
+            }
+            return .text(term)
+        }
+    }
+
+    func matches(_ entry: ShortcutSearchEntry) -> Bool {
+        if text.isEmpty || entry.keywords.contains(where: { $0.localizedStandardContains(text) }) {
+            return true
+        }
+        guard !tokens.isEmpty else { return false }
+        return entry.keys.contains { key in
+            tokens.allSatisfy { token in
+                switch token {
+                case .modifier(let candidates):
+                    return !key.modifiers.isDisjoint(with: candidates)
+                case .text(let value):
+                    if key.characters.contains(value) { return true }
+                    // Single letters must match the key, not a modifier name or command title.
+                    return value.count > 1 && entry.keywords.contains { $0.localizedStandardContains(value) }
+                }
+            }
+        }
+    }
 }

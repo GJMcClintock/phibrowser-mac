@@ -11,11 +11,7 @@ private enum ShortcutsSearchLayout {
 
 struct ShortcutsSearchSection: View {
     @Binding var searchText: String
-    let searchedKey: ShortcutsKey?
-    let isCapturing: Bool
     let isFocused: FocusState<Bool>.Binding
-    let clearKeys: () -> Void
-    let recordKeys: () -> Void
 
     var body: some View {
         HStack(spacing: 8) {
@@ -25,21 +21,10 @@ struct ShortcutsSearchSection: View {
                 .textFieldStyle(.plain)
                 .accessibilityIdentifier("shortcuts.search")
                 .focused(isFocused)
-            if let searchedKey {
-                Text(searchedKey.displayString)
-                    .font(.system(size: 12, weight: .medium))
-                Button(NSLocalizedString("settings.shortcuts.search.clearKeys", value: "Clear keys", comment: "Shortcuts settings - Remove the captured-key search filter"), action: clearKeys)
-                    .font(.system(size: 11))
-            }
-            Button(isCapturing
-                   ? NSLocalizedString("settings.shortcuts.search.pressKeys", value: "Press keys…", comment: "Shortcuts settings - Waiting for a key combination to search without executing it")
-                   : NSLocalizedString("settings.shortcuts.search.recordKeys", value: "Record keys", comment: "Shortcuts settings - Search for bindings by pressing their key combination"), action: recordKeys)
-                .font(.system(size: 11, weight: .medium))
-                .accessibilityIdentifier("shortcuts.recordSearch")
+                .help(NSLocalizedString("settings.shortcuts.search.help", value: "Search by name or keys, such as cmd ctrl S or ⌘⌃S.", comment: "Shortcuts settings - Search supports modifier names, abbreviations, symbols, and key characters"))
         }
         .font(.system(size: 13))
         .controlSize(.small)
-        .buttonStyle(.bordered)
         .padding(.horizontal, 12)
         .padding(.vertical, 4)
         .frame(minHeight: ShortcutsSearchLayout.controlHeight)

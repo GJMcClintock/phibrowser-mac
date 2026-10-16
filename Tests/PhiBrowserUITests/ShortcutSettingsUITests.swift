@@ -45,19 +45,21 @@ final class ShortcutSettingsUITests: XCTestCase {
         field.typeText(text)
     }
 
-    func testRecordedKeySearchFindsHiddenAliasWithoutExecutingIt() {
-        settings.buttons["shortcuts.recordSearch"].click()
-        app.typeKey(.pageDown, modifierFlags: .control)
-        XCTAssertTrue(settings.buttons["Clear keys"].waitForExistence(timeout: 5))
-        XCTAssertTrue(settings.buttons["shortcuts.record.34016"].exists)
+    func testTextSearchFindsHiddenAliasWithoutRecording() {
+        XCTAssertFalse(settings.buttons["shortcuts.recordSearch"].exists)
+        search("ctrl ⇟")
+        XCTAssertTrue(settings.buttons["shortcuts.record.34016"].waitForExistence(timeout: 5))
         XCTAssertFalse(settings.buttons["shortcuts.record.40015"].exists)
-        XCTAssertEqual(settings.buttons["shortcuts.recordSearch"].label, "Record keys")
+        search("command n")
+        XCTAssertTrue(settings.buttons["shortcuts.record.34000"].waitForExistence(timeout: 5))
+        XCTAssertEqual(settings.buttons["shortcuts.record.34000"].label, "⌘N")
     }
 
     func testSwitchingWindowCancelsRecordingAndPreservesOtherWindowInput() throws {
         app.typeKey("n", modifierFlags: .command)
         openSettings()
-        settings.buttons["shortcuts.recordSearch"].click()
+        search("New Window")
+        settings.buttons["shortcuts.record.34000"].click()
         let windowMenu = app.menuBars.menuBarItems["Window"]
         windowMenu.click()
         // The standard Window menu exposes each window by its title.
@@ -67,17 +69,16 @@ final class ShortcutSettingsUITests: XCTestCase {
         XCTAssertTrue(app.textFields["Search or Enter URL"].waitForExistence(timeout: 5))
         app.typeKey(.escape, modifierFlags: [])
         openSettings()
-        XCTAssertEqual(settings.buttons["shortcuts.recordSearch"].label, "Record keys")
-        XCTAssertFalse(settings.buttons["Clear keys"].exists)
+        XCTAssertEqual(settings.buttons["shortcuts.record.34000"].label, "⌘N")
     }
 
     func testLeavingShortcutsPaneStopsCaptureAndDoesNotRestartIt() {
-        settings.buttons["shortcuts.recordSearch"].click()
+        search("New Window")
+        settings.buttons["shortcuts.record.34000"].click()
         settings.toolbars.buttons["General"].click()
         app.typeKey("f", modifierFlags: .command)
         app.toolbars.buttons["Shortcuts"].click()
-        XCTAssertEqual(settings.buttons["shortcuts.recordSearch"].label, "Record keys")
-        XCTAssertFalse(settings.buttons["Clear keys"].exists)
+        XCTAssertEqual(settings.buttons["shortcuts.record.34000"].label, "⌘N")
     }
 
     func testRowSelectionClosesNormallyAndShortcutButtonsStartRecording() {

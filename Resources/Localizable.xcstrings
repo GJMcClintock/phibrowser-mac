@@ -1674,35 +1674,13 @@
         }
       }
     },
-    "settings.shortcuts.search.clearKeys": {
-      "comment": "Shortcuts settings - Remove the captured-key search filter",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Clear keys"
-          }
-        }
-      }
-    },
-    "settings.shortcuts.search.pressKeys": {
-      "comment": "Shortcuts settings - Waiting for a key combination to search without executing it",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Press keys…"
-          }
-        }
-      }
-    },
-    "settings.shortcuts.search.recordKeys": {
-      "comment": "Shortcuts settings - Search for bindings by pressing their key combination",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Record keys"
+    "settings.shortcuts.search.help" : {
+      "comment" : "Shortcuts settings - Search supports modifier names, abbreviations, symbols, and key characters",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Search by name or keys, such as cmd ctrl S or ⌘⌃S."
           }
         }
       }

@@ -16,11 +16,7 @@ struct ShortcutsSettingsView: View {
             HStack(spacing: 8) {
                 ShortcutsSearchSection(
                     searchText: $viewModel.searchText,
-                    searchedKey: viewModel.searchedKey,
-                    isCapturing: viewModel.capture == .search,
-                    isFocused: $isSearchFieldFocused,
-                    clearKeys: { viewModel.searchedKey = nil },
-                    recordKeys: toggleSearchCapture
+                    isFocused: $isSearchFieldFocused
                 )
                 ShortcutsFilterMenu(
                     selection: $viewModel.filter,
@@ -75,12 +71,6 @@ struct ShortcutsSettingsView: View {
             }
         }
         .onDisappear { viewModel.capture = nil }
-    }
-
-    private func toggleSearchCapture() {
-        viewModel.searchText = ""
-        isSearchFieldFocused = false
-        viewModel.capture = viewModel.capture == .search ? nil : .search
     }
 
     private func toggleRecording(for command: CommandWrapper) {
