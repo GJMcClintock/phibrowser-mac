@@ -30,21 +30,17 @@ struct ScreenshotEditorToolbar: View {
                 }
                 Divider().frame(height: 22).padding(.horizontal, 8)
                 Menu {
+                    Button { export(.png) } label: { Text(verbatim: "PNG…") }
                     Button { export(.jpg) } label: { Text(verbatim: "JPG…") }
                     Button { export(.pdf) } label: { Text(verbatim: "PDF…") }
                 } label: {
                     Image(systemName: "arrow.down.to.line").font(.system(size: 18, weight: .regular))
-                        .hidden()
-                }
-                .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
-                .frame(width: 36, height: 36)
-                // Draw outside the native menu label so its secondary tint cannot dim the icon.
-                .overlay {
-                    Image(systemName: "arrow.down.to.line").font(.system(size: 18, weight: .regular))
                         .foregroundStyle(Color.primary)
-                        .allowsHitTesting(false)
-                        .accessibilityHidden(true)
+                        // Size the menu label itself so its padding also opens the menu.
+                        .frame(width: 36, height: 36)
+                        .contentShape(Rectangle())
                 }
+                .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
                 .help(NSLocalizedString("browser.screenshot.export", value: "Export…", comment: "Screenshot editor - Save the edited image to a file"))
                 .accessibilityLabel(NSLocalizedString("browser.screenshot.export", value: "Export…", comment: "Screenshot editor - Save the edited image to a file"))
                 .accessibilityIdentifier("screenshot.export")

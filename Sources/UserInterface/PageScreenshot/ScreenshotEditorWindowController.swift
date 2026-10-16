@@ -5,7 +5,7 @@ import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// Owns one independent screenshot editor. No browser or Chromium state enters this window.
+/// Owns one image document, presented over its browser or in the standalone fixture.
 @MainActor
 final class ScreenshotEditorWindowController: NSWindowController, NSWindowDelegate {
     let model: ScreenshotEditorModel
@@ -16,10 +16,17 @@ final class ScreenshotEditorWindowController: NSWindowController, NSWindowDelega
     private var exportTask: Task<Void, Never>?
     fileprivate var isReviewingTermination = false
     private var allowsDiscard = false
+    private weak var parent: NSWindow?
+    private weak var previousResponder: NSResponder?
+    private var parentObservers: [NSObjectProtocol] = []
+    private var appearanceObservation: NSKeyValueObservation?
+    private let host: NSHostingController<ScreenshotCanvasScrollView>
 
-    init(canvas: CGImage, fileName: String) {
+    init(canvas: CGImage, fileName: String, parent: NSWindow? = nil) {
         model = ScreenshotEditorModel(canvas: canvas)
         self.fileName = fileName
+        self.parent = parent
+        host = NSHostingController(rootView: ScreenshotCanvasScrollView(model: model))
         let window = ScreenshotEditorWindow(contentRect: NSRect(x: 0, y: 0, width: 1100, height: 780),
                                             styleMask: [.titled, .closable, .resizable, .miniaturizable],
                                             backing: .buffered, defer: false)
@@ -27,27 +34,153 @@ final class ScreenshotEditorWindowController: NSWindowController, NSWindowDelega
                                          comment: "Screenshot editor - Window title")
         window.contentMinSize = NSSize(width: 850, height: 400)
         window.isReleasedWhenClosed = false
+        window.hidesOnDeactivate = false
+        window.tabbingMode = .disallowed
         super.init(window: window)
         window.delegate = self
         window.editor = self
-        let host = NSHostingController(rootView: ScreenshotCanvasScrollView(model: model, export: { [weak self] format in
+        host.rootView = ScreenshotCanvasScrollView(model: model, export: { [weak self] format in
             self?.export(format: format)
-        }))
+        })
         host.sizingOptions = []
-        window.contentViewController = host
-        window.setContentSize(NSSize(width: 1100, height: 780))
         model.onChange = { [weak self] in
             guard let self else { return }
             self.window?.isDocumentEdited = self.model.generation != self.savedGeneration
         }
-        window.center()
+        if let parent {
+            configureOverlay(in: parent, window: window)
+        } else {
+            window.contentViewController = host
+            window.setContentSize(NSSize(width: 1100, height: 780))
+            window.center()
+        }
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
     override func showWindow(_ sender: Any?) {
+        guard let window else { return }
+        guard (window as? ScreenshotEditorWindow)?.isOverlay != true || parent != nil else { return }
+        if let parent {
+            guard parent.isVisible, !parent.isMiniaturized else { return }
+            if window.parent == nil {
+                previousResponder = parent.firstResponder
+                layoutOverlay()
+                announceVisibility(true, in: parent)
+                parent.addChildWindow(window, ordered: .above)
+            }
+        }
         retainedWhileOpen = self
         super.showWindow(sender)
-        window?.makeKeyAndOrderFront(sender)
+        window.makeKeyAndOrderFront(sender)
+        if let canvas = (window as? ScreenshotEditorWindow)?.canvasResponder {
+            window.makeFirstResponder(canvas)
+        }
+    }
+
+    private func configureOverlay(in parent: NSWindow, window: ScreenshotEditorWindow) {
+        window.isOverlay = true
+        window.isOpaque = false
+        window.backgroundColor = .clear
+        window.hasShadow = false
+        window.titleVisibility = .hidden
+        window.titlebarAppearsTransparent = true
+        window.titlebarSeparatorStyle = .none
+        window.isMovable = false
+        window.isMovableByWindowBackground = false
+        window.contentMinSize = .zero
+        window.collectionBehavior = [.fullScreenAuxiliary]
+        window.appearance = parent.appearance
+        appearanceObservation = parent.observe(\.appearance, options: [.new]) { [weak window] parent, _ in
+            MainActor.assumeIsolated { window?.appearance = parent.appearance }
+        }
+        let container = NSViewController()
+        let overlay = ScreenshotEditorOverlayView(card: host.view)
+        overlay.dismiss = { [weak window] in window?.performClose(nil) }
+        container.view = overlay
+        container.addChild(host)
+        window.contentViewController = container
+        for name in [NSWindow.didResizeNotification, NSWindow.didMoveNotification,
+                     NSWindow.didEnterFullScreenNotification, NSWindow.didExitFullScreenNotification] {
+            parentObservers.append(NotificationCenter.default.addObserver(forName: name, object: parent, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.layoutOverlay() }
+            })
+        }
+        if let content = parent.contentView {
+            content.postsFrameChangedNotifications = true
+            parentObservers.append(NotificationCenter.default.addObserver(forName: NSView.frameDidChangeNotification, object: content, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.layoutOverlay() }
+            })
+        }
+        parentObservers.append(NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: parent, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.parentWillClose() }
+        })
+        layoutOverlay()
+    }
+
+    private func layoutOverlay() {
+        guard let parent, let content = parent.contentView, let window else { return }
+        let rounded = parent.styleMask.contains(.titled) && !parent.styleMask.contains(.fullScreen)
+        let style: NSWindow.StyleMask = rounded ? [.titled, .fullSizeContentView] : [.borderless, .fullSizeContentView]
+        if window.styleMask != style { window.styleMask = style }
+        window.setFrame(parent.convertToScreen(content.convert(content.bounds, to: nil)), display: true)
+        window.contentView?.layoutSubtreeIfNeeded()
+    }
+
+    private func stopObservingParent() {
+        parentObservers.forEach(NotificationCenter.default.removeObserver)
+        parentObservers.removeAll()
+        appearanceObservation = nil
+    }
+
+    private func announceVisibility(_ visible: Bool, in parent: NSWindow) {
+        NotificationCenter.default.post(name: .phiInWindowOverlayVisibilityChanged, object: parent,
+                                        userInfo: ["surface": "screenshotEditor", "visible": visible])
+    }
+
+    private func detachOverlay(restoreFocus: Bool) {
+        stopObservingParent()
+        guard let parent, let window else { return }
+        let ownsFocus = window.isKeyWindow
+        parent.removeChildWindow(window)
+        let anotherEditorIsVisible = parent.childWindows?.contains { ($0 as? ScreenshotEditorWindow)?.isOverlay == true } == true
+        if !anotherEditorIsVisible { announceVisibility(false, in: parent) }
+        if restoreFocus, ownsFocus {
+            parent.makeKey()
+            parent.makeFirstResponder(previousResponder)
+        }
+        previousResponder = nil
+        self.parent = nil
+    }
+
+    private func parentWillClose() {
+        _ = model.snapshot()
+        guard requiresTerminationReview, let window = window as? ScreenshotEditorWindow else {
+            detachOverlay(restoreFocus: false)
+            close()
+            return
+        }
+        // Browser teardown cannot be vetoed from willClose. Keep unsaved work and
+        // confirmed exports available using the existing standalone presentation.
+        detachOverlay(restoreFocus: false)
+        host.removeFromParent()
+        host.view.removeFromSuperview()
+        host.view.layer?.cornerRadius = 0
+        window.isOverlay = false
+        window.styleMask = [.titled, .closable, .resizable, .miniaturizable]
+        window.titleVisibility = .visible
+        window.titlebarAppearsTransparent = false
+        window.isOpaque = true
+        window.backgroundColor = .windowBackgroundColor
+        window.hasShadow = true
+        window.isMovable = true
+        window.contentMinSize = NSSize(width: 850, height: 400)
+        window.collectionBehavior = []
+        window.contentViewController = host
+        window.makeKeyAndOrderFront(nil)
+    }
+
+    deinit {
+        parentObservers.forEach(NotificationCenter.default.removeObserver)
     }
 
     var hasConfirmedExport: Bool { isExporting }
@@ -109,6 +242,7 @@ final class ScreenshotEditorWindowController: NSWindowController, NSWindowDelega
         }
     }
     func windowWillClose(_ notification: Notification) {
+        detachOverlay(restoreFocus: !isReviewingTermination)
         model.prepareForCommand = nil
         model.onChange = nil
         window?.contentViewController = nil
@@ -119,7 +253,7 @@ final class ScreenshotEditorWindowController: NSWindowController, NSWindowDelega
         guard !isExporting, !isReviewingTermination, let window, window.attachedSheet == nil else { return }
         _ = model.snapshot() // Commit active text before the save panel takes focus.
         let panel = NSSavePanel()
-        panel.allowedContentTypes = [format == .jpg ? .jpeg : .pdf]
+        panel.allowedContentTypes = [format.contentType]
         panel.nameFieldStringValue = (fileName as NSString).deletingPathExtension + "." + format.rawValue
         panel.canCreateDirectories = true
         panel.beginSheetModal(for: window) { [weak self] response in
@@ -159,6 +293,39 @@ final class ScreenshotEditorWindowController: NSWindowController, NSWindowDelega
             }
         }
     }
+}
+
+/// The full-window scrim owns background input without filtering browser mouse events.
+@MainActor
+private final class ScreenshotEditorOverlayView: NSView {
+    let card: NSView
+    var dismiss: (() -> Void)?
+
+    init(card: NSView) {
+        self.card = card
+        super.init(frame: .zero)
+        autoresizingMask = [.width, .height]
+        wantsLayer = true
+        layer?.backgroundColor = NSColor.black.withAlphaComponent(0.28).cgColor
+        card.wantsLayer = true
+        card.layer?.cornerRadius = 12
+        card.layer?.masksToBounds = true
+        addSubview(card)
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+    override var acceptsFirstResponder: Bool { true }
+    override func layout() {
+        super.layout()
+        guard bounds.width > 72, bounds.height > 72 else { return }
+        card.frame = bounds.insetBy(dx: 36, dy: 36)
+    }
+    override func mouseDown(with event: NSEvent) {
+        if !card.frame.contains(convert(event.locationInWindow, from: nil)) { dismiss?() }
+    }
+    override func rightMouseDown(with event: NSEvent) {}
+    override func scrollWheel(with event: NSEvent) {}
+    override func cancelOperation(_ sender: Any?) { dismiss?() }
 }
 
 @MainActor
@@ -207,8 +374,21 @@ extension NSApplication {
 
 /// The app's menu uses commandDispatch:, so route editing commands locally through this native window.
 @MainActor
-final class ScreenshotEditorWindow: NSWindow {
+final class ScreenshotEditorWindow: NSPanel {
     weak var editor: ScreenshotEditorWindowController?
+    var isOverlay = false
+    override var canBecomeKey: Bool { true }
+    override var canBecomeMain: Bool { !isOverlay }
+
+    override func performClose(_ sender: Any?) {
+        guard editor?.windowShouldClose(self) == true else { return }
+        close()
+    }
+
+    override func cancelOperation(_ sender: Any?) {
+        guard isOverlay else { super.cancelOperation(sender); return }
+        canvasResponder?.cancelOperation(sender)
+    }
 
     private enum EditingAction { case undo, redo, close, cut, copy, paste, selectAll }
     // These standard editing commands are not exported by the browser command wrapper.

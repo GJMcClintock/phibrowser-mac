@@ -227,7 +227,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "This screenshot is too large to edit. You can still save the original JPG."
+            "value" : "This screenshot is too large to edit. You can still save the original PNG."
           }
         }
       }
@@ -28155,7 +28155,7 @@
       }
     },
     "browser.screenshot.copied" : {
-      "comment" : "Screenshot - Success toast after copying the JPEG to the clipboard",
+      "comment" : "Screenshot - Success toast after copying the PNG to the clipboard",
       "extractionState" : "extracted_with_value",
       "localizations" : {
         "de" : {
@@ -28275,7 +28275,7 @@
       }
     },
     "browser.screenshot.fileName" : {
-      "comment" : "Screenshot - Fallback JPEG file name when the page title is empty or unusable",
+      "comment" : "Screenshot - Fallback PNG file name when the page title is empty or unusable",
       "extractionState" : "extracted_with_value",
       "localizations" : {
         "de" : {
@@ -28335,7 +28335,7 @@
       }
     },
     "browser.screenshot.saveAction" : {
-      "comment" : "Screenshot - Button on the copied screenshot toast to save the JPEG to a file",
+      "comment" : "Screenshot - Button on the copied screenshot toast to save the PNG to a file",
       "extractionState" : "extracted_with_value",
       "localizations" : {
         "de" : {
@@ -28395,7 +28395,7 @@
       }
     },
     "browser.screenshot.saveFailed" : {
-      "comment" : "Screenshot - Error toast when writing the selected JPEG file fails\nScreenshot - Error when writing the selected screenshot file fails",
+      "comment" : "Screenshot - Error toast when writing the selected PNG file fails\nScreenshot - Error when writing the selected screenshot file fails",
       "extractionState" : "extracted_with_value",
       "localizations" : {
         "de" : {

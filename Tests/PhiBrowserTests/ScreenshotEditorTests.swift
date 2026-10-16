@@ -1,6 +1,7 @@
 import AppKit
 import CoreGraphics
 import ImageIO
+import UniformTypeIdentifiers
 import XCTest
 @testable import Phi
 
@@ -116,7 +117,7 @@ final class ScreenshotEditorTests: XCTestCase {
         XCTAssertEqual(model.snapshot().annotations.count, 1, "Export must cancel an incomplete gesture")
         XCTAssertFalse(model.isInteracting)
     }
-    func testJPGAndPDFKeepSourceDimensionsOrientationAndAnnotationsAtAnyZoom() throws {
+    func testAllExportFormatsKeepSourceDimensionsOrientationAndAnnotationsAtAnyZoom() throws {
         let context = ScreenshotSceneRenderer.bitmapContext(width: 400, height: 300)!
         context.setFillColor(CGColor(gray: 1, alpha: 1)); context.fill(CGRect(x: 0, y: 0, width: 400, height: 300))
         context.translateBy(x: 0, y: 300); context.scaleBy(x: 1, y: -1)
@@ -126,11 +127,13 @@ final class ScreenshotEditorTests: XCTestCase {
         model.foreground = ScreenshotColor(red: 0, green: 0.8, blue: 0); model.filled = true
         stroke(model, tool: .rectangle, from: CGPoint(x: 150, y: 20), to: CGPoint(x: 220, y: 80))
         model.setZoomExact(0.1)
-        let jpg = try XCTUnwrap(ScreenshotImageExport.decode(data: ScreenshotImageExport.encode(model.snapshot(), format: .jpg)))
-        XCTAssertEqual(jpg.width, 400); XCTAssertEqual(jpg.height, 300)
-        XCTAssertGreaterThan(pixel(jpg, x: 30, y: 30).r, 230)
-        XCTAssertGreaterThan(pixel(jpg, x: 30, y: 270).b, 230)
-        XCTAssertGreaterThan(pixel(jpg, x: 180, y: 50).g, 180)
+        for format in [ScreenshotExportFormat.png, .jpg] {
+            let raster = try XCTUnwrap(ScreenshotImageExport.decode(data: ScreenshotImageExport.encode(model.snapshot(), format: format)))
+            XCTAssertEqual(raster.width, 400); XCTAssertEqual(raster.height, 300)
+            XCTAssertGreaterThan(pixel(raster, x: 30, y: 30).r, 230)
+            XCTAssertGreaterThan(pixel(raster, x: 30, y: 270).b, 230)
+            XCTAssertGreaterThan(pixel(raster, x: 180, y: 50).g, 180)
+        }
         let pdf = try ScreenshotImageExport.encode(model.snapshot(), format: .pdf)
         let document = try XCTUnwrap(CGPDFDocument(try XCTUnwrap(CGDataProvider(data: pdf as CFData))))
         XCTAssertEqual(document.numberOfPages, 1)
@@ -164,6 +167,33 @@ final class ScreenshotEditorTests: XCTestCase {
             XCTAssertGreaterThan(pixel(raster, x: 100, y: 20).g, 230, "\(format): the old corner remains white")
         }
     }
+    func testPNGExportPreservesCompositePixelsAndWritesPNGFile() throws {
+        let model = ScreenshotEditorModel(canvas: image(width: 80, height: 60))
+        model.foreground = ScreenshotColor(red: 0.2, green: 0.6, blue: 0.8)
+        stroke(model, tool: .arrow, from: CGPoint(x: 5, y: 10), to: CGPoint(x: 65, y: 45))
+        let snapshot = model.snapshot()
+        let expected = try ScreenshotImageExport.composite(snapshot)
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appendingPathComponent("edited.png")
+        try ScreenshotImageExport.write(snapshot, format: .png, to: url)
+        let data = try Data(contentsOf: url)
+        let source = try XCTUnwrap(CGImageSourceCreateWithData(data as CFData, nil))
+        XCTAssertEqual(CGImageSourceGetType(source) as String?, UTType.png.identifier)
+        let decoded = try XCTUnwrap(ScreenshotImageExport.decode(data: data))
+        XCTAssertEqual(decoded.width, expected.width)
+        XCTAssertEqual(decoded.height, expected.height)
+        for y in 0..<expected.height {
+            for x in 0..<expected.width {
+                let actual = pixel(decoded, x: x, y: y), original = pixel(expected, x: x, y: y)
+                XCTAssertEqual(actual.r, original.r)
+                XCTAssertEqual(actual.g, original.g)
+                XCTAssertEqual(actual.b, original.b)
+            }
+        }
+    }
+
     func testFailedWritePreservesSceneAndLimitsAreCheckedBeforeDecode() {
         let model = ScreenshotEditorModel(canvas: image())
         stroke(model, tool: .arrow, from: CGPoint(x: 20, y: 20), to: CGPoint(x: 180, y: 80))
@@ -249,6 +279,146 @@ final class ScreenshotEditorTests: XCTestCase {
         XCTAssertTrue(window.validateUserInterfaceItem(undo)); XCTAssertFalse(window.validateUserInterfaceItem(redo))
         window.commandDispatch(undo); XCTAssertTrue(editor.model.annotations.isEmpty)
         window.commandDispatch(redo); XCTAssertEqual(editor.model.annotations, marked)
+    }
+
+    private func browserWindow() -> NSWindow {
+        let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 1200, height: 800),
+                              styleMask: [.titled, .resizable, .miniaturizable], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.makeKeyAndOrderFront(nil)
+        return window
+    }
+
+    func testOverlayFollowsBrowserContentAndRestoresFocusOnClose() throws {
+        let parent = browserWindow()
+        defer { parent.close() }
+        let responder = NSTextView(frame: NSRect(x: 10, y: 10, width: 100, height: 40))
+        parent.contentView?.addSubview(responder)
+        XCTAssertTrue(parent.makeFirstResponder(responder))
+        let editor = ScreenshotEditorWindowController(canvas: image(), fileName: "Fixture.jpg", parent: parent)
+        let window = try XCTUnwrap(editor.window as? ScreenshotEditorWindow)
+        defer { window.close() }
+        editor.showWindow(nil)
+        XCTAssertTrue(window.parent === parent)
+        XCTAssertTrue(window.canBecomeKey)
+        XCTAssertTrue(window.firstResponder === window.canvasResponder)
+        XCTAssertFalse(window.canBecomeMain)
+        XCTAssertFalse(window.isMovable)
+        XCTAssertFalse(window.styleMask.contains(.resizable))
+        for size in [NSSize(width: 1200, height: 800), NSSize(width: 960, height: 600)] {
+            parent.setContentSize(size)
+            parent.setFrameOrigin(NSPoint(x: size.width / 10, y: 160))
+            let content = try XCTUnwrap(parent.contentView)
+            XCTAssertEqual(window.frame, parent.convertToScreen(content.convert(content.bounds, to: nil)))
+            XCTAssertEqual(window.contentView?.subviews.first?.frame, window.contentView?.bounds.insetBy(dx: 36, dy: 36))
+        }
+        parent.appearance = NSAppearance(named: .darkAqua)
+        XCTAssertEqual(window.appearance?.name, .darkAqua)
+        let backgroundClick = try XCTUnwrap(NSEvent.mouseEvent(with: .leftMouseDown,
+            location: NSPoint(x: 10, y: 10), modifierFlags: [], timestamp: 0,
+            windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
+        window.contentView?.mouseDown(with: backgroundClick)
+        XCTAssertFalse(window.isVisible)
+        XCTAssertNil(window.parent)
+        XCTAssertTrue(parent.isVisible)
+        XCTAssertTrue(parent.firstResponder === responder)
+        XCTAssertTrue(parent.childWindows?.isEmpty ?? true)
+    }
+
+    func testOverlayEscapeCancelsCropBeforeClosingAndCommandWClosesOnlyEditor() throws {
+        let parent = browserWindow()
+        defer { parent.close() }
+        for useCommandW in [false, true] {
+            let editor = ScreenshotEditorWindowController(canvas: image(), fileName: "Fixture.jpg", parent: parent)
+            let window = try XCTUnwrap(editor.window as? ScreenshotEditorWindow)
+            defer { window.close() }
+            editor.showWindow(nil)
+            let canvas = try XCTUnwrap(window.canvasResponder)
+            editor.model.selectTool(.crop)
+            editor.model.beginInteraction(at: CGPoint(x: 20, y: 20), tolerance: 2)
+            editor.model.continueInteraction(at: CGPoint(x: 160, y: 100))
+            editor.model.endInteraction()
+            canvas.cancelOperation(nil)
+            XCTAssertNil(editor.model.cropRect)
+            XCTAssertEqual(editor.model.tool, .select)
+            XCTAssertTrue(window.isVisible)
+            if useCommandW {
+                let key = try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: .command,
+                    timestamp: 0, windowNumber: window.windowNumber, context: nil, characters: "w",
+                    charactersIgnoringModifiers: "w", isARepeat: false, keyCode: 13))
+                XCTAssertTrue(window.performKeyEquivalent(with: key))
+            } else {
+                canvas.cancelOperation(nil)
+            }
+            XCTAssertFalse(window.isVisible)
+            XCTAssertTrue(parent.isVisible)
+        }
+    }
+
+    func testOverlayUnsavedCloseCanKeepEditing() async throws {
+        let parent = browserWindow()
+        defer { parent.close() }
+        let editor = ScreenshotEditorWindowController(canvas: image(), fileName: "Fixture.jpg", parent: parent)
+        let window = try XCTUnwrap(editor.window)
+        defer { window.close() }
+        editor.showWindow(nil)
+        stroke(editor.model, tool: .arrow, from: CGPoint(x: 20, y: 20), to: CGPoint(x: 180, y: 80))
+        window.performClose(nil)
+        for _ in 0..<100 where window.attachedSheet == nil {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        let sheet = try XCTUnwrap(window.attachedSheet)
+        window.endSheet(sheet, returnCode: .alertSecondButtonReturn)
+        for _ in 0..<100 where window.attachedSheet != nil {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        await Task.yield()
+        XCTAssertTrue(window.isVisible)
+        XCTAssertTrue(window.parent === parent)
+        XCTAssertEqual(editor.model.annotations.count, 1)
+        XCTAssertTrue(editor.requiresTerminationReview)
+    }
+
+    func testBrowserCloseRemovesCleanOverlayAndPreservesUnsavedDocument() throws {
+        for dirty in [false, true] {
+            let parent = browserWindow()
+            let editor = ScreenshotEditorWindowController(canvas: image(), fileName: "Fixture.jpg", parent: parent)
+            let window = try XCTUnwrap(editor.window as? ScreenshotEditorWindow)
+            defer { window.close() }
+            editor.showWindow(nil)
+            if dirty { stroke(editor.model, tool: .arrow, from: CGPoint(x: 20, y: 20), to: CGPoint(x: 180, y: 80)) }
+            parent.close()
+            XCTAssertNil(window.parent)
+            XCTAssertEqual(window.isVisible, dirty)
+            if dirty {
+                XCTAssertFalse(window.isOverlay)
+                XCTAssertTrue(window.canBecomeMain)
+                XCTAssertTrue(window.styleMask.contains(.closable))
+                XCTAssertEqual(editor.model.annotations.count, 1)
+                XCTAssertTrue(editor.model.canUndo)
+                XCTAssertNotNil(window.canvasResponder)
+            }
+        }
+    }
+
+    func testBrowserClosePreservesConfirmedOverlayExport() async throws {
+        let parent = browserWindow()
+        let editor = ScreenshotEditorWindowController(canvas: image(), fileName: "Fixture.jpg", parent: parent)
+        let window = try XCTUnwrap(editor.window as? ScreenshotEditorWindow)
+        defer { window.close() }
+        editor.showWindow(nil)
+        let gate = ExportGate()
+        editor.writeSnapshot(editor.model.snapshot(), format: .jpg, to: URL(fileURLWithPath: "/unused-fixture.jpg")) { _, _, _ in
+            await gate.wait()
+        }
+        await fulfillment(of: [gate.entered], timeout: 2)
+        parent.close()
+        XCTAssertTrue(window.isVisible)
+        XCTAssertNil(window.parent)
+        XCTAssertTrue(editor.hasConfirmedExport)
+        gate.finish()
+        await editor.waitForConfirmedExport()
+        XCTAssertFalse(editor.requiresTerminationReview)
     }
     func testRetainedLayerUpdatesAtLargeImageSizesDoNotRedrawBackgroundOrOtherObjects() throws {
         for size in [(2400, 3600), (3200, 7500)] {

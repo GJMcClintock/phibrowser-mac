@@ -328,6 +328,11 @@ final class ScreenshotCanvasView: NSView, NSTextViewDelegate, NSMenuDelegate {
     override func cancelOperation(_ sender: Any?) {
         if textEntry != nil { cancelText() }
         else if model?.isInteracting == true { model?.cancelInteraction() }
+        else if model?.tool == .select, model?.hasSelection == false,
+                let window = window as? ScreenshotEditorWindow, window.isOverlay {
+            window.performClose(sender)
+            return
+        }
         else { model?.selectTool(.select); model?.select(nil) }
         model?.selectTool(.select)
         finishPointerInput(); synchronize()

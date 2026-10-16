@@ -1,20 +1,20 @@
 # Page screenshots
 
 File > Capture Full Page captures the current webpage through
-`PageScreenshotService`, copies a binary JPEG to the macOS clipboard, and opens
+`PageScreenshotService`, copies a binary PNG to the macOS clipboard, and opens
 the screenshot editor. The
 service opens `AppDevToolsPageSession` on the selected tab's `devToolsTargetId`,
 queries `Page.getFrameTree`, `Page.getLayoutMetrics`, and the page's
 `window.devicePixelRatio`, then sends `Page.captureScreenshot` with
-`format: "jpeg"`, `quality: 85`, `fromSurface: true`, `captureBeyondViewport: true`, and an
+`format: "png"`, `fromSurface: true`, `captureBeyondViewport: true`, and an
 explicit clip from `cssContentSize`. Width and height are rounded up. The clip
 scale first fits the physical dimensions within 16,384 pixels per axis. If the
 rounded output would still exceed 64 million pixels, it is reduced further in
 both axes, with a one-pixel rounding margin. Pages already within both limits
 keep scale 1. The pixel budget is checked after scaling, so wide or long pages
 are not rejected merely because their unscaled dimensions exceed the budget.
-Chromium encodes JPEG at quality 85; Swift copies and saves those bytes without
-re-encoding. The returned JPEG still passes the validation limits below.
+Chromium encodes lossless PNG; Swift copies and saves those bytes without
+re-encoding. The returned PNG still passes the validation limits below.
 A final frame-tree query rejects a changed top-level
 frame, loader, or URL. The session closes with `defer` on success and failure.
 
@@ -34,9 +34,11 @@ including opening the session. The handshake is limited to 10 seconds and each c
 both bounded by the remaining operation budget; late responses are rejected before committing to the clipboard. Only
 screenshot sessions raise the CDP message limit from 8 MiB to 30 MiB plus 4 KiB
 of JSON overhead. Other callers retain their existing 8 MiB limit. Fragmented
-messages are subject to the same aggregate limit.
+messages are subject to the same aggregate limit. The 30 MiB base64 limit is
+retained to bound memory: poorly compressible PNG captures can exceed it even
+within the pixel budget and fail without a lossy fallback.
 
-Before committing a copy, native code verifies JPEG type, start/end markers, readable
+Before committing a copy, native code verifies PNG type, signature and IEND trailer, readable
 image data, a maximum of 30 MiB of base64, at most 32,768 pixels per dimension,
 and at most 64 million pixels in total. Dimension limits are checked before
 allocating a decoded bitmap. A changed pasteboard count preserves the user's
@@ -45,18 +47,18 @@ AppKit's clear/write sequence is not transactional, so a write failure after
 clearing can leave an empty clipboard and must report failure.
 
 The success toast offers Save for six seconds. `PageScreenshotPresenter` retains
-that operation's JPEG in the toast action, opens an asynchronous JPEG save panel,
+that operation's PNG in the toast action, opens an asynchronous PNG save panel,
 and writes to the user-selected destination. Later clipboard changes and later
 captures cannot change the image or title being saved. The default file name is
-the captured tab title followed by `.jpg`, using the existing export filename
+the captured tab title followed by `.png`, using the existing export filename
 sanitizer for invalid characters and length limits. Empty or unusable titles
-fall back to `Screenshot.jpg`; the system save panel confirms any overwrite.
+fall back to `Screenshot.png`; the system save panel confirms any overwrite.
 
 Native tests cover target snapshots, single-flight capture, success and failure,
 timeout, CDP ordering and parameters, dimensions and scale limits, document
-identity changes, JPEG validation, clipboard preservation, menu placement and
+identity changes, PNG validation, clipboard preservation, menu placement and
 the save action. Build and unit tests do not establish real page capture in the packaged
-browser; that requires manual full-page JPEG inspection.
+browser; that requires manual full-page PNG inspection.
 
 Sources: [native service](../Sources/States/PageScreenshotService.swift),
 [CDP session](../Sources/ChromiumBridge/AgentCDP/AppDevToolsPageSession.swift),
@@ -99,7 +101,7 @@ After release, further viewport changes also invalidate the result. The final
 document-identity query is the last suspension before returning image bytes, so
 navigation during viewport validation cannot commit an old result. The native
 origin is checked again before copying. The 60-second operation budget includes
-selection. Full-page command ordering, JPEG settings, 16K-axis/64-million-pixel
+selection. Full-page command ordering, PNG settings, 16K-axis/64-million-pixel
 scaling and clipboard guards remain in use.
 
 Area capture sends one CSS clip directly to `Page.captureScreenshot`; it does
@@ -110,10 +112,18 @@ handling. The native overlay is outside Chromium's captured surface.
 
 ## Screenshot editor
 
-The separate editor opens after a successful clipboard copy and stays alive
-independently of the originating browser window. The shared AppKit module also
-runs in a standalone synthetic app. Its bottom-centered floating toolbar exposes
-Select, Arrow, Freehand, Text, Rectangle, Ellipse, Blur, Crop and JPG/PDF export.
+The editor opens after a successful clipboard copy as a child panel covering the
+originating browser's content area, using the Library overlay's window pattern.
+It follows browser moves, resizing and fullscreen transitions; minimizing the
+browser preserves the attached editor. The scrim, Escape (after
+canceling active editing) and Command-W use the existing unsaved-edits review.
+Dismissal restores browser focus. If the browser closes directly, a clean editor
+closes with it; unsaved edits, open sheets and confirmed exports remain available
+in a standalone window. Asynchronous decoding cannot open an editor on a closed
+browser or a Space that has left the shared shell.
+The shared AppKit module also runs in a standalone synthetic app.
+Its bottom-centered floating toolbar exposes
+Select, Arrow, Freehand, Text, Rectangle, Ellipse, Blur, Crop and PNG/JPG/PDF export.
 A separate zoom menu stays in the viewport.
 Both surfaces use capsule-shaped native Liquid Glass on macOS 26 and a material
 fallback on older systems. Export uses a compact icon menu. The controls overlay
@@ -174,14 +184,14 @@ source bitmap redraw occurs on pointer input.
 
 Export uses an asynchronous NSSavePanel sheet. Cancel performs no write and does
 not mark edits saved. After confirmation, the editor snapshots the ordered
-objects and source image; ImageIO JPEG encoding or CoreGraphics single-page PDF
+objects and source image; ImageIO PNG/JPEG encoding or CoreGraphics single-page PDF
 writing happens off the main actor. Atomic writes use the current image dimensions, including confirmed crops.
-JPG quality is 0.9; PDF uses one point per source pixel, with the background
+PNG encoding is lossless; JPG quality is 0.9; PDF uses one point per source pixel, with the background
 image and vector/text annotations. Documents containing Blur regions are flattened
 into a single raster image in PDF so the original pixels and hidden text are not
 embedded beneath removable overlays. Transparent pixels use a white backdrop.
-Preview magnification and screen backing scale do not affect either export.
-The unedited Save toast writes the captured JPG bytes unchanged.
+Preview magnification and screen backing scale do not affect any export.
+The unedited Save toast writes the captured PNG bytes unchanged.
 
 A generation captured before writing prevents successful exports from marking
 later edits saved. Failure preserves the document and undo history and offers

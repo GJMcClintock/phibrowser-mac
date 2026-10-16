@@ -1,9 +1,12 @@
 import AppKit
+extension Notification.Name {
+    static let phiInWindowOverlayVisibilityChanged = Notification.Name("PhiInWindowOverlayVisibilityChanged")
+}
 @MainActor final class BrowserState { var windowId = 7; var focusingTab: Tab?; var pageCommandTarget: Tab? { focusingTab } }
 @MainActor final class Tab { var guid = 1; var isShowingNativeNTP = false; var title = "Fixture"; var url: String?; var isLoading = false; var webContentView: NSView?; var webContentWrapper: Wrapper? }
 @MainActor final class Wrapper { var devToolsTargetId: String? = "fixture" }
 @MainActor final class ChromiumLauncher { static func sharedInstance() -> ChromiumLauncher { ChromiumLauncher() }; var bridge: Int? = 1 }
-@MainActor enum PageScreenshotPresenter { static func showCopied(jpegData: Data, title: String, windowId: Int, area: Bool = false) {}; static func edit(jpegData: Data, title: String, windowId: Int) {} }
+@MainActor enum PageScreenshotPresenter { static func showCopied(pngData: Data, title: String, windowId: Int, area: Bool = false) {}; static func edit(pngData: Data, title: String, windowId: Int) {} }
 enum OverlayToastTarget { case windowId(Int) }
 @MainActor final class OverlayToastCenter { static let shared = OverlayToastCenter(); func show(title: String, in target: OverlayToastTarget) {} }
 func AppLogDebug(_ value: String) {}; func AppLogWarn(_ value: String) {}; func AppLogError(_ value: String) {}
