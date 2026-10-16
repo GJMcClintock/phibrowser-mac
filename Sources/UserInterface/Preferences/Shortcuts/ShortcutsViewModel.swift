@@ -7,6 +7,27 @@ import Foundation
 import Combine
 import AppKit
 class ShortcutsViewModel: ObservableObject {
+    enum Filter: Hashable {
+        case all, customized, conflicting
+        case section(String)
+        case reserved
+
+        var title: String {
+            switch self {
+            case .all:
+                return NSLocalizedString("settings.shortcuts.filter.all", value: "All Shortcuts", comment: "Shortcuts settings - Filter showing every shortcut")
+            case .customized:
+                return NSLocalizedString("settings.shortcuts.filter.customized", value: "Customized Shortcuts", comment: "Shortcuts settings - Filter showing shortcuts changed or disabled by the user")
+            case .conflicting:
+                return NSLocalizedString("settings.shortcuts.filter.conflicting", value: "Conflicting Shortcuts", comment: "Shortcuts settings - Filter showing shortcuts that conflict with another binding")
+            case .section(let title):
+                return title
+            case .reserved:
+                return NSLocalizedString("settings.shortcuts.reservedSection", value: "Other active shortcuts (read-only)", comment: "Shortcuts settings - Active native and browser bindings that this settings page cannot reassign")
+            }
+        }
+    }
+
     enum Capture: Equatable {
         case command(CommandWrapper)
         case search
@@ -48,6 +69,12 @@ class ShortcutsViewModel: ObservableObject {
     @Published var searchedKey: ShortcutsKey? {
         didSet { reconcileSelection() }
     }
+    @Published var filter: Filter = .all {
+        didSet {
+            capture = nil
+            reconcileSelection()
+        }
+    }
     @Published var recordingMessage: String?
     @Published private(set) var reservedShortcuts: [ReservedShortcutItem] = []
     @Published var hiddenGroups: Set<Shortcuts.Group> = [.help, .bookmarks]
@@ -65,6 +92,7 @@ class ShortcutsViewModel: ObservableObject {
     var filteredSections: [(category: String, subtitle: String?, items: [ShortcutItem])] {
         sections.compactMap { section in
             let items = section.items.filter { item in
+                matchesFilter(item, category: section.category) &&
                 matchesSearch(.command(item.command.rawValue)) && (searchText.isEmpty ||
                     item.name.localizedStandardContains(searchText) ||
                     item.shortcutDisplay.localizedStandardContains(searchText) ||
@@ -77,9 +105,29 @@ class ShortcutsViewModel: ObservableObject {
 
     var filteredReservedShortcuts: [ReservedShortcutItem] {
         reservedShortcuts.filter { item in
-            matchesSearch(item.id) && (searchText.isEmpty ||
+            matchesFilter(item) && matchesSearch(item.id) && (searchText.isEmpty ||
                 item.name.localizedStandardContains(searchText) ||
                 item.keys.contains { $0.displayString.localizedStandardContains(searchText) })
+        }
+    }
+
+    private func matchesFilter(_ item: ShortcutItem, category: String) -> Bool {
+        switch filter {
+        case .all: return true
+        case .customized: return item.isOverridden
+        case .conflicting: return item.hasConflict
+        case .section(let selected): return category == selected
+        case .reserved: return false
+        }
+    }
+
+    private func matchesFilter(_ item: ReservedShortcutItem) -> Bool {
+        switch filter {
+        case .all, .reserved: return true
+        case .customized, .section: return false
+        case .conflicting:
+            guard let command = item.id.commandID.flatMap(CommandWrapper.init(rawValue:)) else { return false }
+            return !findConflictingCommands(for: command).isEmpty
         }
     }
 
@@ -108,6 +156,7 @@ class ShortcutsViewModel: ObservableObject {
         guard sections.flatMap(\.items).contains(where: { $0.command == command }) else { return }
         searchText = ""
         searchedKey = nil
+        filter = .all
         capture = nil
         selectedCommand = command
     }

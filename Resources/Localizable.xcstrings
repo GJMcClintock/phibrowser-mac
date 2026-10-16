@@ -1573,6 +1573,50 @@
         }
       }
     },
+    "settings.shortcuts.filter.all" : {
+      "comment" : "Shortcuts settings - Filter showing every shortcut",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "All Shortcuts"
+          }
+        }
+      }
+    },
+    "settings.shortcuts.filter.conflicting" : {
+      "comment" : "Shortcuts settings - Filter showing shortcuts that conflict with another binding",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Conflicting Shortcuts"
+          }
+        }
+      }
+    },
+    "settings.shortcuts.filter.customized" : {
+      "comment" : "Shortcuts settings - Filter showing shortcuts changed or disabled by the user",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Customized Shortcuts"
+          }
+        }
+      }
+    },
+    "settings.shortcuts.filter.label" : {
+      "comment" : "Shortcuts settings - Accessibility label and tooltip for the shortcut filter menu",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Filter Shortcuts"
+          }
+        }
+      }
+    },
     "settings.shortcuts.recording.escapeModifiers" : {
       "comment": "Shortcuts settings - Explains which modifiers can be used when recording Escape",
       "extractionState": "manual",

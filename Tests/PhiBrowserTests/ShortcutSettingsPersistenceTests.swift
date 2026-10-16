@@ -75,17 +75,65 @@ final class ShortcutSettingsPersistenceTests: XCTestCase {
         XCTAssertEqual(conflicts.first { $0.command == .IDC_RELOAD }?.keys, [customKey.displayString])
     }
 
-    func testConflictNavigationClearsBothFiltersWithoutRecording() throws {
+    func testConflictNavigationClearsAllFiltersWithoutRecording() throws {
         let model = ShortcutsViewModel(additionalBindings: { [] })
+        model.filter = .customized
         model.searchText = "Duplicate Tab"
         model.searchedKey = customKey
         model.editingCommand = .IDC_DUPLICATE_TAB
         model.selectConflict(.IDC_RELOAD)
         XCTAssertEqual(model.searchText, "")
         XCTAssertNil(model.searchedKey)
+        XCTAssertEqual(model.filter, .all)
         XCTAssertNil(model.capture)
         XCTAssertEqual(model.selectedItem?.command, .IDC_RELOAD)
         XCTAssertTrue(model.filteredSections.flatMap(\.items).contains { $0.command == .IDC_RELOAD })
+    }
+
+    func testCustomizedFilterIncludesDisabledShortcutsAndUpdatesAfterRestore() throws {
+        let model = ShortcutsViewModel(additionalBindings: { [] })
+        model.setCustomShortcut(for: .IDC_NEW_WINDOW, key: customKey)
+        model.disableShortcut(for: .IDC_DUPLICATE_TAB)
+        model.filter = .customized
+        XCTAssertEqual(Set(model.filteredSections.flatMap(\.items).map(\.command)),
+                       [.IDC_NEW_WINDOW, .IDC_DUPLICATE_TAB])
+        XCTAssertTrue(model.filteredReservedShortcuts.isEmpty)
+        model.selectedCommand = .IDC_NEW_WINDOW
+        model.restoreDefaultShortcut(for: .IDC_NEW_WINDOW)
+        XCTAssertEqual(model.filteredSections.flatMap(\.items).map(\.command), [.IDC_DUPLICATE_TAB])
+        XCTAssertEqual(model.selectedCommand, .IDC_DUPLICATE_TAB)
+        model.restoreDefaultShortcut(for: .IDC_DUPLICATE_TAB)
+        XCTAssertTrue(model.filteredSections.isEmpty)
+        XCTAssertNil(model.selectedCommand)
+    }
+
+    func testSectionFilterReplacesConflictFilterAndCombinesWithSearch() throws {
+        let model = ShortcutsViewModel(additionalBindings: { [] })
+        let newTabKey = try XCTUnwrap(Shortcuts.key(for: .IDC_NEW_TAB))
+        model.setCustomShortcut(for: .IDC_NEW_WINDOW, key: newTabKey)
+        model.filter = .conflicting
+        let conflicting = model.filteredSections.flatMap(\.items)
+        XCTAssertTrue(conflicting.contains { $0.command == .IDC_NEW_WINDOW })
+        XCTAssertTrue(conflicting.contains { $0.command == .IDC_NEW_TAB })
+        XCTAssertFalse(conflicting.contains { $0.command == .IDC_RELOAD })
+
+        let section = try XCTUnwrap(model.sections.first { $0.items.contains { $0.command == .IDC_RELOAD } })
+        model.startRecording(for: .IDC_NEW_WINDOW)
+        model.filter = .section(section.category)
+        XCTAssertNil(model.capture)
+        XCTAssertEqual(model.filteredSections.map(\.category), [section.category])
+        XCTAssertEqual(model.filteredSections.flatMap(\.items).map(\.command), section.items.map(\.command))
+        XCTAssertTrue(model.filteredReservedShortcuts.isEmpty)
+        model.searchText = try item(.IDC_RELOAD, in: model).name
+        model.searchedKey = Shortcuts.key(for: .IDC_RELOAD)
+        XCTAssertEqual(model.filteredSections.flatMap(\.items).map(\.command), [.IDC_RELOAD])
+        model.searchText = "no-shortcut-matches-this-query"
+        XCTAssertTrue(model.filteredSections.isEmpty)
+        XCTAssertNil(model.selectedCommand)
+        model.searchText = ""
+        model.searchedKey = nil
+        model.filter = .all
+        XCTAssertEqual(model.filteredSections.map(\.category), model.sections.map(\.category))
     }
 
     func testRowSelectionDoesNotCaptureWindowCloseShortcut() throws {

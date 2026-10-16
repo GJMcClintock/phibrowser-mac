@@ -13,14 +13,21 @@ struct ShortcutsSettingsView: View {
 
     var body: some View {
         VStack(spacing: 12) {
-            ShortcutsSearchSection(
-                searchText: $viewModel.searchText,
-                searchedKey: viewModel.searchedKey,
-                isCapturing: viewModel.capture == .search,
-                isFocused: $isSearchFieldFocused,
-                clearKeys: { viewModel.searchedKey = nil },
-                recordKeys: toggleSearchCapture
-            )
+            HStack(spacing: 8) {
+                ShortcutsSearchSection(
+                    searchText: $viewModel.searchText,
+                    searchedKey: viewModel.searchedKey,
+                    isCapturing: viewModel.capture == .search,
+                    isFocused: $isSearchFieldFocused,
+                    clearKeys: { viewModel.searchedKey = nil },
+                    recordKeys: toggleSearchCapture
+                )
+                ShortcutsFilterMenu(
+                    selection: $viewModel.filter,
+                    sections: viewModel.sections.map(\.category),
+                    hasReservedShortcuts: !viewModel.reservedShortcuts.isEmpty
+                )
+            }
             ShortcutsStatusSection(viewModel: viewModel)
             HStack(alignment: .top, spacing: 16) {
                 ShortcutsListSection(
