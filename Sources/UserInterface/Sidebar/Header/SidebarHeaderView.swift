@@ -30,6 +30,10 @@ class SidebarHeaderView: NSView, TitlebarAwareHitTestable {
     private let defaultSidebarButtonTrailingInset: CGFloat = 5
     private let balancedSidebarButtonTrailingInset: CGFloat = 9
     private var layoutSettleCancellable: AnyCancellable?
+    /// Frame observer of the zoom button the sidebar button is aligned to;
+    /// see `observeFrameChanges(zoomButton:)`.
+    private var zoomButtonFrameObserver: NSObjectProtocol?
+    private weak var observedZoomButton: NSButton?
     private var hasSetupConfigObserver = false
     /// Currently available app update version.
     private var availableUpdateVersion: String?
@@ -241,6 +245,12 @@ class SidebarHeaderView: NSView, TitlebarAwareHitTestable {
     required init?(coder: NSCoder) {
         super.init(coder: coder)
         setupViews()
+    }
+
+    deinit {
+        if let zoomButtonFrameObserver {
+            NotificationCenter.default.removeObserver(zoomButtonFrameObserver)
+        }
     }
     
     // MARK: - TitlebarAwareHitTestable
@@ -500,6 +510,7 @@ class SidebarHeaderView: NSView, TitlebarAwareHitTestable {
 
     /// Updates the left constraint for `sidebarButton` based on the right edge of the leading chrome.
     private func updateSidebarButtonLeftConstraint() {
+        observeFrameChanges(zoomButton: isFloating ? nil : window?.standardWindowButton(.zoomButton))
         guard let x = leadingChromeMaxXRelativeToSelf() else {
             AppLogDebug("[SidebarHeader] updateSidebarButtonLeftConstraint maxX=nil (window buttons unavailable)")
             return
@@ -512,6 +523,31 @@ class SidebarHeaderView: NSView, TitlebarAwareHitTestable {
         upgradeButtonLeftConstraint?.update(offset: sidebarButtonLeftOffset)
         needsLayout = true
         layoutSubtreeIfNeeded()
+    }
+
+    /// Realigns the sidebar button when the zoom button changes frame, which
+    /// titlebar layout changes do without resizing the window. Observed as an
+    /// object: an observer without one runs for every view resized anywhere
+    /// in the app, which an animation does every frame. The block form keeps
+    /// neither the button nor the window alive. The observer follows the
+    /// button the alignment last looked up: it moves to a button AppKit
+    /// replaced and goes when the header leaves its window. The floating
+    /// header aligns to its own lights and observes none.
+    private func observeFrameChanges(zoomButton: NSButton?) {
+        if let zoomButton, zoomButton === observedZoomButton { return }
+        if let zoomButtonFrameObserver {
+            NotificationCenter.default.removeObserver(zoomButtonFrameObserver)
+        }
+        zoomButtonFrameObserver = nil
+        observedZoomButton = zoomButton
+        guard let zoomButton else { return }
+        zoomButtonFrameObserver = NotificationCenter.default.addObserver(
+            forName: NSView.frameDidChangeNotification,
+            object: zoomButton,
+            queue: .main
+        ) { [weak self] _ in
+            self?.updateSidebarButtonLeftConstraint()
+        }
     }
 
     private func scheduleSidebarButtonUpdateAfterLayoutChange() {
@@ -590,20 +626,16 @@ class SidebarHeaderView: NSView, TitlebarAwareHitTestable {
         // Position sidebar button relative to the window's traffic-light buttons
         updateSidebarButtonLeftConstraint()
 
-        // Keep updated on window resize and when titlebar layout changes.
-        // Matched by identity rather than `object:` — a subscription retains
-        // its `object`, and a window retained by a view it hosts never
-        // deallocates.
+        // Keep updated on window resize. Matched by identity rather than
+        // `object:` — a Combine subscription retains its `object`, and a
+        // window retained by a view it hosts never deallocates. Titlebar
+        // layout changes move the zoom button instead, which
+        // `observeFrameChanges(zoomButton:)` observes without retaining it.
         if window != nil {
             NotificationCenter.default.publisher(for: NSWindow.didResizeNotification)
                 .merge(with: NotificationCenter.default.publisher(for: NSWindow.didEndLiveResizeNotification))
-                .merge(with: NotificationCenter.default.publisher(for: NSView.frameDidChangeNotification))
                 .filter { [weak self] notification in
                     guard let self, let window = self.window else { return false }
-                    if notification.name == NSView.frameDidChangeNotification {
-                        return !self.isFloating
-                            && notification.object as? NSView === window.standardWindowButton(.zoomButton)
-                    }
                     return notification.object as? NSWindow === window
                 }
                 .sink { [weak self] _ in self?.updateSidebarButtonLeftConstraint() }
