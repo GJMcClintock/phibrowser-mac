@@ -62,41 +62,51 @@ Sources: [native service](../Sources/States/PageScreenshotService.swift),
 [CDP session](../Sources/ChromiumBridge/AgentCDP/AppDevToolsPageSession.swift),
 [menu](../Sources/Application/AppController+Menu.swift).
 
-## Visible-area capture
+## Area capture
 
-File > Capture Area lets the user drag over the focused page's visible content.
-Release finishes a selection of at least two view points on each axis. Escape,
-a secondary click, a click in another app window, a changed focused tab,
+File > Capture Area lets the user drag over the focused page. While dragging,
+wheel or trackpad scrolling moves the main document; holding the pointer within
+32 view points of an edge continuously scrolls in that direction. The initial
+anchor stays in document coordinates, so the selection can extend beyond the
+visible viewport in either direction. Moving away from the edge stops automatic
+scrolling; wheel input temporarily takes precedence over edge scrolling.
+Release waits for any in-flight scroll and queued wheel movement, then finishes
+a selection of at least two view points on each axis. The page stays at its final
+scroll position. This captures main-document rectangles, not independently
+scrolling containers or a history of virtualized content.
+
+Escape, a secondary click, loss of window focus, a changed focused tab,
 navigation/loading, a closed or hidden origin, or a changed page-view frame
-cancels selection. User wheel scrolling is intercepted while the overlay is up.
-The common-mode validity timer and local event monitor are removed on completion
-and cancellation. A canceled operation leaves the clipboard untouched and
-releases the single-flight capture gate.
+cancels selection. The common-mode timer, pending scrolling and local event
+monitor are removed on completion and cancellation. A canceled operation leaves
+the clipboard untouched and releases the single-flight capture gate.
 
 `PageScreenshotRegionSelector` owns the AppKit overlay and returns a rectangle
-in top-left page-view proportions. It does not call Chromium or pass screen
-coordinates to CDP. `PageScreenshotRegion` normalizes flipped and unflipped
-AppKit bounds and clamps the selection. The service maps those proportions into
-`cssVisualViewport.pageX/pageY/clientWidth/clientHeight`. The visible CSS extent
-also includes classic scrollbar thickness, divided by visual-viewport pinch
-scale; the clip is then intersected with page content so scrollbar-only
-selections are rejected. `window.devicePixelRatio` controls the physical image
-budget and includes browser page zoom. Retina backing pixels never enter the
-native selection rectangle.
+in document CSS coordinates. `PageScreenshotViewport` maps native view points
+through `cssVisualViewport.pageX/pageY/clientWidth/clientHeight`, including
+classic scrollbar thickness divided by visual-viewport pinch scale. Pointer
+positions clamp to visible page pixels; the final clip intersects document
+content, not the viewport. Retina backing pixels never enter the native
+selection rectangle. `window.devicePixelRatio` controls the physical image
+budget and includes browser page zoom.
 
-The service snapshots document identity and viewport data before selection,
-then compares them after selection and after capture. Scroll, page zoom, pinch
-scale, scrollbar changes, and viewport resize invalidate an area result. The
-final document-identity query is the last suspension before returning image
-bytes, so a navigation during viewport validation cannot commit an old result.
-The native origin is checked again before copying. The 60-second operation
-budget includes selection. The full-page command order, JPEG settings,
-16K-axis/64-million-pixel scaling, and clipboard guards remain in use.
+The service owns a serialized scroll callback using an isolated execution
+context pinned to the original document. It rejects unsolicited viewport moves
+before scrolling and reads the actual viewport afterwards rather than accumulating
+requested offsets. Navigation, page zoom,
+pinch scale, scrollbar changes and viewport resize invalidate selection.
+After release, further viewport changes also invalidate the result. The final
+document-identity query is the last suspension before returning image bytes, so
+navigation during viewport validation cannot commit an old result. The native
+origin is checked again before copying. The 60-second operation budget includes
+selection. Full-page command ordering, JPEG settings, 16K-axis/64-million-pixel
+scaling and clipboard guards remain in use.
 
-Area capture sends its CSS clip directly to `Page.captureScreenshot`; it does
-not first capture the full page and crop it. Neither capture mode changes
-viewport emulation, resizes the page, or requests system screen-capture access.
-The native overlay is outside Chromium's captured surface.
+Area capture sends one CSS clip directly to `Page.captureScreenshot`; it does
+not stitch frames or first capture the full page and crop it. Phi does not send
+viewport-emulation commands or request system screen-capture access. Chromium
+internally adjusts capture parameters and restores them as part of screenshot
+handling. The native overlay is outside Chromium's captured surface.
 
 ## Screenshot editor
 

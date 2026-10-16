@@ -71,7 +71,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Drag to capture an area · Escape to cancel"
+            "value" : "Drag to select · Scroll or drag to an edge to extend · Escape to cancel"
           }
         }
       }
