@@ -142,6 +142,28 @@ final class ScreenshotEditorTests: XCTestCase {
         XCTAssertGreaterThan(pixel(rendered, x: 30, y: 270).b, 230)
         XCTAssertGreaterThan(pixel(rendered, x: 180, y: 50).g, 180)
     }
+    func testSmoothedFreehandExportsCurveInsteadOfOriginalCornerInEveryFormat() throws {
+        let model = ScreenshotEditorModel(canvas: image())
+        model.brushSize = 6
+        model.selectTool(.freehand); model.beginInteraction(at: CGPoint(x: 20, y: 100), tolerance: 2)
+        model.continueInteraction(at: CGPoint(x: 100, y: 20))
+        model.continueInteraction(at: CGPoint(x: 180, y: 100)); model.endInteraction()
+        model.setZoomExact(0.25)
+        for format in ScreenshotExportFormat.allCases {
+            let data = try ScreenshotImageExport.encode(model.snapshot(), format: format)
+            let raster: CGImage
+            if format == .pdf {
+                let document = try XCTUnwrap(CGPDFDocument(try XCTUnwrap(CGDataProvider(data: data as CFData))))
+                let context = try XCTUnwrap(ScreenshotSceneRenderer.bitmapContext(width: 400, height: 300))
+                context.drawPDFPage(try XCTUnwrap(document.page(at: 1)))
+                raster = try XCTUnwrap(context.makeImage())
+            } else {
+                raster = try XCTUnwrap(ScreenshotImageExport.decode(data: data))
+            }
+            XCTAssertLessThan(pixel(raster, x: 100, y: 40).g, 100, "\(format): the smoothed curve is painted")
+            XCTAssertGreaterThan(pixel(raster, x: 100, y: 20).g, 230, "\(format): the old corner remains white")
+        }
+    }
     func testFailedWritePreservesSceneAndLimitsAreCheckedBeforeDecode() {
         let model = ScreenshotEditorModel(canvas: image())
         stroke(model, tool: .arrow, from: CGPoint(x: 20, y: 20), to: CGPoint(x: 180, y: 80))

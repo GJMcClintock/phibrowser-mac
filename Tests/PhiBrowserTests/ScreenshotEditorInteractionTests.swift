@@ -124,7 +124,7 @@ final class ScreenshotEditorInteractionTests: XCTestCase {
         let mirror = item.editing(handle: .right, at: CGPoint(x: 160, y: 60), mirrored: true)
         XCTAssertEqual(mirror.bounds, CGRect(x: 20, y: 40, width: 140, height: 40))
     }
-    func testArrowUsesOpen45DegreeWingsAndFreehandKeepsLineSegments() throws {
+    func testArrowUsesOpen45DegreeWings() throws {
         var arrow = ScreenshotAnnotation(kind: .arrow, points: [.zero, CGPoint(x: 100, y: 0)])
         arrow.style.arrowHeadLength = 32
         var types: [CGPathElementType] = [], points: [CGPoint] = []
@@ -132,9 +132,53 @@ final class ScreenshotEditorInteractionTests: XCTestCase {
         XCTAssertEqual(types, [.moveToPoint, .addLineToPoint, .addLineToPoint])
         XCTAssertEqual(points[0].x, 100 - 30 / sqrt(2), accuracy: 0.00001)
         XCTAssertEqual(abs(points[0].y), 30 / sqrt(2), accuracy: 0.00001)
-        let freehand = ScreenshotAnnotation(kind: .freehand, points: [.zero, CGPoint(x: 10, y: 30), CGPoint(x: 40, y: 5)])
-        types = []; freehand.path.applyWithBlock { types.append($0.pointee.type) }
-        XCTAssertEqual(types, [.moveToPoint, .addLineToPoint, .addLineToPoint])
+    }
+    func testFreehandSmoothsCornersAndHitTestsVisibleCurve() {
+        let samples = [CGPoint(x: 20, y: 100), CGPoint(x: 100, y: 20), CGPoint(x: 180, y: 100)]
+        let stroke = ScreenshotAnnotation(kind: .freehand, points: samples)
+        var types: [CGPathElementType] = []
+        stroke.path.applyWithBlock { types.append($0.pointee.type) }
+        XCTAssertEqual(types, [.moveToPoint, .addLineToPoint, .addQuadCurveToPoint, .addLineToPoint])
+        XCTAssertTrue(stroke.contains(CGPoint(x: 100, y: 40), tolerance: 1))
+        XCTAssertFalse(stroke.contains(samples[1], tolerance: 1), "The original sharp corner is no longer painted")
+        XCTAssertTrue(stroke.contains(samples[0], tolerance: 1))
+        XCTAssertTrue(stroke.contains(samples[2], tolerance: 1))
+        XCTAssertEqual(stroke.points, samples)
+        XCTAssertEqual(stroke.path.currentPoint, samples[2])
+        XCTAssertTrue(stroke.bounds.contains(stroke.path.boundingBoxOfPath))
+    }
+    func testFreehandHandlesEmptyShortAndRepeatedSamples() {
+        XCTAssertTrue(ScreenshotAnnotation(kind: .freehand).path.isEmpty)
+        let a = CGPoint(x: 20, y: 30), b = CGPoint(x: 140, y: 90)
+        for samples in [[a], [a, b], [a, a, a], [a, a, b, b]] {
+            let stroke = ScreenshotAnnotation(kind: .freehand, points: samples)
+            XCTAssertEqual(stroke.path.currentPoint, samples.last)
+            XCTAssertEqual(stroke.points, samples)
+            XCTAssertTrue(stroke.path.boundingBoxOfPath.origin.x.isFinite)
+            if samples.count == 2 {
+                var types: [CGPathElementType] = []
+                stroke.path.applyWithBlock { types.append($0.pointee.type) }
+                XCTAssertEqual(types, [.moveToPoint, .addLineToPoint])
+                XCTAssertTrue(stroke.contains(CGPoint(x: 80, y: 60), tolerance: 1))
+            }
+        }
+    }
+    func testFreehandCompletionAndUndoPreserveSmoothedPreview() throws {
+        let m = model()
+        let samples = [CGPoint(x: 20, y: 100), CGPoint(x: 100, y: 20),
+                       CGPoint(x: 180, y: 100), CGPoint(x: 240, y: 40)]
+        m.selectTool(.freehand); m.beginInteraction(at: samples[0], tolerance: 2)
+        for point in samples.dropFirst() { m.continueInteraction(at: point) }
+        let preview = try XCTUnwrap(m.annotations.first)
+        m.endInteraction()
+        XCTAssertEqual(m.selected?.path, preview.path, "Finishing must not reshape the preview")
+        XCTAssertEqual(m.selected?.points, samples)
+        m.undo(); XCTAssertTrue(m.annotations.isEmpty)
+        m.redo(); XCTAssertEqual(m.selected, preview)
+        let moved = preview.translated(by: CGPoint(x: 30, y: 50))
+        XCTAssertTrue(moved.contains(CGPoint(x: 130, y: 90), tolerance: 1))
+        let resized = preview.resized(to: CGRect(x: 20, y: 20, width: 440, height: 160))
+        XCTAssertTrue(resized.contains(CGPoint(x: 180, y: 60), tolerance: 1))
     }
     func testMultiSelectionStyleChangesOnlyRequestedFieldAndUndoIsAggregate() {
         let m = model(), ids = twoObjects(m)
