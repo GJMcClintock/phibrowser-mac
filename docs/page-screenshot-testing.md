@@ -13,6 +13,7 @@ The script generates a dependency-free Swift package in
 `build/PageScreenshotHarness`. It compiles the production screenshot service,
 region selector, editor and exporters with controlled browser/CDP stubs.
 The suites cover capture deadlines and identity checks, coordinate conversion,
+wheel and edge scrolling across viewports, pending-scroll completion and cancellation,
 clipboard preservation, retained annotations, selection modifiers, text editing,
 undo/redo, crop geometry, continuous autoscroll and JPG/PDF output.
 
@@ -53,6 +54,16 @@ scheme, destination and derived-data directory.
 
 - Capture full-page and visible-area screenshots; check dimensions, page identity
   and clipboard contents, including cancellation and capture failures.
+- On a long page with numbered rows, begin Capture Area and hold the mouse button
+  while scrolling with a wheel or trackpad. Repeat with the pointer held at the
+  bottom or top edge without moving it. Release after the anchor has scrolled out
+  of view; verify both endpoints and every intervening row in the single image.
+  Repeat horizontally, at page boundaries, with classic scrollbars and at 125%
+  page zoom. Wheel input near an edge must take precedence over automatic scroll.
+- Release or press Escape during scrolling. No further scroll requests may be
+  queued after completion/cancellation. Switch to another app, navigate, resize,
+  change zoom or trigger a script-driven scroll during a drag and verify
+  cancellation preserves the clipboard.
 - Create arrow, freehand, shape and text annotations. Verify drawing returns to
   Select, Shift repeats the tool and retained objects remain editable.
 - Exercise selection, group transforms, text-local undo and document undo/redo.

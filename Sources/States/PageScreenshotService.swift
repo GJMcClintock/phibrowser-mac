@@ -74,9 +74,9 @@ final class PageScreenshotService {
         let operation: (@MainActor (String, TimeInterval) async throws -> String?)?
         if area {
             operation = { target, timeout in
-                try await Self.capturePage(targetId: target, timeout: timeout, selectRegion: {
+                try await Self.capturePage(targetId: target, timeout: timeout, selectRegion: { viewport, scroll in
                     guard let pageView, isValid() else { throw CancellationError() }
-                    guard let region = await PageScreenshotRegionSelector.select(over: pageView, isValid: isValid),
+                    guard let region = await PageScreenshotRegionSelector.select(over: pageView, viewport: viewport, scroll: scroll, isValid: isValid),
                           isValid() else { throw CancellationError() }
                     return region
                 })
@@ -152,9 +152,12 @@ final class PageScreenshotService {
         var close: () -> Void
     }
 
+    typealias SelectionScroll = (CGSize) async throws -> PageScreenshotViewport
+    typealias SelectRegion = (PageScreenshotViewport, @escaping SelectionScroll) async throws -> PageScreenshotRegion
+
     static func capturePage(
         targetId: String, timeout: TimeInterval,
-        selectRegion: (() async throws -> PageScreenshotRegion)? = nil,
+        selectRegion: SelectRegion? = nil,
         openSession: (String, TimeInterval) async throws -> CaptureSession = { targetId, timeout in
             let session = try await AppDevToolsPageSession.open(
                 targetId: targetId, timeout: timeout,
@@ -173,6 +176,7 @@ final class PageScreenshotService {
         }
 
         func send(_ method: String, params: [String: Any] = [:]) async throws -> [String: Any] {
+            try Task.checkCancellation()
             let remaining = timeout - (ProcessInfo.processInfo.systemUptime - started)
             guard remaining > 0 else { throw AppDevToolsPageSession.SessionError.timedOut }
             AppLogDebug("[Screenshot] cdp.begin method=\(method) timeout=\(min(15, remaining))s")
@@ -200,30 +204,67 @@ final class PageScreenshotService {
             throw AppDevToolsPageSession.SessionError.commandFailed("Invalid screenshot page dimensions")
         }
         var clipRect = CGRect(x: x, y: y, width: rawWidth, height: rawHeight)
-        func readViewport(_ metrics: [String: Any]) async throws -> ViewportSnapshot {
+        func readViewport(_ metrics: [String: Any]) async throws -> PageScreenshotViewport {
             let info = try await send("Runtime.evaluate", params: [
                 "expression": "({scrollbarWidth: Math.max(0, window.innerWidth - document.documentElement.clientWidth), scrollbarHeight: Math.max(0, window.innerHeight - document.documentElement.clientHeight), scale: window.visualViewport ? window.visualViewport.scale : 1})",
                 "returnByValue": true,
             ])
             return try viewportSnapshot(metrics, info: info)
         }
-        var selectionViewport: ViewportSnapshot?
+        var selectionViewport: PageScreenshotViewport?
         if let selectRegion {
             let viewport = try await readViewport(metrics)
-            let region = try await selectRegion()
-            // Selection can outlive a navigation, scroll, zoom, or viewport resize.
+            // Pin scrolling to this document so a navigation cannot receive an old scroll request.
+            let world = try await send("Page.createIsolatedWorld", params: [
+                "frameId": before.0, "worldName": "phi-screenshot-selection",
+            ])
+            guard let contextId = world["executionContextId"] as? Int,
+                  try documentIdentity(await send("Page.getFrameTree")) == before else { throw CancellationError() }
+            var currentViewport = viewport
+            let region = try await selectRegion(viewport, { delta in
+                guard delta.width.isFinite, delta.height.isFinite else { throw CancellationError() }
+                // An unsolicited scroll can make the anchor stale before the first drag or
+                // between input events. Only accept offsets produced by this selection.
+                let startingMetrics = try await send("Page.getLayoutMetrics")
+                let startingViewport = try await readViewport(startingMetrics)
+                guard startingViewport == currentViewport else { throw CancellationError() }
+                if delta != .zero {
+                    let response = try await send("Runtime.evaluate", params: [
+                        "expression": "new Promise(resolve => { window.scrollBy({left: \(delta.width), top: \(delta.height), behavior: 'instant'}); requestAnimationFrame(() => requestAnimationFrame(() => resolve(true))); })",
+                        "contextId": contextId, "awaitPromise": true, "returnByValue": true,
+                    ])
+                    guard response["exceptionDetails"] == nil else { throw CancellationError() }
+                }
+                let identity = try documentIdentity(await send("Page.getFrameTree"))
+                let updatedMetrics = delta == .zero ? startingMetrics : try await send("Page.getLayoutMetrics")
+                let ratio = try await send("Runtime.evaluate", params: [
+                    "expression": "window.devicePixelRatio", "returnByValue": true,
+                ])
+                let updatedViewport = delta == .zero ? startingViewport : try await readViewport(updatedMetrics)
+                guard identity == before, updatedViewport.hasSameGeometry(as: viewport),
+                      let result = ratio["result"] as? [String: Any],
+                      finiteNumber(result["value"]) == dpr else { throw CancellationError() }
+                currentViewport = updatedViewport
+                return updatedViewport
+            })
+            // The accepted rectangle is already in document coordinates. Only selection-time
+            // scrolling is allowed; a later scroll, zoom, resize or navigation still cancels.
             let selectedIdentity = try documentIdentity(await send("Page.getFrameTree"))
             let selectedMetrics = try await send("Page.getLayoutMetrics")
             let selectedRatio = try await send("Runtime.evaluate", params: [
                 "expression": "window.devicePixelRatio", "returnByValue": true,
             ])
             let selectedViewport = try await readViewport(selectedMetrics)
-            guard before == selectedIdentity, selectedViewport == viewport,
+            guard before == selectedIdentity, selectedViewport == currentViewport,
                   let selectedResult = selectedRatio["result"] as? [String: Any],
                   finiteNumber(selectedResult["value"]) == dpr,
-                  let regionClip = region.cssClip(viewport: viewport.rect, viewSize: viewport.viewSize) else { throw CancellationError() }
+                  let content = selectedMetrics["cssContentSize"] as? [String: Any],
+                  let contentX = finiteNumber(content["x"]), let contentY = finiteNumber(content["y"]),
+                  let contentWidth = finiteNumber(content["width"]), let contentHeight = finiteNumber(content["height"]),
+                  contentWidth > 0, contentHeight > 0,
+                  let regionClip = region.cssClip(content: CGRect(x: contentX, y: contentY, width: contentWidth, height: contentHeight)) else { throw CancellationError() }
             clipRect = regionClip
-            selectionViewport = viewport
+            selectionViewport = selectedViewport
         }
         let width = selectRegion == nil ? ceil(clipRect.width) : clipRect.width
         let height = selectRegion == nil ? ceil(clipRect.height) : clipRect.height
@@ -279,13 +320,7 @@ final class PageScreenshotService {
         return base64
     }
 
-    private struct ViewportSnapshot: Equatable {
-        let rect: CGRect
-        let viewSize: CGSize
-        let scale: Double
-    }
-
-    private static func viewportSnapshot(_ reply: [String: Any], info: [String: Any]) throws -> ViewportSnapshot {
+    private static func viewportSnapshot(_ reply: [String: Any], info: [String: Any]) throws -> PageScreenshotViewport {
         guard let viewport = reply["cssVisualViewport"] as? [String: Any],
               let x = finiteNumber(viewport["pageX"]), let y = finiteNumber(viewport["pageY"]),
               let width = finiteNumber(viewport["clientWidth"]), let height = finiteNumber(viewport["clientHeight"]),
@@ -297,7 +332,7 @@ final class PageScreenshotService {
         }
         let viewSize = CGSize(width: width + scrollbarWidth / scale, height: height + scrollbarHeight / scale)
         guard viewSize.width.isFinite, viewSize.height.isFinite else { throw CancellationError() }
-        return ViewportSnapshot(rect: CGRect(x: x, y: y, width: width, height: height), viewSize: viewSize, scale: scale)
+        return PageScreenshotViewport(rect: CGRect(x: x, y: y, width: width, height: height), viewSize: viewSize, scale: scale)
     }
 
     private static func documentIdentity(_ reply: [String: Any]) throws -> (String, String, String) {
