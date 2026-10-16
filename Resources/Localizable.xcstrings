@@ -340,6 +340,17 @@
         }
       }
     },
+    "browser.screenshot.mosaic" : {
+      "comment" : "Screenshot editor - Cover a rectangular area with pixelated image blocks",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Blur"
+          }
+        }
+      }
+    },
     "browser.screenshot.move" : {
       "comment" : "Screenshot editor - Undo action for moving an annotation",
       "extractionState" : "manual",

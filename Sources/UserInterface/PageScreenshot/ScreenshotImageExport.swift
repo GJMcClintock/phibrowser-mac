@@ -27,7 +27,7 @@ enum ScreenshotImageExport {
         context.fill(CGRect(x: 0, y: 0, width: snapshot.width, height: snapshot.height))
         context.draw(snapshot.source, in: CGRect(x: 0, y: 0, width: snapshot.width, height: snapshot.height))
         context.translateBy(x: 0, y: CGFloat(snapshot.height)); context.scaleBy(x: 1, y: -1)
-        for annotation in snapshot.annotations { ScreenshotSceneRenderer.draw(annotation, in: context) }
+        for annotation in snapshot.annotations { ScreenshotSceneRenderer.draw(annotation, in: context, source: snapshot.source) }
         guard let image = context.makeImage() else { throw ExportError.imageCreationFailed }
         return image
     }
@@ -43,9 +43,14 @@ enum ScreenshotImageExport {
             guard let consumer = CGDataConsumer(data: data), let context = CGContext(consumer: consumer, mediaBox: &box, nil) else { throw ExportError.encodingFailed }
             context.beginPDFPage(nil)
             context.setFillColor(CGColor(gray: 1, alpha: 1)); context.fill(box)
-            context.draw(snapshot.source, in: box)
-            context.translateBy(x: 0, y: CGFloat(snapshot.height)); context.scaleBy(x: 1, y: -1)
-            for annotation in snapshot.annotations { ScreenshotSceneRenderer.draw(annotation, in: context) }
+            if snapshot.annotations.contains(where: { $0.kind == .mosaic }) {
+                // Never embed the unobscured source or hidden text beneath a removable PDF overlay.
+                context.draw(try composite(snapshot), in: box)
+            } else {
+                context.draw(snapshot.source, in: box)
+                context.translateBy(x: 0, y: CGFloat(snapshot.height)); context.scaleBy(x: 1, y: -1)
+                for annotation in snapshot.annotations { ScreenshotSceneRenderer.draw(annotation, in: context) }
+            }
             context.endPDFPage(); context.closePDF()
         }
         return data as Data

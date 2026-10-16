@@ -25,7 +25,7 @@ struct ScreenshotEditorToolbar: View {
                     .padding(.horizontal, 8).padding(.vertical, 4).disabled(!model.canCrop)
                     .accessibilityIdentifier("screenshot.crop.confirm")
             } else {
-                ForEach([ScreenshotTool.select, .arrow, .freehand, .text, .rectangle, .ellipse, .crop], id: \.self) { tool in
+                ForEach([ScreenshotTool.select, .arrow, .freehand, .text, .rectangle, .ellipse, .mosaic, .crop], id: \.self) { tool in
                     ScreenshotToolButton(tool: tool, selected: model.tool == tool) { model.selectTool(tool) }
                 }
                 Divider().frame(height: 22).padding(.horizontal, 8)
@@ -111,6 +111,7 @@ extension ScreenshotTool {
     var title: String {
         switch self {
         case .select: return NSLocalizedString("browser.screenshot.select", value: "Select", comment: "Screenshot editor - Select and move annotations")
+        case .mosaic: return NSLocalizedString("browser.screenshot.mosaic", value: "Blur", comment: "Screenshot editor - Cover a rectangular area with pixelated image blocks")
         case .crop: return NSLocalizedString("browser.screenshot.crop", value: "Crop", comment: "Screenshot editor - Crop the image to the selected rectangular region")
         case .arrow: return NSLocalizedString("browser.screenshot.arrow", value: "Arrow", comment: "Screenshot editor - Arrow drawing tool")
         case .freehand: return NSLocalizedString("browser.screenshot.freehand", value: "Freehand", comment: "Screenshot editor - Freehand drawing tool")
@@ -122,6 +123,7 @@ extension ScreenshotTool {
     var symbol: String {
         switch self {
         case .select: return "cursorarrow"
+        case .mosaic: return "square.grid.3x3.fill"
         case .crop: return "crop"
         case .arrow: return "arrow.up.right"
         case .freehand: return "pencil.tip"
@@ -133,6 +135,7 @@ extension ScreenshotTool {
     var shortcut: String {
         switch self {
         case .select: return "V"
+        case .mosaic: return "M"
         case .crop: return "C"
         case .arrow: return "A"
         case .freehand: return "P"

@@ -111,7 +111,8 @@ final class ScreenshotCanvasView: NSView, NSTextViewDelegate, NSMenuDelegate {
         guard let model else { return }
         invalidateCanvasSize()
         CATransaction.begin(); CATransaction.setDisableActions(true)
-        if backgroundImage !== model.source { background.contents = model.source }
+        let sourceChanged = backgroundImage !== model.source
+        if sourceChanged { background.contents = model.source }
         scene.bounds = CGRect(x: 0, y: 0, width: model.width, height: model.height)
         scene.position = .zero
         scene.setAffineTransform(CGAffineTransform(scaleX: zoom, y: zoom))
@@ -129,7 +130,7 @@ final class ScreenshotCanvasView: NSView, NSTextViewDelegate, NSMenuDelegate {
             item.isHidden = editingID == annotation.id
             item.contentsScale = max(0.02, zoom * (window?.backingScaleFactor ?? 2))
             item.sublayers?.forEach { $0.contentsScale = item.contentsScale }
-            if rendered[annotation.id] != annotation || (annotation.kind == .text && textScaleChanged) {
+            if rendered[annotation.id] != annotation || (annotation.kind == .text && textScaleChanged) || (annotation.kind == .mosaic && sourceChanged) {
                 update(item, annotation: annotation); rendered[annotation.id] = annotation
                 objectLayerUpdateCount += 1
             }
@@ -141,14 +142,23 @@ final class ScreenshotCanvasView: NSView, NSTextViewDelegate, NSMenuDelegate {
         onPresentationChange?()
     }
     private func makeObjectLayer(_ annotation: ScreenshotAnnotation) -> CALayer {
-        let item: CALayer = annotation.kind == .text ? CALayer() : CAShapeLayer()
+        let item: CALayer = [.text, .mosaic].contains(annotation.kind) ? CALayer() : CAShapeLayer()
         item.anchorPoint = .zero
         scene.addSublayer(item); objectLayers[annotation.id] = item
         if annotation.kind == .arrow { item.addSublayer(CAShapeLayer()) }
         return item
     }
     private func update(_ item: CALayer, annotation: ScreenshotAnnotation) {
-        if let shape = item as? CAShapeLayer {
+        if annotation.kind == .mosaic, let source = model?.source {
+            let rect = ScreenshotSceneRenderer.mosaicRect(annotation, source: source)
+            item.frame = rect.isNull ? .zero : rect
+            let image = ScreenshotSceneRenderer.mosaicImage(source: source, rect: rect)
+            // An opaque backing beneath valid contents leaves a dark fringe at fractional zoom.
+            item.backgroundColor = image == nil ? NSColor.black.cgColor : nil
+            item.contents = image
+            item.contentsGravity = .resize
+            item.magnificationFilter = .nearest; item.minificationFilter = .nearest
+        } else if let shape = item as? CAShapeLayer {
             // Layers use source coordinates; the scene transform alone controls magnification.
             let padding = max(annotation.style.width * 2, annotation.style.arrowHeadLength, 16)
             let rect = annotation.bounds.insetBy(dx: -padding, dy: -padding)
@@ -355,7 +365,7 @@ final class ScreenshotCanvasView: NSView, NSTextViewDelegate, NSMenuDelegate {
                                 y: event.keyCode == 126 ? -step : event.keyCode == 125 ? step : 0)
             model.moveSelection(by: delta); synchronize(); return
         }
-        if flags.isEmpty, let tool = ["v": ScreenshotTool.select, "c": .crop, "a": .arrow, "p": .freehand, "t": .text, "r": .rectangle, "o": .ellipse][key] {
+        if flags.isEmpty, let tool = ["v": ScreenshotTool.select, "c": .crop, "a": .arrow, "p": .freehand, "t": .text, "r": .rectangle, "o": .ellipse, "m": .mosaic][key] {
             model.selectTool(tool); synchronize(); return
         }
         super.keyDown(with: event)

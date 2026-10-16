@@ -54,6 +54,7 @@ final class ScreenshotEditorViewport: NSView {
         zoomControl.frame = ScreenshotPopoverPlacement.clamp(zoomFrame, to: bounds.insetBy(dx: 12, dy: 12))
         guard let canvas = scrollView.documentView as? ScreenshotCanvasView,
               model.tool == .select, !model.isInteracting, !model.isEditingText,
+              !model.selectedObjects.contains(where: { $0.kind == .mosaic }),
               !canvas.isShowingContextMenu, !canvas.isPanningImage,
               let sourceBounds = model.selectionBounds else {
             annotationPopover.isHidden = true
