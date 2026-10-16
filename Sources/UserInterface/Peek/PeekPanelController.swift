@@ -376,6 +376,22 @@ final class PeekPanelController {
         landAppearFlight()
         removeEventMonitor()
         rootView.removeFromSuperview()
+        setHostedPeekPresented(false)
+    }
+
+    /// Chromium's page commands (Reload, Stop, Zoom, Print, Save Page, View
+    /// Source, DevTools, Find) act on the presented peek instead of the
+    /// strip-active opener behind it, mirroring `BrowserState
+    /// .pageCommandTarget` on the native side. Tracks the panel being on
+    /// screen with `hostedTab`'s page: set on reveal, cleared on hide and
+    /// detach. An eclipsing omnibox leaves the page visible, so it keeps the
+    /// bit; tab search conceals the panel through `hide()`, so it drops it.
+    private func setHostedPeekPresented(_ presented: Bool) {
+        guard let wrapper = hostedTab?.webContentWrapper,
+              wrapper.responds(to: #selector(WebContentWrapper.updateIsPeekPresented(_:))) else {
+            return
+        }
+        wrapper.updateIsPeekPresented(presented)
     }
 
     /// The omnibox keeps keyboard ownership while the page remains visible.
@@ -534,6 +550,7 @@ final class PeekPanelController {
         layoutOnAnchor()
         if flyIn { armAppearFlight() }
         rootView.isHidden = false
+        setHostedPeekPresented(true)
         runAppearFlight()
         // The page, not `subviews.first` — docked DevTools sits below it.
         if focusContent, !isEclipsedByInWindowOverlay,
@@ -557,6 +574,7 @@ final class PeekPanelController {
     private func detachHostedContent() {
         toastCenter.clearWindow(windowId: toastViewController.state.windowId)
         landAppearFlight()
+        setHostedPeekPresented(false)
         webHostView.subviews.forEach { $0.removeFromSuperview() }
         hostedTab = nil
         controlVisibility = nil

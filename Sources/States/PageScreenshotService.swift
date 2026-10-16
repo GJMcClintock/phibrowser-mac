@@ -38,7 +38,7 @@ final class PageScreenshotService {
 
     func canCapture(in state: BrowserState) -> Bool {
         guard !isCapturing, ChromiumLauncher.sharedInstance().bridge != nil,
-              state.windowId >= 0, let tab = state.focusingTab,
+              state.windowId >= 0, let tab = state.pageCommandTarget,
               tab.guid >= 0, !tab.isShowingNativeNTP,
               let targetId = tab.webContentWrapper?.devToolsTargetId,
               !targetId.isEmpty else { return false }
@@ -48,7 +48,7 @@ final class PageScreenshotService {
     /// Snap the page target, title, and destination window before the first suspension.
     func capture(in state: BrowserState) {
         guard canCapture(in: state),
-              let tab = state.focusingTab,
+              let tab = state.pageCommandTarget,
               let targetId = tab.webContentWrapper?.devToolsTargetId else { return }
         let windowId = state.windowId
         let title = tab.title

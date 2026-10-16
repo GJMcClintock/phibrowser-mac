@@ -214,7 +214,7 @@ struct CommandDispatcher {
             OverlayToastCenter.shared.showURLCopyConfirmation(copiedURLs: copiedURLs, in: state)
             return true
         case .PHI_SHARE_PAGE:
-            guard PageSharingPresenter.canShare(tab: windowController.browserState.focusingTab) else {
+            guard PageSharingPresenter.canShare(tab: windowController.browserState.pageCommandTarget) else {
                 return false
             }
             windowController.sharePage(nil)
@@ -229,7 +229,7 @@ struct CommandDispatcher {
             return true
         case .PHI_SAVE_FOR_LATER:
             let state = windowController.browserState
-            guard let tab = state.focusingTab, SaveForLaterService.canSave(tab) else {
+            guard let tab = state.pageCommandTarget, SaveForLaterService.canSave(tab) else {
                 return false
             }
             SaveForLaterService.save(tab: tab, in: state)

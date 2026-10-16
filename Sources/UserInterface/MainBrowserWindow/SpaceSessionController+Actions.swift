@@ -55,7 +55,7 @@ extension SpaceSessionController {
     }
     
     @IBAction func sharePage(_ sender: Any?) {
-        guard let url = PageSharingPresenter.shareableURL(for: browserState.focusingTab),
+        guard let url = PageSharingPresenter.shareableURL(for: browserState.pageCommandTarget),
               let contentView = window?.contentView else {
             return
         }
@@ -214,7 +214,9 @@ extension SpaceSessionController {
         
         guard state.isIncognito == false else { return }
         
-        guard let tab = state.focusingTab,
+        // The peek in front of the focused tab when one is up — the page the
+        // user is looking at, not the opener behind the panel.
+        guard let tab = state.pageCommandTarget,
               let url = tab.url, !url.isEmpty else { return }
 
         // When the focused tab is one half of a split, bookmark the whole pair
@@ -250,7 +252,7 @@ extension SpaceSessionController {
     }
     
     @IBAction func reload(_ sender: Any) {
-        browserState.focusingTab?.reload()
+        browserState.pageCommandTarget?.reload()
     }
     
     /// will be called by PhiApplication.sendEvent

@@ -1103,6 +1103,7 @@ private final class KioskTestWebContentWrapper: NSObject, WebContentWrapper {
     func moveSplit(toWindow targetWindowId: Int64, at insertIndex: Int) {}
     func updateTabCustomValue(_ customValue: String) {}
     func updateIsPeekSurface(_ isPeekSurface: Bool) {}
+    func updateIsPeekPresented(_ presented: Bool) {}
     func focus() {}
     func restoreFocus() {}
     func updateSecurityState(_ securityState: [AnyHashable: Any]) {}

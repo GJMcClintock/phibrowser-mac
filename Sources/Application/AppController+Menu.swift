@@ -1126,7 +1126,7 @@ extension AppController {
         guard let state = SpaceSessionControllersManager.shared
             .activeWindowController?.browserState,
               !state.isInPlaceholderMode,
-              let tab = state.focusingTab,
+              let tab = state.pageCommandTarget,
               let url = tab.url, !url.isEmpty else {
             return false
         }
@@ -1212,7 +1212,7 @@ extension AppController {
     @MainActor
     @objc func saveTabForLater(_ sender: Any?) {
         guard let state = SpaceSessionControllersManager.shared.activeWindowController?.browserState,
-              let tab = state.focusingTab else {
+              let tab = state.pageCommandTarget else {
             return
         }
         SaveForLaterService.save(tab: tab, in: state)
@@ -3167,7 +3167,7 @@ extension AppController {
             let canSave = MainActor.assumeIsolated {
                 SaveForLaterService.canSave(
                     SpaceSessionControllersManager.shared
-                        .activeWindowController?.browserState.focusingTab)
+                        .activeWindowController?.browserState.pageCommandTarget)
             }
             return canSave && ApplicationState.shared.canUseBrowser
         }
@@ -3347,7 +3347,7 @@ extension AppController {
                 return false
             }
             return MainActor.assumeIsolated {
-                PageSharingPresenter.canShare(tab: state.focusingTab)
+                PageSharingPresenter.canShare(tab: state.pageCommandTarget)
             }
         }
         if item.action == #selector(bookmarkThisTab(_:)) {

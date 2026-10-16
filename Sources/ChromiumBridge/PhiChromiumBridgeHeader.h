@@ -2452,6 +2452,13 @@ typedef NS_ENUM(NSInteger, PhiMediaControlAction) {
 /// normally hosted pane (split view via context menu or Option-click,
 /// nested Peek). Callers must guard with respondsToSelector: (skew).
 - (void)updateIsPeekSurface:(BOOL)isPeekSurface;
+/// Tells Chromium whether the Peek panel shows this tab's page right now.
+/// The peek tab is never strip-active (its opener is), so while presented
+/// Chromium's page commands — Reload, Stop, Zoom, Print, Save Page, View
+/// Source, DevTools, Find — act on it instead of the active tab. Hidden
+/// peeks of unfocused openers stay marked as peek surfaces but are not
+/// presented. Callers must guard with respondsToSelector: (skew).
+- (void)updateIsPeekPresented:(BOOL)presented;
 - (void)focus;
 - (void)restoreFocus;
 - (void)updateSecurityState:(NSDictionary *)securityState;
