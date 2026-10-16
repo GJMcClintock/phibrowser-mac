@@ -80,7 +80,19 @@ struct ScreenshotAnnotation: Identifiable, Codable, Equatable, Sendable {
         case .freehand:
             guard let first = points.first else { return path }
             path.move(to: first)
-            for point in points.dropFirst() { path.addLine(to: point) }
+            guard points.count > 2 else {
+                if let last = points.dropFirst().last { path.addLine(to: last) }
+                return path
+            }
+            // Midpoint joins share tangent directions without changing the retained samples.
+            // Straight end segments preserve the exact pointer-down and pointer-up positions.
+            path.addLine(to: CGPoint(x: (first.x + points[1].x) / 2, y: (first.y + points[1].y) / 2))
+            for index in 1..<(points.count - 1) {
+                let control = points[index], next = points[index + 1]
+                path.addQuadCurve(to: CGPoint(x: (control.x + next.x) / 2, y: (control.y + next.y) / 2),
+                                  control: control)
+            }
+            path.addLine(to: points[points.count - 1])
         case .text, .mosaic: path.addRect(frame)
         }
         return path

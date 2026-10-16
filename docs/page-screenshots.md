@@ -137,6 +137,10 @@ with a minimum of one (existing smaller values are preserved on decrement).
 Mixed selections adjust each object's size independently and each keypress is
 one undo step. Active text entry keeps its normal keyboard handling.
 
+Freehand paths use midpoint-joined quadratic Bezier curves while retaining their
+original samples and exact endpoints. Preview, hit testing and export share this
+geometry; completing a stroke does not apply a separate smoothing pass.
+
 Completed annotations remain separate editable objects. Select and drag an
 object to move it; drag bounding-box handles to resize shapes/freehand, or
 an arrow's two endpoint handles to change its geometry. Double-click retained
