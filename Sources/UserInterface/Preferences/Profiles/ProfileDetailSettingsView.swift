@@ -17,6 +17,12 @@ import AppKit
 struct ProfileDetailSettingsView: View {
     let profileId: String
 
+    /// Whether the per-profile Folio folder override row is shown. The
+    /// General pane passes false: its own Folio section already shows the
+    /// folder, and with a single profile the override would only duplicate
+    /// it one card below. The Profiles pane keeps the row.
+    var showsFolioFolder: Bool = true
+
     /// The profile whose data the state below belongs to. Async bridge
     /// completions compare against this (reads see the live value, unlike the
     /// captured `profileId` parameter) so a slow off-profile load can't
@@ -42,7 +48,7 @@ struct ProfileDetailSettingsView: View {
                                   systemImage: "arrow.down.to.line") {
                     downloadLocationControl
                 }
-                if SaveForLaterService.featureEnabled {
+                if showsFolioFolder, SaveForLaterService.featureEnabled {
                     SettingsRowDivider()
                     SettingsDetailRow(NSLocalizedString("settings.profiles.details.folioLabel", value: "Folio Folder", comment: "Profiles settings - per-profile Folio destination override row label"),
                                       systemImage: "bookmark") {

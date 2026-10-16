@@ -684,7 +684,7 @@ private struct ProfileSectionView: View {
                     editInProfilesHintRow
                 }
             } else {
-                ProfileDetailSettingsView(profileId: soleProfileId)
+                ProfileDetailSettingsView(profileId: soleProfileId, showsFolioFolder: false)
             }
         }
         .onAppear {
