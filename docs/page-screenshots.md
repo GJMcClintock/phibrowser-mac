@@ -113,7 +113,7 @@ handling. The native overlay is outside Chromium's captured surface.
 The separate editor opens after a successful clipboard copy and stays alive
 independently of the originating browser window. The shared AppKit module also
 runs in a standalone synthetic app. Its bottom-centered floating toolbar exposes
-Select, Arrow, Freehand, Text, Rectangle, Ellipse, Crop and JPG/PDF export.
+Select, Arrow, Freehand, Text, Rectangle, Ellipse, Blur, Crop and JPG/PDF export.
 A separate zoom menu stays in the viewport.
 Both surfaces use capsule-shaped native Liquid Glass on macOS 26 and a material
 fallback on older systems. Export uses a compact icon menu. The controls overlay
@@ -173,7 +173,9 @@ not mark edits saved. After confirmation, the editor snapshots the ordered
 objects and source image; ImageIO JPEG encoding or CoreGraphics single-page PDF
 writing happens off the main actor. Atomic writes use the current image dimensions, including confirmed crops.
 JPG quality is 0.9; PDF uses one point per source pixel, with the background
-image and vector/text annotations. Transparent pixels use a white backdrop.
+image and vector/text annotations. Documents containing Blur regions are flattened
+into a single raster image in PDF so the original pixels and hidden text are not
+embedded beneath removable overlays. Transparent pixels use a white backdrop.
 Preview magnification and screen backing scale do not affect either export.
 The unedited Save toast writes the captured JPG bytes unchanged.
 
@@ -195,6 +197,17 @@ or invalid images retain the original Save action and are never silently reduced
 
 [The screenshot testing guide](page-screenshot-testing.md) describes the
 isolated test suites, standalone synthetic app and browser acceptance checks.
+
+## Blur
+
+Blur (M), immediately left of Crop, covers a dragged rectangle with coarse
+image blocks. Each block represents roughly 20 source pixels, independent of
+preview zoom. The opaque blocks sample the screenshot background and cover any
+earlier annotations; later annotations remain above them. Select can move,
+resize, duplicate or delete the region, and document undo/redo preserves edits.
+Click-only and zero-height/width gestures create nothing. Shift repeats the tool.
+Blur regions have no color, stroke or fill controls. Pixelation is a visual
+obscuring effect, not a guarantee that sensitive information cannot be inferred.
 
 ## Crop
 

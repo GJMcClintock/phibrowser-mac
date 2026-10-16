@@ -615,4 +615,154 @@ final class ScreenshotEditorTests: XCTestCase {
         XCTAssertEqual(model.selected?.style.fontSize, 24)
         XCTAssertTrue(canvas.backgroundImage === model.source)
     }
+    private func mosaicSource() -> CGImage {
+        let context = ScreenshotSceneRenderer.bitmapContext(width: 200, height: 160)!
+        context.translateBy(x: 0, y: 160); context.scaleBy(x: 1, y: -1)
+        for x in 0..<200 {
+            context.setFillColor(CGColor(srgbRed: x.isMultiple(of: 2) ? 1 : 0, green: 0, blue: 0, alpha: 1))
+            context.fill(CGRect(x: x, y: 0, width: 1, height: 80))
+            context.setFillColor(CGColor(srgbRed: 0, green: 0, blue: x.isMultiple(of: 2) ? 1 : 0, alpha: 1))
+            context.fill(CGRect(x: x, y: 80, width: 1, height: 80))
+        }
+        context.setFillColor(CGColor(srgbRed: 1, green: 0, blue: 0, alpha: 1))
+        context.fill(CGRect(x: 140, y: 0, width: 60, height: 80))
+        return context.makeImage()!
+    }
+
+    func testMosaicCreationMoveResizeDeleteAndCropShareUndoHistory() throws {
+        let model = ScreenshotEditorModel(canvas: mosaicSource())
+        stroke(model, tool: .mosaic, from: CGPoint(x: 101.5, y: 61.5), to: CGPoint(x: 20.5, y: 20.5))
+        let original = try XCTUnwrap(model.selected)
+        XCTAssertEqual(original.frame, CGRect(x: 20, y: 20, width: 82, height: 42))
+        XCTAssertEqual(model.tool, .select); XCTAssertEqual(model.generation, 1)
+        XCTAssertEqual(model.hitTest(CGPoint(x: 60, y: 40), tolerance: 1)?.id, original.id)
+        model.moveSelection(by: CGPoint(x: 10, y: 10))
+        model.beginInteraction(at: CGPoint(x: 112, y: 72), tolerance: 2)
+        model.continueInteraction(at: CGPoint(x: 130, y: 90)); model.endInteraction()
+        XCTAssertEqual(model.selected?.frame, CGRect(x: 30, y: 30, width: 100, height: 60))
+        model.undo(); model.undo(); XCTAssertEqual(model.selected, original)
+        model.deleteSelection(); XCTAssertTrue(model.annotations.isEmpty)
+        model.undo(); XCTAssertEqual(model.selected, original)
+        stroke(model, tool: .crop, from: CGPoint(x: 40, y: 30), to: CGPoint(x: 160, y: 140))
+        model.cropToSelection()
+        XCTAssertEqual(model.annotations.first?.frame, original.frame.offsetBy(dx: -40, dy: -30))
+        XCTAssertEqual(model.width, 120)
+        model.undo(); XCTAssertEqual(model.annotations, [original]); XCTAssertEqual(model.width, 200)
+        model.undo(); XCTAssertTrue(model.annotations.isEmpty)
+        model.redo(); XCTAssertEqual(model.annotations, [original])
+    }
+
+    func testMosaicRejectsEmptyGesturesAndCancellationAndSupportsRepeatShortcut() throws {
+        let model = ScreenshotEditorModel(canvas: mosaicSource()), canvas = ScreenshotCanvasView()
+        canvas.model = model
+        let key = try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
+            timestamp: 0, windowNumber: 0, context: nil, characters: "m", charactersIgnoringModifiers: "m",
+            isARepeat: false, keyCode: 46))
+        canvas.keyDown(with: key); XCTAssertEqual(model.tool, .mosaic)
+        model.beginInteraction(at: CGPoint(x: 20, y: 20), tolerance: 2); model.endInteraction()
+        XCTAssertTrue(model.annotations.isEmpty); XCTAssertFalse(model.canUndo)
+        model.selectTool(.mosaic)
+        model.beginInteraction(at: CGPoint(x: 20, y: 20), tolerance: 2)
+        model.continueInteraction(at: CGPoint(x: 100, y: 20)); model.endInteraction()
+        XCTAssertTrue(model.annotations.isEmpty); XCTAssertFalse(model.canUndo)
+        model.selectTool(.mosaic)
+        model.beginInteraction(at: CGPoint(x: 20, y: 20), tolerance: 2)
+        model.continueInteraction(at: CGPoint(x: 100, y: 60)); model.cancelInteraction()
+        XCTAssertTrue(model.annotations.isEmpty); XCTAssertFalse(model.canUndo)
+        model.beginInteraction(at: CGPoint(x: 20, y: 20), tolerance: 2, modifiers: .shift)
+        model.continueInteraction(at: CGPoint(x: 100, y: 60), modifiers: .shift); model.endInteraction()
+        XCTAssertEqual(model.tool, .mosaic); XCTAssertEqual(model.annotations.count, 1)
+    }
+
+    func testMosaicExportsPixelateOnlyCoveredAreaAndFlattenPDF() throws {
+        let model = ScreenshotEditorModel(canvas: mosaicSource())
+        model.commitText("Hidden annotation", frame: CGRect(x: 25, y: 25, width: 70, height: 30))
+        stroke(model, tool: .mosaic, from: CGPoint(x: 20, y: 20), to: CGPoint(x: 120, y: 140))
+        model.setZoomExact(0.5)
+        let snapshot = model.snapshot()
+        for format in ScreenshotExportFormat.allCases {
+            let data = try ScreenshotImageExport.encode(snapshot, format: format)
+            let output: CGImage
+            if format == .pdf {
+                let document = try XCTUnwrap(CGPDFDocument(try XCTUnwrap(CGDataProvider(data: data as CFData))))
+                let page = try XCTUnwrap(document.page(at: 1))
+                var resources: CGPDFDictionaryRef?, images: CGPDFDictionaryRef?, fonts: CGPDFDictionaryRef?
+                XCTAssertTrue(CGPDFDictionaryGetDictionary(try XCTUnwrap(page.dictionary), "Resources", &resources))
+                XCTAssertTrue(CGPDFDictionaryGetDictionary(try XCTUnwrap(resources), "XObject", &images))
+                XCTAssertEqual(CGPDFDictionaryGetCount(try XCTUnwrap(images)), 1)
+                XCTAssertFalse(CGPDFDictionaryGetDictionary(try XCTUnwrap(resources), "Font", &fonts))
+                let context = ScreenshotSceneRenderer.bitmapContext(width: 200, height: 160)!
+                context.drawPDFPage(page); output = try XCTUnwrap(context.makeImage())
+            } else {
+                output = try XCTUnwrap(ScreenshotImageExport.decode(data: data))
+            }
+            XCTAssertEqual(output.width, 200); XCTAssertEqual(output.height, 160)
+            let top = pixel(output, x: 30, y: 40), adjacent = pixel(output, x: 31, y: 40)
+            XCTAssertGreaterThan(top.r, 50); XCTAssertLessThan(top.r, 205)
+            XCTAssertEqual(top.r, adjacent.r, accuracy: format == .jpg ? 12 : 1)
+            XCTAssertLessThan(top.b, 20)
+            let bottom = pixel(output, x: 30, y: 120)
+            XCTAssertGreaterThan(bottom.b, 50); XCTAssertLessThan(bottom.r, 20)
+            let outside = pixel(output, x: 150, y: 10)
+            XCTAssertGreaterThan(outside.r, 220)
+        }
+        XCTAssertEqual(pixel(model.source, x: 30, y: 40).r, 255)
+        XCTAssertEqual(pixel(model.source, x: 31, y: 40).r, 0)
+    }
+
+    func testMosaicPreviewMatchesExportAfterMovingCroppingAndUndo() throws {
+        let model = ScreenshotEditorModel(canvas: mosaicSource()), canvas = ScreenshotCanvasView()
+        canvas.model = model
+        stroke(model, tool: .mosaic, from: CGPoint(x: 20, y: 20), to: CGPoint(x: 120, y: 60))
+        model.select(nil); canvas.synchronize()
+        let window = NSWindow(contentRect: canvas.bounds, styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false; window.contentView = canvas
+        defer { window.close() }
+        func verify(x: Int, y: Int) throws {
+            canvas.invalidateCanvasSize(); canvas.synchronize(); canvas.layoutSubtreeIfNeeded(); canvas.displayIfNeeded()
+            let rep = try XCTUnwrap(canvas.bitmapImageRepForCachingDisplay(in: canvas.bounds))
+            canvas.cacheDisplay(in: canvas.bounds, to: rep)
+            let preview = try XCTUnwrap(rep.cgImage)
+            let expected = pixel(try ScreenshotImageExport.composite(model.snapshot()), x: x, y: y)
+            let actual = pixel(preview, x: x * preview.width / model.width, y: y * preview.height / model.height)
+            XCTAssertEqual(actual.r, expected.r, accuracy: 2)
+            XCTAssertEqual(actual.b, expected.b, accuracy: 2)
+        }
+        try verify(x: 30, y: 30)
+        model.select(model.annotations.first?.id); model.moveSelection(by: CGPoint(x: 0, y: 80)); model.select(nil)
+        try verify(x: 30, y: 110)
+        stroke(model, tool: .crop, from: CGPoint(x: 0, y: 0), to: CGPoint(x: 160, y: 120))
+        model.cropToSelection(); try verify(x: 30, y: 110)
+        model.undo(); model.select(nil); try verify(x: 30, y: 110)
+    }
+
+    func testMosaicPreviewDoesNotOutlineWhiteRegionsAtFractionalZoom() throws {
+        let model = ScreenshotEditorModel(canvas: image()), canvas = ScreenshotCanvasView()
+        canvas.model = model
+        let window = NSWindow(contentRect: canvas.bounds, styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false; window.contentView = canvas
+        defer { window.close() }
+        stroke(model, tool: .mosaic, from: CGPoint(x: 41, y: 31), to: CGPoint(x: 261, y: 151))
+        model.select(nil)
+        for zoom in [0.73, 0.97, 1.37] {
+            canvas.zoom = zoom; canvas.synchronize(); canvas.layoutSubtreeIfNeeded(); canvas.displayIfNeeded()
+            let rep = try XCTUnwrap(canvas.bitmapImageRepForCachingDisplay(in: canvas.bounds))
+            canvas.cacheDisplay(in: canvas.bounds, to: rep)
+            let output = try XCTUnwrap(rep.cgImage)
+            let context = try XCTUnwrap(ScreenshotSceneRenderer.bitmapContext(width: output.width, height: output.height))
+            context.draw(output, in: CGRect(x: 0, y: 0, width: output.width, height: output.height))
+            let bytes = try XCTUnwrap(context.data).assumingMemoryBound(to: UInt8.self)
+            let scaleX = CGFloat(output.width) / canvas.bounds.width * zoom
+            let scaleY = CGFloat(output.height) / canvas.bounds.height * zoom
+            var darkest: UInt8 = 255
+            for y in Int(29 * scaleY)...Int(153 * scaleY) {
+                for x in Int(39 * scaleX)...Int(263 * scaleX) {
+                    let offset = y * context.bytesPerRow + x * 4
+                    darkest = min(darkest, bytes[offset], bytes[offset + 1], bytes[offset + 2])
+                }
+            }
+            XCTAssertGreaterThanOrEqual(darkest, 250, "White mosaic must blend into the white canvas at zoom \(zoom)")
+        }
+    }
+
 }

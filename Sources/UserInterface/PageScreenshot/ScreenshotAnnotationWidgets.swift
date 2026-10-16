@@ -20,6 +20,7 @@ struct ScreenshotAnnotationProperties: View {
         case .text: ScreenshotTextWidget(model: model)
         case .rectangle: ScreenshotRectangleWidget(model: model)
         case .ellipse: ScreenshotEllipseWidget(model: model)
+        case .mosaic: EmptyView()
         case nil: ScreenshotSelectionWidget(model: model)
         }
     }

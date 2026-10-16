@@ -46,7 +46,7 @@ struct ScreenshotFixture {
         var title = ScreenshotAnnotation(kind: .text, frame: CGRect(x: 45, y: 22, width: 910, height: 70), text: "Phi Screenshot Editor")
         title.style.fontSize = 36; title.style.color = ScreenshotColor(red: 1, green: 1, blue: 1)
         ScreenshotSceneRenderer.draw(title, in: context)
-        var body = ScreenshotAnnotation(kind: .text, frame: CGRect(x: 65, y: 220, width: 500, height: 280), text: "Draw once, then select and edit.\n\nV Select   C Crop   A Arrow   P Freehand\nT Text   R Rectangle   O Ellipse\n\nShift adds; Command marquee removes.\nOption resizes from the center.\nCrop changes JPG and PDF dimensions.")
+        var body = ScreenshotAnnotation(kind: .text, frame: CGRect(x: 65, y: 220, width: 500, height: 280), text: "Draw once, then select and edit.\n\nV Select   C Crop   A Arrow   P Freehand\nT Text   R Rectangle   O Ellipse   M Blur\n\nShift adds; Command marquee removes.\nOption resizes from the center.\nCrop changes JPG and PDF dimensions.")
         body.style.fontSize = 23; body.style.color = ScreenshotColor(red: 0.1, green: 0.15, blue: 0.2)
         ScreenshotSceneRenderer.draw(body, in: context)
         app.fixtureSource = context.makeImage()!
@@ -60,6 +60,9 @@ struct ScreenshotFixture {
             model.select(nil); model.selectTool(.rectangle)
             model.beginInteraction(at: CGPoint(x: 640, y: 180), tolerance: 5)
             model.continueInteraction(at: CGPoint(x: 950, y: 610)); model.endInteraction()
+            model.selectTool(.mosaic)
+            model.beginInteraction(at: CGPoint(x: 65, y: 220), tolerance: 5)
+            model.continueInteraction(at: CGPoint(x: 410, y: 255)); model.endInteraction()
             model.select(nil); model.selectTool(.text)
             model.commitText("Editable objects", frame: CGRect(x: 80, y: 610, width: 370, height: 80))
             try ScreenshotImageExport.write(model.snapshot(), format: .jpg, to: directory.appendingPathComponent("scene.jpg"))

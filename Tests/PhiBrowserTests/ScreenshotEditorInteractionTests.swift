@@ -23,7 +23,7 @@ final class ScreenshotEditorInteractionTests: XCTestCase {
     }
     func testNewDocumentIsOrdinaryAndEveryCompletedCreationReturnsToIt() {
         let m = model(); XCTAssertEqual(m.tool, .select)
-        for tool in [ScreenshotTool.arrow, .freehand, .rectangle, .ellipse] {
+        for tool in [ScreenshotTool.arrow, .freehand, .rectangle, .ellipse, .mosaic] {
             draw(m, tool, CGPoint(x: 100, y: 200), CGPoint(x: 400, y: 300))
             XCTAssertEqual(m.tool, .select); XCTAssertFalse(m.isInteracting)
             XCTAssertEqual(m.selected?.kind.rawValue, tool.rawValue)

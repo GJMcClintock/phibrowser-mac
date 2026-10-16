@@ -66,6 +66,10 @@ scheme, destination and derived-data directory.
   cancellation preserves the clipboard.
 - Create arrow, freehand, shape and text annotations. Verify drawing returns to
   Select, Shift repeats the tool and retained objects remain editable.
+- Choose Blur immediately left of Crop, or press M, and drag over text. Verify
+  the coarse blocks appear while dragging, remain editable, survive crop/undo,
+  and match JPG/PDF output. A PDF containing Blur must embed only the
+  flattened image, without the original source or hidden annotation text.
 - Resize text with its left/right handles. Verify the chosen font size stays fixed,
   lines reflow, height grows/shrinks with content, and preview matches JPG/PDF output.
   Repeat after changing font size and reopening text for editing.

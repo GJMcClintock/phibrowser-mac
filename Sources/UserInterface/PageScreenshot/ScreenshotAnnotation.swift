@@ -14,7 +14,7 @@ struct ScreenshotColor: Codable, Equatable, Sendable {
     var nsColor: NSColor { NSColor(srgbRed: red, green: green, blue: blue, alpha: alpha) }
 }
 
-enum ScreenshotTool: String, CaseIterable, Sendable { case select, crop, arrow, freehand, text, rectangle, ellipse }
+enum ScreenshotTool: String, CaseIterable, Sendable { case select, crop, arrow, freehand, text, rectangle, ellipse, mosaic }
 
 struct ScreenshotAnnotationStyle: Codable, Equatable, Sendable {
     var color = ScreenshotColor.red
@@ -26,7 +26,7 @@ struct ScreenshotAnnotationStyle: Codable, Equatable, Sendable {
 
 /// Geometry is retained in original image pixels, with an upper-left origin.
 struct ScreenshotAnnotation: Identifiable, Codable, Equatable, Sendable {
-    enum Kind: String, Codable, Sendable { case arrow, freehand, rectangle, ellipse, text }
+    enum Kind: String, Codable, Sendable { case arrow, freehand, rectangle, ellipse, text, mosaic }
     var id = UUID()
     var kind: Kind
     var points: [CGPoint] = []
@@ -81,7 +81,7 @@ struct ScreenshotAnnotation: Identifiable, Codable, Equatable, Sendable {
             guard let first = points.first else { return path }
             path.move(to: first)
             for point in points.dropFirst() { path.addLine(to: point) }
-        case .text: path.addRect(frame)
+        case .text, .mosaic: path.addRect(frame)
         }
         return path
     }
@@ -104,7 +104,7 @@ struct ScreenshotAnnotation: Identifiable, Codable, Equatable, Sendable {
     }
 
     func contains(_ point: CGPoint, tolerance: CGFloat) -> Bool {
-        if kind == .text { return frame.insetBy(dx: -tolerance, dy: -tolerance).contains(point) }
+        if kind == .text || kind == .mosaic { return frame.insetBy(dx: -tolerance, dy: -tolerance).contains(point) }
         if (kind == .rectangle || kind == .ellipse), path.contains(point) { return true }
         if arrowHead?.copy(strokingWithWidth: tolerance * 2, lineCap: .round, lineJoin: .round, miterLimit: 10).contains(point) == true { return true }
         return path.copy(strokingWithWidth: style.width + tolerance * 2, lineCap: .round,
@@ -204,9 +204,36 @@ enum ScreenshotSceneRenderer {
             CGSize(width: max(4, annotation.frame.width - 8), height: .greatestFiniteMagnitude), nil)
         return ceil(size.height) + 8
     }
-    static func draw(_ annotation: ScreenshotAnnotation, in context: CGContext) {
+    /// Generate only the coarse pixels, keeping interactive previews small even for large areas.
+    /// White compositing makes the mosaic opaque over transparent sources and earlier annotations.
+    static func mosaicImage(source: CGImage, rect: CGRect) -> CGImage? {
+        guard !rect.isEmpty, !rect.isNull, let cropped = source.cropping(to: rect),
+              let context = bitmapContext(width: max(1, Int(ceil(rect.width / 20))),
+                                          height: max(1, Int(ceil(rect.height / 20)))) else { return nil }
+        let target = CGRect(x: 0, y: 0, width: context.width, height: context.height)
+        context.setFillColor(CGColor(gray: 1, alpha: 1)); context.fill(target)
+        context.interpolationQuality = .high
+        context.draw(cropped, in: target)
+        return context.makeImage()
+    }
+    static func mosaicRect(_ annotation: ScreenshotAnnotation, source: CGImage) -> CGRect {
+        annotation.frame.integral.intersection(CGRect(x: 0, y: 0, width: source.width, height: source.height))
+    }
+    static func draw(_ annotation: ScreenshotAnnotation, in context: CGContext, source: CGImage? = nil) {
         context.saveGState()
         defer { context.restoreGState() }
+        if annotation.kind == .mosaic {
+            let rect = source.map { mosaicRect(annotation, source: $0) } ?? annotation.frame.integral
+            guard !rect.isEmpty, !rect.isNull else { return }
+            // Fail closed if bitmap creation fails; never expose the original through a missing mosaic.
+            context.setFillColor(CGColor(gray: 0, alpha: 1)); context.fill(rect)
+            if let source, let image = mosaicImage(source: source, rect: rect) {
+                context.interpolationQuality = .none
+                context.translateBy(x: rect.minX, y: rect.maxY); context.scaleBy(x: 1, y: -1)
+                context.draw(image, in: CGRect(origin: .zero, size: rect.size))
+            }
+            return
+        }
         context.setStrokeColor(annotation.style.color.cgColor)
         context.setFillColor(annotation.style.color.nsColor.withAlphaComponent(0.8 * annotation.style.color.alpha).cgColor)
         context.setLineWidth(annotation.style.width)

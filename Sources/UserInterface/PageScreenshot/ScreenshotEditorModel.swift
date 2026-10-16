@@ -134,7 +134,7 @@ final class ScreenshotEditorModel {
     private func updateStyle<Value>(_ key: WritableKeyPath<ScreenshotAnnotationStyle, Value>, _ value: Value) {
         guard !synchronizingStyle else { return }
         command(NSLocalizedString("browser.screenshot.styleEdit", value: "Change Style", comment: "Screenshot editor - Undo action for annotation style")) {
-            for i in annotations.indices where selectedIDs.contains(annotations[i].id) {
+            for i in annotations.indices where selectedIDs.contains(annotations[i].id) && annotations[i].kind != .mosaic {
                 annotations[i].style[keyPath: key] = value
                 annotations[i] = annotations[i].fittingText()
             }
@@ -149,6 +149,7 @@ final class ScreenshotEditorModel {
                 case .rectangle, .ellipse, .arrow, .freehand:
                     let current = annotations[i].style.width
                     annotations[i].style.width = max(min(1, current), current + delta)
+                case .mosaic: break
                 case .text:
                     let current = annotations[i].style.fontSize
                     annotations[i].style.fontSize = max(min(1, current), current + delta)
@@ -295,6 +296,12 @@ final class ScreenshotEditorModel {
             if tool == .arrow && hypot(object.bounds.width, object.bounds.height) * zoom < 3 ||
                 tool == .freehand && object.points.count < 2 {
                 annotations = active.before.annotations; selectedIDs = active.before.selectedIDs; return
+            }
+            if tool == .mosaic {
+                guard object.frame.width * zoom >= 2, object.frame.height * zoom >= 2 else {
+                    annotations = active.before.annotations; selectedIDs = active.before.selectedIDs; return
+                }
+                annotations[i].frame = object.frame.integral
             }
             if (tool == .rectangle || tool == .ellipse), max(object.bounds.width, object.bounds.height) * zoom < 3 {
                 let size = min(200, CGFloat(width), CGFloat(height))
