@@ -2377,8 +2377,11 @@ typedef NS_ENUM(NSInteger, PhiMediaControlAction) {
 
 /// The representative color of the page's top visual region, computed by
 /// Phi's main-frame JavaScript detector. KVO-observable. Nil before the script
-/// reports a color, after ordinary cross-document navigation, or renderer loss.
-/// Successful reloads retain the previous color until the new document reports.
+/// reports a color, after a navigation commits an error page or a document the
+/// script does not run on (such as chrome:// and view-source pages), or
+/// renderer loss. Any other cross-document navigation keeps the previous color
+/// until the new document reports, and drops it if no report arrives within 3
+/// seconds.
 @property(nonatomic, strong, readonly, nullable) NSColor* pageColor;
 
 /// DevTools page target id for this tab, or nil when the contents are gone.
