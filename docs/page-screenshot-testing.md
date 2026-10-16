@@ -66,6 +66,9 @@ scheme, destination and derived-data directory.
   cancellation preserves the clipboard.
 - Create arrow, freehand, shape and text annotations. Verify drawing returns to
   Select, Shift repeats the tool and retained objects remain editable.
+- Resize text with its left/right handles. Verify the chosen font size stays fixed,
+  lines reflow, height grows/shrinks with content, and preview matches JPG/PDF output.
+  Repeat after changing font size and reopening text for editing.
 - Exercise selection, group transforms, text-local undo and document undo/redo.
 - Enter Crop over an annotation and confirm that it remains unselected. At 100%
   zoom, drag beyond each viewport edge and hold the pointer stationary. Scrolling

@@ -434,6 +434,8 @@ final class ScreenshotCanvasView: NSView, NSTextViewDelegate, NSMenuDelegate {
         window?.makeFirstResponder(entry)
     }
     private func layoutTextEditor() {
+        guard let entry = textEntry else { return }
+        textFrame = ScreenshotAnnotation(kind: .text, frame: textFrame, text: entry.string, style: textStyle).fittingText().frame
         textEntry?.font = .systemFont(ofSize: textStyle.fontSize * zoom)
         textEntry?.textContainerInset = CGSize(width: 4 * zoom, height: 4 * zoom)
         textEntry?.frame = textFrame.applying(CGAffineTransform(scaleX: zoom, y: zoom))
@@ -449,10 +451,6 @@ final class ScreenshotCanvasView: NSView, NSTextViewDelegate, NSMenuDelegate {
     }
     func textDidChange(_ notification: Notification) {
         refreshTextHistory()
-        guard let entry = textEntry, let manager = entry.layoutManager, let container = entry.textContainer, let model else { return }
-        manager.ensureLayout(for: container)
-        let needed = manager.usedRect(for: container).height / zoom + 8
-        textFrame.size.height = min(CGFloat(model.height) - textFrame.minY, max(textStyle.fontSize + 8, needed))
         layoutTextEditor()
     }
     func textDidEndEditing(_ notification: Notification) { commitText() }

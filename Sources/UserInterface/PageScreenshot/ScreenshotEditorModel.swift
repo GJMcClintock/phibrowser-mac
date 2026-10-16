@@ -134,7 +134,10 @@ final class ScreenshotEditorModel {
     private func updateStyle<Value>(_ key: WritableKeyPath<ScreenshotAnnotationStyle, Value>, _ value: Value) {
         guard !synchronizingStyle else { return }
         command(NSLocalizedString("browser.screenshot.styleEdit", value: "Change Style", comment: "Screenshot editor - Undo action for annotation style")) {
-            for i in annotations.indices where selectedIDs.contains(annotations[i].id) { annotations[i].style[keyPath: key] = value }
+            for i in annotations.indices where selectedIDs.contains(annotations[i].id) {
+                annotations[i].style[keyPath: key] = value
+                annotations[i] = annotations[i].fittingText()
+            }
         }
     }
     @discardableResult
@@ -149,6 +152,7 @@ final class ScreenshotEditorModel {
                 case .text:
                     let current = annotations[i].style.fontSize
                     annotations[i].style.fontSize = max(min(1, current), current + delta)
+                    annotations[i] = annotations[i].fittingText()
                 }
             }
         }
@@ -334,9 +338,12 @@ final class ScreenshotEditorModel {
         let before = state
         if let id, let index = annotations.firstIndex(where: { $0.id == id }) {
             if text.isEmpty { annotations.remove(at: index); selectedIDs.remove(id) }
-            else { annotations[index].text = text; annotations[index].frame = frame; selectedIDs = [id] }
+            else {
+                annotations[index].text = text; annotations[index].frame = frame
+                annotations[index] = annotations[index].fittingText(); selectedIDs = [id]
+            }
         } else if !text.isEmpty {
-            let object = ScreenshotAnnotation(kind: .text, frame: frame, text: text, style: style)
+            let object = ScreenshotAnnotation(kind: .text, frame: frame, text: text, style: style).fittingText()
             annotations.append(object); selectedIDs = [object.id]
         }
         tool = .select
@@ -383,7 +390,6 @@ final class ScreenshotEditorModel {
                                 size: CGSize(width: b.width * scale, height: b.height * scale))
             var copies = objects.map { item in
                 var copy = item.transformed(from: b, to: target); copy.id = UUID()
-                if copy.kind == .text { copy.style.fontSize *= scale }
                 return copy
             }
             let delta = boundedDelta(CGPoint(x: 12, y: 12), objects: copies)
