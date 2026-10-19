@@ -314,9 +314,16 @@ extension Shortcuts {
 
     static func additionalBindings() -> [ShortcutBinding] {
         let menu = menuBindings()
+        let browser = chromiumBindings()
+        let additional = menu + browser
+        let effective = bindingInventory(additionalBindings: additional)
+        return additional + SystemShortcutBindings.current(conflictingWith: effective.bindings)
+    }
+
+    private static func chromiumBindings() -> [ShortcutBinding] {
         guard let bridge = ChromiumLauncher.sharedInstance().bridge,
-              bridge.responds(to: NSSelectorFromString("shortcutBindings")) else { return menu }
-        return menu + bridge.shortcutBindings().compactMap { record in
+              bridge.responds(to: NSSelectorFromString("shortcutBindings")) else { return [] }
+        return bridge.shortcutBindings().compactMap { record in
             guard let commandID = record["commandId"] as? Int,
                   let characters = record["keyEquivalent"] as? String, !characters.isEmpty,
                   let modifiers = record["modifierFlags"] as? UInt,

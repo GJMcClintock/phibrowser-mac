@@ -70,6 +70,7 @@ struct ShortcutsSettingsView: View {
                     .allowsHitTesting(false)
             }
         }
+        .onAppear { viewModel.rebuildSections() }
         .onDisappear { viewModel.capture = nil }
     }
 

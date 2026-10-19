@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		AB19A773EB934281B222AB01 /* SystemShortcutBindings.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB19A773EB934281B222AB02 /* SystemShortcutBindings.swift */; };
 		5AB2CC000A744E09B299ADE1 /* ShortcutRecordingSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5AB2CC000A744E09B299ADE2 /* ShortcutRecordingSection.swift */; };
 		04FE4637EFE3A1396687DD63 /* AISettingsConnectorViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8FCAEAE328C802016D87943 /* AISettingsConnectorViewModel.swift */; };
 		05170D58572AD0BE6C62021E /* KeyEnvelopeAPIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 254713996DC310106F1FF7A7 /* KeyEnvelopeAPIClient.swift */; };
@@ -831,6 +832,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		AB19A773EB934281B222AB02 /* SystemShortcutBindings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemShortcutBindings.swift; sourceTree = "<group>"; };
 		5AB2CC000A744E09B299ADE2 /* ShortcutRecordingSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortcutRecordingSection.swift; sourceTree = "<group>"; };
 		01794B7EA4882E10EFB8D56C /* SelfRevokeStrings.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = SelfRevokeStrings.swift; path = UI/SelfRevokeStrings.swift; sourceTree = "<group>"; };
 		06BFC6B4281D3520EA713F93 /* SyncableProfiles.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SyncableProfiles.swift; sourceTree = "<group>"; };
@@ -1854,6 +1856,7 @@
 				37C1B0E62ED851CE00DD4496 /* ShortcutsViewModel.swift */,
 				37C1B1142ED98B6000DD4496 /* README.md */,
 				37608B0D307F9B6A007FCE33 /* ShortcutInventory.swift */,
+				AB19A773EB934281B222AB02 /* SystemShortcutBindings.swift */,
 				376088DB307F95A8007FCE33 /* ShortcutConfiguration.swift */,
 			);
 			path = Shortcuts;
@@ -3815,6 +3818,7 @@
 				375B2D8C2ED408270053FECC /* AccountUserDefaults.swift in Sources */,
 				37C1B0D82ED6DCBD00DD4496 /* Shortcuts.swift in Sources */,
 				37608B0E307F9B6A007FCE33 /* ShortcutInventory.swift in Sources */,
+				AB19A773EB934281B222AB01 /* SystemShortcutBindings.swift in Sources */,
 				376088DC307F95A8007FCE33 /* ShortcutConfiguration.swift in Sources */,
 				B0F370DA2E433F0E000B51F9 /* OverlayWindowController.swift in Sources */,
 				A7E1C0020000000000000002 /* PageOverlayView.swift in Sources */,

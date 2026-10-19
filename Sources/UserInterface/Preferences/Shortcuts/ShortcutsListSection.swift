@@ -94,7 +94,15 @@ private struct ShortcutListRow: View {
             Text(item.name)
                 .foregroundStyle(isSelected ? Color.white : Color.primary)
                 .frame(maxWidth: .infinity, alignment: .leading)
-            if item.hasConflict {
+            if item.hasSystemConflict {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.yellow)
+                    .help(ShortcutConflictItem.systemMessage)
+                    .accessibilityLabel(ShortcutConflictItem.systemMessage)
+                    .accessibilityIdentifier("shortcuts.systemConflict.\(item.command.rawValue)")
+            }
+            if !item.conflictingCommandNames.isEmpty {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .font(.system(size: 11))
                     .foregroundStyle(isSelected ? Color.white : Color.orange)

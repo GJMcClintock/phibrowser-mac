@@ -29,8 +29,8 @@
   validates, and atomically saves explicit overrides; it has no UI or Chromium
   dependencies. `Shortcuts+Custom.swift` provides effective-key lookup, change
   notification, and menu rebuild requests. It does not normalize events.
-- `ShortcutInventory` is a derived snapshot of effective bindings, with command
-  or native-selector ownership, source, and window scope. It is not a second
+- `ShortcutInventory` is a derived snapshot of effective bindings, with command,
+  native-selector, or system ownership, source, and window scope. It is not a second
   configuration store. Conflict detection and captured-key search use it.
 - `ShortcutsViewModel` owns settings presentation, recording state, persistence
   errors, selection, and informational conflict details.
@@ -57,6 +57,17 @@ respects Reduce Motion, and resets its presentation when the selected command ch
 Native actions and unlisted commands remain informational. The Restore button is always shown
 and enabled exactly when the selected command has a stored override, regardless
 of conflicts. Restoring can therefore expose an existing default-key conflict.
+
+Enabled macOS symbolic hotkeys are read through `CopySymbolicHotKeys` when the
+inventory refreshes. `SystemShortcutBindings` reuses the global-hotkey adapter's
+pure keyboard-layout resolver to compare physical chords without registering or
+changing any hotkeys. Settings refresh on appearance, application activation,
+and input-source changes. Only enabled, matching reservations enter the inventory.
+System conflicts count toward the conflict filter but have a distinct yellow
+indicator and fixed informational warning, with no navigation action or editable
+system row. Application conflicts remain visible alongside system warnings.
+The API provides no action names and does not enumerate third-party global hotkeys.
+Read failures are logged; an empty result is not proof that a shortcut is available.
 
 ## Event Normalization and Input Sources
 

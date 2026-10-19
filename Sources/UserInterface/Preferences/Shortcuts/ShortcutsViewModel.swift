@@ -217,6 +217,15 @@ class ShortcutsViewModel: ObservableObject {
             .store(in: &cancellables)
         refreshLoadFailure()
         rebuildSections()
+        NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.rebuildSections() }
+            .store(in: &cancellables)
+        DistributedNotificationCenter.default()
+            .publisher(for: KioskGlobalShortcutRegistrar.inputSourceDidChangeNotification)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.rebuildSections() }
+            .store(in: &cancellables)
     }
     
     func rebuildSections() {
@@ -268,6 +277,7 @@ class ShortcutsViewModel: ObservableObject {
 
     private func makeItem(_ command: CommandWrapper) -> ShortcutItem {
         let bindings = inventory.bindings(for: command.rawValue)
+        let conflicts = findConflictingCommands(for: command)
         // Chromium owns defaults for commands absent from Phi's default table.
         // An explicit disable must never fall back to a stale runtime snapshot.
         let override = Shortcuts.overrideState(for: command.rawValue)
@@ -278,9 +288,11 @@ class ShortcutsViewModel: ObservableObject {
             shortcutKey: key, shortcutDisplay: shortcutDisplay(for: command, key: key),
             shortcutKeycapTokens: key.map { shortcutDisplayKey(for: command, key: $0).keycapTokens } ?? [],
             isOverridden: Shortcuts.isOverridden(command),
-            conflictingCommandNames: findConflictingCommands(for: command).map { displayName(for: $0) },
+            conflictingCommandNames: conflicts
+                .filter { $0 != .system }.map { displayName(for: $0) },
             searchKeywords: searchKeywords(for: command),
-            aliases: Array(Set(bindings.map(\.key))).sorted { $0.displayString < $1.displayString }
+            aliases: Array(Set(bindings.map(\.key))).sorted { $0.displayString < $1.displayString },
+            hasSystemConflict: conflicts.contains(.system)
         )
     }
 
@@ -352,6 +364,7 @@ class ShortcutsViewModel: ObservableObject {
     }
 
     private func displayName(for owner: ShortcutBinding.Owner) -> String {
+        if owner == .system { return ShortcutConflictItem.systemMessage }
         let command = owner.commandID.flatMap(CommandWrapper.init(rawValue:))
         if let command, Shortcuts.configurableCommands.contains(command) {
             return displayName(for: command)
@@ -629,9 +642,10 @@ struct ShortcutItem: Identifiable {
     let conflictingCommandNames: [String]
     let searchKeywords: [String]
     var aliases: [ShortcutsKey] = []
+    var hasSystemConflict = false
     
     var hasConflict: Bool {
-        !conflictingCommandNames.isEmpty
+        hasSystemConflict || !conflictingCommandNames.isEmpty
     }
 }
 
@@ -647,6 +661,12 @@ struct ShortcutConflictItem: Identifiable {
     let name: String
     let command: CommandWrapper?
     let keys: [String]
+
+    var isSystem: Bool { id == .system }
+
+    static var systemMessage: String {
+        NSLocalizedString("settings.shortcuts.conflict.systemMessage", value: "This shortcut conflicts with a macOS system shortcut and may not work in Phi.", comment: "Shortcuts settings - Fixed warning for a shortcut reserved by macOS; informational only, with no navigation action")
+    }
 }
 
 /// Normalize and deduplicate bindings only when the shortcut inventory changes.

@@ -27,7 +27,23 @@ struct ShortcutDetailSection: View {
                     .disabled(!canRecord)
                 Divider()
                 ShortcutDescriptionSection(item: item)
-                ShortcutConflictsSection(conflicts: conflicts, selectCommand: selectConflict)
+                if item.hasSystemConflict {
+                    HStack(alignment: .top, spacing: 8) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.yellow)
+                            .accessibilityHidden(true)
+                        Text(ShortcutConflictItem.systemMessage)
+                            .themedForeground(.textSecondary)
+                    }
+                    .font(.system(size: 12))
+                    .padding(12)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color.yellow.opacity(0.08), in: RoundedRectangle(cornerRadius: 6))
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityElement(children: .combine)
+                    .accessibilityIdentifier("shortcuts.systemConflictWarning")
+                }
+                ShortcutConflictsSection(conflicts: conflicts.filter { !$0.isSystem }, selectCommand: selectConflict)
                 Divider()
                 ShortcutRestoreSection(item: item, restore: restore)
             }

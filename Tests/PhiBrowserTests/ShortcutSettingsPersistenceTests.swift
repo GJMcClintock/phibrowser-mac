@@ -54,6 +54,69 @@ final class ShortcutSettingsPersistenceTests: XCTestCase {
         try XCTUnwrap(model.sections.flatMap(\.items).first { $0.command == command })
     }
 
+    func testSystemConflictIsInformationalAndIncludedInConflictFilter() throws {
+        let defaultKey = try XCTUnwrap(Shortcuts.key(for: .IDC_NEW_WINDOW))
+        let system = ShortcutBinding(owner: .system, key: defaultKey, scope: .all, source: .system)
+        let model = ShortcutsViewModel(additionalBindings: { [system] })
+        let shortcut = try item(.IDC_NEW_WINDOW, in: model)
+        XCTAssertTrue(shortcut.hasSystemConflict)
+        XCTAssertTrue(shortcut.hasConflict)
+        XCTAssertTrue(shortcut.conflictingCommandNames.isEmpty)
+        let conflict = try XCTUnwrap(model.conflicts(for: .IDC_NEW_WINDOW).first)
+        XCTAssertTrue(conflict.isSystem)
+        XCTAssertNil(conflict.command)
+        XCTAssertEqual(conflict.name, ShortcutConflictItem.systemMessage)
+        XCTAssertFalse(model.reservedShortcuts.contains { $0.id == .system })
+        model.filter = .conflicting
+        XCTAssertTrue(model.filteredSections.flatMap(\.items).contains { $0.command == .IDC_NEW_WINDOW })
+        XCTAssertTrue(Shortcuts.configuration.overrides.isEmpty)
+        XCTAssertEqual(writeCount, 0)
+    }
+
+    func testSystemAndApplicationConflictsCoexistAndSavingPreservesOtherBindings() throws {
+        let system = ShortcutBinding(owner: .system, key: customKey, scope: .all, source: .system)
+        let model = ShortcutsViewModel(additionalBindings: {
+            [system, ShortcutBinding(commandID: CommandWrapper.IDC_RELOAD.rawValue,
+                                     key: self.customKey, scope: .browser, source: .hidden)]
+        })
+        model.setCustomShortcut(for: .IDC_DUPLICATE_TAB, key: customKey)
+        let shortcut = try item(.IDC_DUPLICATE_TAB, in: model)
+        XCTAssertTrue(shortcut.hasSystemConflict)
+        XCTAssertEqual(shortcut.conflictingCommandNames.count, 1)
+        let conflicts = model.conflicts(for: .IDC_DUPLICATE_TAB)
+        XCTAssertEqual(conflicts.filter(\.isSystem).count, 1)
+        XCTAssertEqual(conflicts.first { !$0.isSystem }?.command, .IDC_RELOAD)
+        XCTAssertEqual(Shortcuts.configuration.overrides, [CommandWrapper.IDC_DUPLICATE_TAB.rawValue: .custom(customKey)])
+        XCTAssertTrue(model.inventory.bindings.contains(system))
+        try Shortcuts.reloadOverrides().get()
+        model.rebuildSections()
+        XCTAssertTrue(try item(.IDC_DUPLICATE_TAB, in: model).hasSystemConflict)
+        model.disableShortcut(for: .IDC_DUPLICATE_TAB)
+        XCTAssertFalse(try item(.IDC_DUPLICATE_TAB, in: model).hasConflict)
+    }
+
+    func testSystemConflictsRefreshAfterApplicationActivation() throws {
+        let defaultKey = try XCTUnwrap(Shortcuts.key(for: .IDC_NEW_WINDOW))
+        var active = true
+        let model = ShortcutsViewModel(additionalBindings: {
+            active ? [ShortcutBinding(owner: .system, key: defaultKey, scope: .all, source: .system)] : []
+        })
+        XCTAssertTrue(try item(.IDC_NEW_WINDOW, in: model).hasSystemConflict)
+        model.filter = .conflicting
+        active = false
+        let refreshed = expectation(description: "System reservations refreshed after activation")
+        var observer: AnyCancellable?
+        observer = model.$sections.dropFirst().filter { sections in
+            sections.flatMap(\.items).contains { $0.command == .IDC_NEW_WINDOW && !$0.hasSystemConflict }
+        }.prefix(1).sink { _ in refreshed.fulfill() }
+        NotificationCenter.default.post(name: NSApplication.didBecomeActiveNotification, object: NSApp)
+        wait(for: [refreshed], timeout: 2)
+        observer?.cancel()
+        XCTAssertFalse(try item(.IDC_NEW_WINDOW, in: model).hasConflict)
+        XCTAssertFalse(model.filteredSections.flatMap(\.items).contains { $0.command == .IDC_NEW_WINDOW })
+        XCTAssertEqual(writeCount, 0)
+    }
+
     func testConflictDetailsDeduplicateOwnersAndOnlyLinkVisibleCommands() throws {
         let hiddenCommand = CommandWrapper.IDC_SHOW_READING_MODE_KEYBOARD
         let model = ShortcutsViewModel(additionalBindings: {
@@ -880,7 +943,8 @@ final class ShortcutSettingsPersistenceTests: XCTestCase {
         for (_, key, keyCode) in productDisabledKeys {
             model.setCustomShortcut(for: .IDC_RELOAD, key: key)
             XCTAssertEqual(Shortcuts.key(for: .IDC_RELOAD), key)
-            XCTAssertEqual(Set(model.inventory.occupants(of: key).map(\.owner)),
+            // Product policy releases application owners, not macOS reservations.
+            XCTAssertEqual(Set(model.inventory.occupants(of: key).map(\.owner).filter { $0 != .system }),
                            [.command(CommandWrapper.IDC_RELOAD.rawValue)])
             let menu = try XCTUnwrap(NSApp.mainMenu)
             let item = try XCTUnwrap(findReload(in: menu))

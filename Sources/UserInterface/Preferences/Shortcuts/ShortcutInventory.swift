@@ -9,6 +9,7 @@ struct ShortcutBinding: Hashable {
     enum Owner: Hashable {
         case command(Int)
         case nativeAction(String)
+        case system
 
         var commandID: Int? {
             if case .command(let id) = self { return id }
@@ -21,6 +22,8 @@ struct ShortcutBinding: Hashable {
             case (.command, .nativeAction): return true
             case (.nativeAction, .command): return false
             case (.nativeAction(let lhs), .nativeAction(let rhs)): return lhs < rhs
+            case (.system, _): return false
+            case (_, .system): return true
             }
         }
     }
@@ -34,7 +37,7 @@ struct ShortcutBinding: Hashable {
     }
 
     enum Source: Int, Hashable {
-        case configured, menu, hidden, webContents
+        case configured, menu, hidden, webContents, system
     }
 
     let owner: Owner
