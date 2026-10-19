@@ -1,6 +1,28 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "settings.shortcuts.command.jumpToSelection" : {
+      "comment" : "Shortcuts settings - Scroll to the selected text",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Jump to Selection"
+          }
+        }
+      }
+    },
+    "settings.shortcuts.command.useSelectionForFind" : {
+      "comment" : "Shortcuts settings - Use selected text as the search text",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Use Selection for Find"
+          }
+        }
+      }
+    },
   "settings.shortcuts.conflict.systemMessage": {
     "comment": "Shortcuts settings - Fixed warning for a shortcut reserved by macOS; informational only, with no navigation action",
     "extractionState": "manual",

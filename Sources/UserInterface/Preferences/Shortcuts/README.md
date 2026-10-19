@@ -248,6 +248,11 @@ Non-keyboard command entry points and menu item visibility are unchanged.
   remains in conflict detection; saved custom, disabled, or excluded Quit
   bindings are ignored by native lookup and menu overrides. New Quit override
   requests are ignored without writing preferences.
+  Use Selection for Find and Jump to Selection are editable exceptions in Edit.
+  The main-menu hook identifies `copyToFindPboard:` and
+  `centerSelectionInVisibleArea:` by action, assigns their existing configuration
+  IDs, and applies effective keys on every rebuild. Their native actions and
+  targets remain unchanged; disabling clears the key and restoring uses the default.
   AppKit can expose an empty `keyEquivalent` for a live menu item whose key is
   also assigned elsewhere. For empty keys, inventory collection checks a
   detached copy of the item to recover its declared binding and report the

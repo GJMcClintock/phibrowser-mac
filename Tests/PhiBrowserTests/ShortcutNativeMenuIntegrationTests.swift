@@ -115,6 +115,7 @@ final class ShortcutNativeMenuIntegrationTests: XCTestCase {
 
     private func assertNativeOwnership(characters: String, modifiers: NSEvent.ModifierFlags,
                                        keyCode: UInt16, enabled: Bool,
+                                       command: CommandWrapper = .IDC_OPTIONS,
                                        extensionPriority: Int32? = nil) throws {
         let dispatcher = try dispatcher(handlingPriority: extensionPriority)
         let previousMenu = NSApp.mainMenu
@@ -131,7 +132,7 @@ final class ShortcutNativeMenuIntegrationTests: XCTestCase {
         let item = NSMenuItem(title: "Native action", action: #selector(ShortcutMenuActionTarget.invokeShortcut(_:)),
                               keyEquivalent: characters)
         item.target = target
-        item.tag = CommandWrapper.IDC_OPTIONS.rawValue
+        item.tag = command.rawValue
         item.keyEquivalentModifierMask = modifiers
         item.isEnabled = enabled
         submenu.addItem(item)
@@ -166,6 +167,15 @@ final class ShortcutNativeMenuIntegrationTests: XCTestCase {
 
     func testNativeSelectorOwnsHiddenNextTabKeyAndRunsItsTargetOnce() throws {
         try assertNativeOwnership(characters: "\u{F72D}", modifiers: .control, keyCode: 121, enabled: true)
+    }
+
+    func testSelectionCommandTagsKeepNativeDispatchWhenReboundToHiddenKey() throws {
+        for command in [CommandWrapper.IDS_EDIT_USE_SELECTION_MAC, .IDS_EDIT_JUMP_TO_SELECTION_MAC] {
+            try assertNativeOwnership(characters: "\u{F72D}", modifiers: .control,
+                                      keyCode: 121, enabled: true, command: command)
+            try assertNativeOwnership(characters: "\u{F72D}", modifiers: .control,
+                                      keyCode: 121, enabled: false, command: command)
+        }
     }
 
     func testDisabledNativeSelectorDoesNotFallBackToHiddenNextTab() throws {

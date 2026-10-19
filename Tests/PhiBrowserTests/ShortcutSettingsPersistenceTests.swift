@@ -11,6 +11,8 @@ import XCTest
 private final class ReleasedShortcutActionTarget: NSObject {
     var invocationCount = 0
     @objc func invoke(_ sender: Any?) { invocationCount += 1 }
+    @objc(copyToFindPboard:) func useSelection(_ sender: Any?) { invocationCount += 1 }
+    @objc(centerSelectionInVisibleArea:) func jumpToSelection(_ sender: Any?) { invocationCount += 1 }
 }
 
 final class ShortcutSettingsPersistenceTests: XCTestCase {
@@ -98,6 +100,76 @@ final class ShortcutSettingsPersistenceTests: XCTestCase {
         }
         try Shortcuts.restoreOverrides().get()
         try assertFixedQuit()
+    }
+
+    func testSelectionCommandsKeepNativeActionsAcrossRebindReloadDisableAndRestore() throws {
+        let bridge = try XCTUnwrap(ChromiumLauncher.sharedInstance().bridge)
+        let commands: [(CommandWrapper, String)] = [
+            (.IDS_EDIT_USE_SELECTION_MAC, "copyToFindPboard:"),
+            (.IDS_EDIT_JUMP_TO_SELECTION_MAC, "centerSelectionInVisibleArea:")
+        ]
+        let model = ShortcutsViewModel()
+        let key = ShortcutsKey(characters: "e", modifiers: [.command, .control, .shift])
+
+        func assertMenu(_ command: CommandWrapper, action: String, key: ShortcutsKey?) throws {
+            bridge.requestRebuildMainMenu()
+            model.rebuildSections()
+            let menu = try XCTUnwrap(NSApp.mainMenu)
+            let edit = try XCTUnwrap(ChromiumMainMenuRole.edit.item(in: menu)?.submenu)
+            func matches(in menu: NSMenu) -> [NSMenuItem] {
+                menu.items.flatMap { item -> [NSMenuItem] in
+                    if let submenu = item.submenu { return matches(in: submenu) }
+                    return item.action == NSSelectorFromString(action) ? [item] : []
+                }
+            }
+            let items = matches(in: edit)
+            XCTAssertEqual(items.count, 1)
+            let entry = try XCTUnwrap(items.first)
+            XCTAssertEqual(entry.tag, command.rawValue)
+            XCTAssertNil(entry.target)
+            XCTAssertEqual(entry.keyEquivalent, key?.menuKeyEquivalent.characters ?? "")
+            XCTAssertEqual(entry.keyEquivalentModifierMask, key?.menuKeyEquivalent.modifiers ?? [])
+            XCTAssertEqual(try item(command, in: model).shortcutKey, key)
+            XCTAssertFalse(model.inventory.bindings.contains { $0.owner == .nativeAction(action) })
+            let actual = Shortcuts.menuBindings(in: menu).filter { $0.commandID == command.rawValue }
+            XCTAssertEqual(actual.map { $0.key.menuKeyEquivalent }, key.map { [$0.menuKeyEquivalent] } ?? [])
+            if let key {
+                let target = ReleasedShortcutActionTarget()
+                let originalTarget = entry.target
+                defer { entry.target = originalTarget }
+                entry.target = target
+                let event = try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero,
+                    modifierFlags: key.modifiers, timestamp: 0, windowNumber: 0, context: nil,
+                    characters: key.menuKeyEquivalent.characters,
+                    charactersIgnoringModifiers: key.menuKeyEquivalent.characters,
+                    isARepeat: false, keyCode: command == .IDS_EDIT_JUMP_TO_SELECTION_MAC && key.modifiers == .command ? 38 : 14))
+                XCTAssertTrue(menu.performKeyEquivalent(with: event))
+                XCTAssertEqual(target.invocationCount, 1)
+            }
+        }
+
+        for (command, action) in commands {
+            let original = try XCTUnwrap(Shortcuts.DefaultShortcuts[command])
+            try assertMenu(command, action: action, key: original)
+            model.setCustomShortcut(for: command, key: key)
+            try assertMenu(command, action: action, key: key)
+            try Shortcuts.reloadOverrides().get()
+            try assertMenu(command, action: action, key: key)
+            model.disableShortcut(for: command)
+            try assertMenu(command, action: action, key: nil)
+            try Shortcuts.reloadOverrides().get()
+            try assertMenu(command, action: action, key: nil)
+            model.restoreDefaultShortcut(for: command)
+            try assertMenu(command, action: action, key: original)
+        }
+
+        let useSelection = CommandWrapper.IDS_EDIT_USE_SELECTION_MAC
+        let jump = CommandWrapper.IDS_EDIT_JUMP_TO_SELECTION_MAC
+        model.setCustomShortcut(for: jump, key: try XCTUnwrap(Shortcuts.DefaultShortcuts[useSelection]))
+        model.rebuildSections()
+        XCTAssertTrue(model.conflicts(for: jump).contains { $0.command == useSelection })
+        XCTAssertTrue(model.conflicts(for: useSelection).contains { $0.command == jump })
+        XCTAssertNil(Shortcuts.overrideState(for: useSelection.rawValue))
     }
 
     func testBookmarkBarCommandKeepsNativeActionAcrossShortcutChanges() throws {
@@ -605,8 +677,6 @@ final class ShortcutSettingsPersistenceTests: XCTestCase {
             (.init(characters: "a", modifiers: .command), .command(CommandWrapper.IDC_CONTENT_CONTEXT_SELECTALL.rawValue)),
             (.init(characters: "z", modifiers: [.command, .shift]), .command(CommandWrapper.IDC_CONTENT_CONTEXT_REDO.rawValue)),
             (.init(characters: "c", modifiers: .command), .command(CommandWrapper.IDC_CONTENT_CONTEXT_COPY.rawValue)),
-            (.init(characters: "e", modifiers: .command), .nativeAction("copyToFindPboard:")),
-            (.init(characters: "j", modifiers: .command), .nativeAction("centerSelectionInVisibleArea:")),
             (.init(characters: " ", modifiers: [.command, .control]), .nativeAction("orderFrontCharacterPalette:"))
         ]
         for (key, owner) in bindings {

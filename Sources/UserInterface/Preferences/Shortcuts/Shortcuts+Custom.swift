@@ -108,6 +108,8 @@ extension Shortcuts {
                         .IDC_FIND,
                         .IDC_FIND_NEXT,
                         .IDC_FIND_PREVIOUS,
+                        .IDS_EDIT_USE_SELECTION_MAC,
+                        .IDS_EDIT_JUMP_TO_SELECTION_MAC,
                         .IDC_FOCUS_SEARCH]
             case .view:
                 return [.IDC_STOP,
@@ -474,8 +476,7 @@ extension CommandWrapper {
              .IDC_CONTENT_CONTEXT_PASTE, .IDC_CONTENT_CONTEXT_PASTE_AND_MATCH_STYLE,
              .IDC_CONTENT_CONTEXT_SELECTALL,
              .IDS_HIDE_OTHERS_MAC, .IDS_CLOSE_ALL_WINDOWS_MAC,
-             .IDS_PASTE_MATCH_STYLE_MAC, .IDS_EDIT_USE_SELECTION_MAC,
-             .IDS_EDIT_JUMP_TO_SELECTION_MAC, .IDS_EDIT_SHOW_SPELLING_GRAMMAR_MAC,
+             .IDS_PASTE_MATCH_STYLE_MAC, .IDS_EDIT_SHOW_SPELLING_GRAMMAR_MAC,
              .IDS_EDIT_CHECK_DOCUMENT_MAC:
             return true
         default:

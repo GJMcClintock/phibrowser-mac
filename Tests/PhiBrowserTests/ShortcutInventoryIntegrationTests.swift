@@ -119,8 +119,8 @@ final class ShortcutInventoryIntegrationTests: XCTestCase {
                   key: .init(characters: "a", modifiers: .command), scope: .all, source: .menu, title: "Select All"),
             .init(commandID: CommandWrapper.IDC_CONTENT_CONTEXT_UNDO.rawValue,
                   key: .init(characters: "z", modifiers: .command), scope: .all, source: .menu, title: "Undo"),
-            .init(commandID: CommandWrapper.IDS_EDIT_USE_SELECTION_MAC.rawValue,
-                  key: .init(characters: "e", modifiers: .command), scope: .all, source: .menu, title: "Use Selection for Find"),
+            .init(commandID: CommandWrapper.IDS_EDIT_CHECK_DOCUMENT_MAC.rawValue,
+                  key: .init(characters: ";", modifiers: .command), scope: .all, source: .menu, title: "Check Document Now"),
             .init(owner: .nativeAction("orderFrontCharacterPalette:"),
                   key: .init(characters: " ", modifiers: [.command, .control]),
                   scope: .all, source: .menu, title: "Emoji & Symbols")

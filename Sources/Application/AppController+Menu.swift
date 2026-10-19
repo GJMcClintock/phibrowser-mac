@@ -636,6 +636,7 @@ extension AppController {
             
             if menuRole == .edit, let subMenu = menuItem.submenu {
                 installOrUpdateCopyURLMenuItem(in: subMenu)
+                installOrUpdateSelectionShortcuts(in: subMenu)
             } else
 
             if menuRole == .file, let subMenu = menuItem.submenu {
@@ -1205,6 +1206,24 @@ extension AppController {
         return BookmarkHTMLExporter.hasExportableContent(
             bookmarks: state.bookmarkManager.rootFolder.children,
             pinnedTabs: state.pinnedTabs)
+    }
+
+    private func installOrUpdateSelectionShortcuts(in menu: NSMenu) {
+        for item in menu.items {
+            if let submenu = item.submenu {
+                installOrUpdateSelectionShortcuts(in: submenu)
+            }
+            // These native actions arrive without command tags. Keep their
+            // responder-chain routing while sharing configuration and inventory.
+            switch item.action {
+            case NSSelectorFromString("copyToFindPboard:"):
+                applyEffectiveShortcut(.IDS_EDIT_USE_SELECTION_MAC, to: item)
+            case NSSelectorFromString("centerSelectionInVisibleArea:"):
+                applyEffectiveShortcut(.IDS_EDIT_JUMP_TO_SELECTION_MAC, to: item)
+            default:
+                break
+            }
+        }
     }
 
     private func installOrUpdateCopyURLMenuItem(in menu: NSMenu) {

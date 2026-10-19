@@ -543,6 +543,10 @@ private extension CommandWrapper {
             return NSLocalizedString("settings.shortcuts.command.findPreviousMatch", value: "Find Previous", comment: "Shortcuts settings - Command title for selecting the previous match on the current page")
         case .IDC_FOCUS_SEARCH:
             return NSLocalizedString("settings.shortcuts.command.searchTheWeb", value: "Search the Web...", comment: "Shortcuts settings - Command title for starting a web search")
+        case .IDS_EDIT_USE_SELECTION_MAC:
+            return NSLocalizedString("settings.shortcuts.command.useSelectionForFind", value: "Use Selection for Find", comment: "Shortcuts settings - Use selected text as the search text")
+        case .IDS_EDIT_JUMP_TO_SELECTION_MAC:
+            return NSLocalizedString("settings.shortcuts.command.jumpToSelection", value: "Jump to Selection", comment: "Shortcuts settings - Scroll to the selected text")
         case .IDC_STOP:
             return NSLocalizedString("settings.shortcuts.command.stopLoading", value: "Stop", comment: "Shortcuts settings - Command title for stopping the current page from loading")
         case .IDC_RELOAD:
