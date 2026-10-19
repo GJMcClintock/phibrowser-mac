@@ -244,6 +244,9 @@ Non-keyboard command entry points and menu item visibility are unchanged.
   custom close bindings still conflict in both directions.
 - Standard macOS editing/window services and native selectors remain in the
   conflict inventory but are omitted from settings. Their bindings are never changed by recording another command.
+  Entries under `NSApp.servicesMenu` that are both hidden and disabled are excluded
+  from the snapshot. This does not exclude hidden Chromium menu items or Framework
+  hidden accelerators; visible or enabled Services still participate in conflicts.
 - Force Reload and Move Tab Left/Right are editable in their normal groups.
   Other recognized browser commands are discovered from the runtime inventory
   and saved overrides, including disabled overrides. Their default labels come

@@ -277,11 +277,18 @@ extension Shortcuts {
         return ShortcutInventory(bindings: configured + activeAdditional)
     }
 
-    static func menuBindings(in menu: NSMenu? = NSApp.mainMenu) -> [ShortcutBinding] {
-        func visit(_ menu: NSMenu) -> [ShortcutBinding] {
-            menu.items.flatMap { item -> [ShortcutBinding] in
+    static func menuBindings(
+        in menu: NSMenu? = NSApp.mainMenu,
+        servicesMenu: NSMenu? = NSApp.servicesMenu
+    ) -> [ShortcutBinding] {
+        func visit(_ menu: NSMenu, inServices: Bool = false) -> [ShortcutBinding] {
+            let inServices = inServices || menu === servicesMenu
+            return menu.items.flatMap { item -> [ShortcutBinding] in
                 // Chromium's menu matcher examines hidden entries too.
-                if let submenu = item.submenu { return visit(submenu) }
+                if let submenu = item.submenu { return visit(submenu, inServices: inServices) }
+                // AppKit retains unavailable Services in the menu tree. Their
+                // detached copies can expose keys despite being hidden and disabled.
+                if inServices && item.isHidden && !item.isEnabled { return [] }
                 guard !item.keyEquivalent.isEmpty,
                       let action = item.action else { return [] }
                 let command = CommandWrapper(rawValue: item.tag)
@@ -309,7 +316,7 @@ extension Shortcuts {
                 )]
             }
         }
-        return menu.map(visit) ?? []
+        return menu.map { visit($0) } ?? []
     }
 
     static func additionalBindings() -> [ShortcutBinding] {

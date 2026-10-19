@@ -194,10 +194,56 @@ final class ShortcutInventoryIntegrationTests: XCTestCase {
                        [.command(CommandWrapper.IDC_RELOAD.rawValue)])
     }
 
-    func testMenuSnapshotIncludesHiddenKeysUsedByChromiumMatching() {
+    func testUnavailableServicesDoNotConflictButOtherServiceStatesStillDo() throws {
         let menu = NSMenu()
+        let services = NSMenu(title: "Services")
+        services.autoenablesItems = false
+        let parent = NSMenuItem()
+        parent.submenu = services
+        menu.addItem(parent)
+        // Services may be grouped into nested submenus.
+        let group = NSMenuItem()
+        let nested = NSMenu(title: "Text")
+        nested.autoenablesItems = false
+        group.submenu = nested
+        services.addItem(group)
+        let service = NSMenuItem(title: "Search man Page Index in Terminal",
+                                 action: NSSelectorFromString("_processRequest:"), keyEquivalent: "A")
+        service.keyEquivalentModifierMask = .command
+        service.allowsKeyEquivalentWhenHidden = true
+        nested.addItem(service)
+        let model = ShortcutsViewModel(additionalBindings: {
+            Shortcuts.menuBindings(in: menu, servicesMenu: services)
+        })
+
+        for hidden in [false, true] {
+            for enabled in [false, true] {
+                service.isHidden = hidden
+                service.isEnabled = enabled
+                model.rebuildSections()
+                let conflicts = model.conflicts(for: .IDC_TAB_SEARCH)
+                if hidden && !enabled {
+                    XCTAssertTrue(conflicts.isEmpty)
+                    XCTAssertFalse(try item(.IDC_TAB_SEARCH, in: model).hasConflict)
+                } else {
+                    XCTAssertEqual(conflicts.map(\.name), [service.title])
+                    XCTAssertEqual(conflicts.first?.keys, ["⌘⇧A"])
+                }
+            }
+        }
+
+        // The same selector outside the Services tree must not be filtered.
+        service.isHidden = true
+        service.isEnabled = false
+        XCTAssertEqual(Shortcuts.menuBindings(in: menu, servicesMenu: nil).count, 1)
+    }
+
+    func testMenuSnapshotIncludesHiddenKeysUsedByChromiumMatching() throws {
+        let menu = NSMenu()
+        menu.autoenablesItems = false
         let parent = NSMenuItem()
         parent.submenu = NSMenu()
+        parent.submenu?.autoenablesItems = false
         menu.addItem(parent)
         let item = NSMenuItem(title: "Find", action: NSSelectorFromString("performFindPanelAction:"), keyEquivalent: "f")
         item.tag = CommandWrapper.IDC_FIND.rawValue
@@ -208,6 +254,12 @@ final class ShortcutInventoryIntegrationTests: XCTestCase {
         XCTAssertEqual(Shortcuts.menuBindings(in: menu).count, 1)
         item.allowsKeyEquivalentWhenHidden = true
         XCTAssertEqual(Shortcuts.menuBindings(in: menu).count, 1)
+        item.isEnabled = false
+        XCTAssertEqual(Shortcuts.menuBindings(in: menu).count, 1)
+        install([.IDC_OPTIONS: .custom(.init(characters: "f", modifiers: .command))])
+        let model = ShortcutsViewModel(additionalBindings: { Shortcuts.menuBindings(in: menu) })
+        XCTAssertTrue(try self.item(.IDC_OPTIONS, in: model).hasConflict)
+        XCTAssertTrue(try self.item(.IDC_FIND, in: model).hasConflict)
         item.keyEquivalent = ""
         XCTAssertTrue(Shortcuts.menuBindings(in: menu).isEmpty)
     }
