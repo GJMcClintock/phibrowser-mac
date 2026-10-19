@@ -120,6 +120,83 @@ final class PeekPanelController {
             fatalError("init(coder:) has not been implemented")
         }
 
+        /// AppKit gives a square-bezel button 2.5pt top / 1.5pt bottom
+        /// alignment insets for a bezel this button never draws. Constraints
+        /// size the alignment rect, so without this the frame — and the layer
+        /// that paints the chip — came out 28×32 with the glyph riding high.
+        override var alignmentRectInsets: NSEdgeInsets { NSEdgeInsetsZero }
+
+        /// Places the glyph by its ink, not by the symbol's alignment rect.
+        /// `NSButtonCell` centres the alignment rect and rounds its origin
+        /// down to whole points, which lands the wider symbols (the split and
+        /// reader glyphs) half a point left of centre. The ink box is read
+        /// once per image by rasterising it; the glyph is then drawn at a
+        /// half-point-snapped origin so it stays pixel-aligned on 2x.
+        private final class Cell: NSButtonCell {
+            /// Vertical nudge of the ink centre from the chip centre, in
+            /// points, should the chip ever want optical rather than exact
+            /// centring. Exact centring was judged right against the shadow.
+            static let opticalDrop: CGFloat = 0
+
+            private var inkCache: [ObjectIdentifier: NSRect] = [:]
+
+            override func drawImage(_ image: NSImage, withFrame frame: NSRect, in controlView: NSView) {
+                let ink = inkRect(of: image)
+                let bounds = controlView.bounds
+                // The control is flipped: +y is down.
+                let target = CGPoint(x: bounds.midX, y: bounds.midY + Self.opticalDrop)
+                let inkCentreFromTop = image.size.height - ink.midY
+                func snap(_ value: CGFloat) -> CGFloat { (value * 2).rounded() / 2 }
+                let origin = CGPoint(x: snap(target.x - ink.midX), y: snap(target.y - inkCentreFromTop))
+                let tint = (controlView as? NSButton)?.contentTintColor ?? .labelColor
+                let color = isHighlighted ? (tint.blended(withFraction: 0.3, of: .black) ?? tint) : tint
+                let config = image.symbolConfiguration.applying(NSImage.SymbolConfiguration(paletteColors: [color]))
+                let tinted = image.withSymbolConfiguration(config) ?? image
+                tinted.draw(in: NSRect(origin: origin, size: image.size), from: .zero,
+                            operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
+            }
+
+            /// Bounding box of the image's opaque pixels, in image points with
+            /// a bottom-left origin. Falls back to the whole image.
+            private func inkRect(of image: NSImage) -> NSRect {
+                if let cached = inkCache[ObjectIdentifier(image)] { return cached }
+                let scale: CGFloat = 2
+                let width = Int((image.size.width * scale).rounded(.up))
+                let height = Int((image.size.height * scale).rounded(.up))
+                var rect = NSRect(origin: .zero, size: image.size)
+                if let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: width, pixelsHigh: height,
+                                              bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+                                              colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0) {
+                    rep.size = image.size
+                    NSGraphicsContext.saveGraphicsState()
+                    NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
+                    image.draw(in: NSRect(origin: .zero, size: image.size))
+                    NSGraphicsContext.restoreGraphicsState()
+                    var minX = width, minY = height, maxX = -1, maxY = -1
+                    for y in 0..<height {
+                        for x in 0..<width where (rep.colorAt(x: x, y: y)?.alphaComponent ?? 0) > 0.1 {
+                            minX = min(minX, x); maxX = max(maxX, x)
+                            minY = min(minY, y); maxY = max(maxY, y)
+                        }
+                    }
+                    if maxX >= 0 {
+                        // The rep is top-down; image coordinates are bottom-up.
+                        rect = NSRect(x: CGFloat(minX) / scale,
+                                      y: CGFloat(height - 1 - maxY) / scale,
+                                      width: CGFloat(maxX - minX + 1) / scale,
+                                      height: CGFloat(maxY - minY + 1) / scale)
+                    }
+                }
+                inkCache[ObjectIdentifier(image)] = rect
+                return rect
+            }
+        }
+
+        override class var cellClass: AnyClass? {
+            get { Cell.self }
+            set {}
+        }
+
         override func updateTrackingAreas() {
             super.updateTrackingAreas()
             if let hoverTrackingArea {
