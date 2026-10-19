@@ -58,7 +58,7 @@ final class ShortcutInventoryIntegrationTests: XCTestCase {
     func testTwoCustomOnlyCommandsReportEachOther() throws {
         let key = ShortcutsKey(characters: "d", modifiers: [.control, .option])
         install([.IDC_DUPLICATE_TAB: .custom(key), .IDC_WINDOW_MUTE_SITE: .custom(key)])
-        let model = ShortcutsViewModel(additionalBindings: { [] })
+        let model = ShortcutsViewModel(additionalBindings: { [] }, availableCommands: { [] })
         let duplicate = try item(.IDC_DUPLICATE_TAB, in: model)
         let mute = try item(.IDC_WINDOW_MUTE_SITE, in: model)
         XCTAssertTrue(duplicate.conflictingCommandNames.contains(mute.name))
@@ -67,7 +67,7 @@ final class ShortcutInventoryIntegrationTests: XCTestCase {
 
     func testDefaultAndCustomOnlyConflictIsSymmetric() throws {
         install([.IDC_DUPLICATE_TAB: .custom(try XCTUnwrap(Shortcuts.DefaultShortcuts[.IDC_RELOAD]))])
-        let model = ShortcutsViewModel(additionalBindings: { [] })
+        let model = ShortcutsViewModel(additionalBindings: { [] }, availableCommands: { [] })
         let duplicate = try item(.IDC_DUPLICATE_TAB, in: model)
         let reload = try item(.IDC_RELOAD, in: model)
         XCTAssertTrue(duplicate.conflictingCommandNames.contains(reload.name))
@@ -93,14 +93,14 @@ final class ShortcutInventoryIntegrationTests: XCTestCase {
     func testDisabledCustomOnlyOwnerIsRemovedFromConflicts() throws {
         let key = ShortcutsKey(characters: "d", modifiers: [.control, .option])
         install([.IDC_DUPLICATE_TAB: .custom(key), .IDC_WINDOW_MUTE_SITE: .disabled])
-        let model = ShortcutsViewModel(additionalBindings: { [] })
+        let model = ShortcutsViewModel(additionalBindings: { [] }, availableCommands: { [] })
         XCTAssertFalse(try item(.IDC_DUPLICATE_TAB, in: model).hasConflict)
         XCTAssertTrue(model.inventory.bindings(for: CommandWrapper.IDC_WINDOW_MUTE_SITE.rawValue).isEmpty)
     }
 
     func testOpenFileIsEditableAndFixedQuitStillExplainsConflicts() throws {
         install([.IDC_DUPLICATE_TAB: .custom(try XCTUnwrap(Shortcuts.DefaultShortcuts[.IDC_EXIT]))])
-        let model = ShortcutsViewModel(additionalBindings: { [] })
+        let model = ShortcutsViewModel(additionalBindings: { [] }, availableCommands: { [] })
         XCTAssertEqual(try item(.IDC_OPEN_FILE, in: model).shortcutKey,
                        ShortcutsKey(characters: "o", modifiers: .command))
         XCTAssertFalse(model.sections.flatMap(\.items).contains { $0.command == .IDC_EXIT })
@@ -157,7 +157,7 @@ final class ShortcutInventoryIntegrationTests: XCTestCase {
         XCTAssertTrue(model.conflicts(for: .IDC_DUPLICATE_TAB).contains { $0.command == .IDC_ADD_NEW_TAB_TO_GROUP })
 
         install([.IDC_ADD_NEW_TAB_TO_GROUP: .disabled])
-        let disabled = ShortcutsViewModel(additionalBindings: { [] })
+        let disabled = ShortcutsViewModel(additionalBindings: { [] }, availableCommands: { [] })
         XCTAssertNil(try item(.IDC_ADD_NEW_TAB_TO_GROUP, in: disabled).shortcutKey)
         XCTAssertTrue(disabled.inventory.bindings(for: CommandWrapper.IDC_ADD_NEW_TAB_TO_GROUP.rawValue).isEmpty)
     }
@@ -201,7 +201,6 @@ final class ShortcutInventoryIntegrationTests: XCTestCase {
 
     func testDiscoveredCommandsJoinTheirFunctionalSectionsWithoutDuplicates() throws {
         let expected: [(Shortcuts.Group, [CommandWrapper])] = [
-            (.app, [.IDC_IMPORT_SETTINGS]),
             (.file, [.IDC_SAVE_PAGE, .IDC_BASIC_PRINT]),
             (.view, [.IDC_FULLSCREEN]),
             (.history, [.IDC_CLEAR_BROWSING_DATA]),
@@ -218,7 +217,7 @@ final class ShortcutInventoryIntegrationTests: XCTestCase {
             (commands + [.IDC_DEBUG_PRINT_VIEW_TREE]).map {
                 ShortcutBinding(commandID: $0.rawValue, key: key, scope: .browser, source: .hidden)
             }
-        })
+        }, availableCommands: { [] })
         for (group, expectedCommands) in expected {
             let section = try XCTUnwrap(model.sections.first { $0.category == group.title })
             XCTAssertEqual(section.items.filter { commands.contains($0.command) }.map(\.command), expectedCommands)
@@ -235,8 +234,53 @@ final class ShortcutInventoryIntegrationTests: XCTestCase {
         XCTAssertTrue(Shortcuts.configuration.overrides.isEmpty)
     }
 
+    func testVisibleUnassignedMenuCommandsCanBeConfiguredWithoutInventingBindings() throws {
+        let menu = NSMenu()
+        for command in [CommandWrapper.IDC_SAVE_PAGE, .IDC_IMPORT_SETTINGS, .IDC_NEW_TAB_TO_RIGHT, .IDC_NEW_SPLIT_TAB] {
+            let item = NSMenuItem(title: "Unassigned", action: NSSelectorFromString("commandDispatch:"), keyEquivalent: "")
+            item.tag = command.rawValue
+            menu.addItem(item)
+        }
+        let hidden = NSMenuItem(title: "Hidden", action: NSSelectorFromString("commandDispatch:"), keyEquivalent: "")
+        hidden.tag = CommandWrapper.IDC_WINDOW_PIN_TAB.rawValue
+        hidden.isHidden = true
+        menu.addItem(hidden)
+        let model = ShortcutsViewModel(additionalBindings: { [] }, availableCommands: {
+            Shortcuts.availableMenuCommands(in: menu)
+        })
+        for command in [CommandWrapper.IDC_SAVE_PAGE, .IDC_NEW_SPLIT_TAB] {
+            let row = try item(command, in: model)
+            XCTAssertNil(row.shortcutKey)
+            XCTAssertTrue(model.inventory.bindings(for: command.rawValue).isEmpty)
+            model.startRecording(for: command)
+            XCTAssertEqual(model.editingCommand, command)
+        }
+        for command in [CommandWrapper.IDC_WINDOW_PIN_TAB, .IDC_IMPORT_SETTINGS, .IDC_NEW_TAB_TO_RIGHT] {
+            XCTAssertFalse(model.sections.flatMap(\.items).contains { $0.command == command })
+        }
+        XCTAssertTrue(Shortcuts.configuration.overrides.isEmpty)
+    }
+
+    func testSavePageMenuRebuildPreservesCustomAndDisabledBindings() {
+        let menu = NSMenu()
+        let item = NSMenuItem(title: "Save Page", action: NSSelectorFromString("commandDispatch:"), keyEquivalent: "s")
+        item.tag = CommandWrapper.IDC_SAVE_PAGE.rawValue
+        menu.addItem(item)
+        let key = ShortcutsKey(characters: "s", modifiers: [.command, .option])
+        install([.IDC_SAVE_PAGE: .custom(key)])
+        AppController.installOrUpdateFileMenuItems(in: menu, target: nil)
+        XCTAssertEqual(item.keyEquivalent, key.menuKeyEquivalent.characters)
+        XCTAssertEqual(item.keyEquivalentModifierMask, key.menuKeyEquivalent.modifiers)
+        install([.IDC_SAVE_PAGE: .disabled])
+        AppController.installOrUpdateFileMenuItems(in: menu, target: nil)
+        XCTAssertTrue(item.keyEquivalent.isEmpty)
+        install([:])
+        AppController.installOrUpdateFileMenuItems(in: menu, target: nil)
+        XCTAssertTrue(item.keyEquivalent.isEmpty)
+    }
+
     func testCategoriesDoNotExposeUndiscoveredCommandsAndBookmarkBarMovesFromView() throws {
-        let model = ShortcutsViewModel(additionalBindings: { [] })
+        let model = ShortcutsViewModel(additionalBindings: { [] }, availableCommands: { [] })
         let commands = Set(model.sections.flatMap(\.items).map(\.command))
         XCTAssertTrue(commands.isDisjoint(with: Shortcuts.Group.allCases.flatMap(\.discoveredCommands)))
         let bookmarks = try XCTUnwrap(model.sections.first { $0.category == Shortcuts.Group.bookmarks.title })
@@ -251,7 +295,7 @@ final class ShortcutInventoryIntegrationTests: XCTestCase {
         let key = try XCTUnwrap(Shortcuts.DefaultShortcuts[.IDC_NEW_TAB])
         install([.IDC_CREATE_NEW_TAB_GROUP: .disabled, .IDC_BOOKMARK_THIS_TAB: .custom(key)])
         let saved = Shortcuts.configuration.overrides
-        let model = ShortcutsViewModel(additionalBindings: { [] })
+        let model = ShortcutsViewModel(additionalBindings: { [] }, availableCommands: { [] })
         let tab = try XCTUnwrap(model.sections.first { $0.category == Shortcuts.Group.tab.title })
         XCTAssertTrue(tab.items.contains { $0.command == .IDC_CREATE_NEW_TAB_GROUP })
         XCTAssertNil(try item(.IDC_CREATE_NEW_TAB_GROUP, in: model).shortcutKey)

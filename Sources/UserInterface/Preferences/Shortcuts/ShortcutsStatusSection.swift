@@ -7,6 +7,7 @@ import SwiftUI
 
 struct ShortcutsStatusSection: View {
     @ObservedObject var viewModel: ShortcutsViewModel
+    @State private var showRestoreConfirmation = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -15,7 +16,10 @@ struct ShortcutsStatusSection: View {
                     .font(.system(size: 12, weight: .medium))
                     .themedForeground(.textSecondary)
                 Spacer()
-                Button(action: viewModel.restoreAllShortcuts) {
+                Button {
+                    viewModel.capture = nil
+                    showRestoreConfirmation = true
+                } label: {
                     Label(NSLocalizedString("settings.shortcuts.restoreDefaultsButton", value: "Restore all shortcuts", comment: "Shortcuts settings - Button to reset all shortcuts to default"), systemImage: "arrow.clockwise")
                 }
                 .buttonStyle(.borderless)
@@ -46,6 +50,17 @@ struct ShortcutsStatusSection: View {
                 }
                 .font(.system(size: 11))
             }
+        }
+        .alert(
+            NSLocalizedString("settings.shortcuts.restoreConfirmation.title", value: "Restore All Shortcuts?", comment: "Shortcuts settings - Confirmation title before resetting all shortcuts"),
+            isPresented: $showRestoreConfirmation
+        ) {
+            Button(NSLocalizedString("settings.shortcuts.restoreConfirmation.confirmButton", value: "Restore All", comment: "Shortcuts settings - Destructive button confirming the reset of all shortcuts"), role: .destructive) {
+                viewModel.restoreAllShortcuts()
+            }
+            Button(NSLocalizedString("settings.shortcuts.restoreConfirmation.cancelButton", value: "Cancel", comment: "Shortcuts settings - Cancel button preserving all shortcut settings"), role: .cancel) {}
+        } message: {
+            Text(NSLocalizedString("settings.shortcuts.restoreConfirmation.message", value: "All custom shortcuts will be removed and the defaults restored. This action cannot be undone.", comment: "Shortcuts settings - Warning that resetting all shortcuts is irreversible"))
         }
     }
 }

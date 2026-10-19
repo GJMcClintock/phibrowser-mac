@@ -331,16 +331,16 @@ final class ShortcutSettingsPersistenceTests: XCTestCase {
     func testCustomizedFilterIncludesDisabledShortcutsAndUpdatesAfterRestore() throws {
         let model = ShortcutsViewModel(additionalBindings: { [] })
         model.setCustomShortcut(for: .IDC_NEW_WINDOW, key: customKey)
-        model.disableShortcut(for: .IDC_DUPLICATE_TAB)
+        model.disableShortcut(for: .PHI_COPY_URL)
         model.filter = .customized
         XCTAssertEqual(Set(model.filteredSections.flatMap(\.items).map(\.command)),
-                       [.IDC_NEW_WINDOW, .IDC_DUPLICATE_TAB])
+                       [.IDC_NEW_WINDOW, .PHI_COPY_URL])
         XCTAssertTrue(model.filteredReservedShortcuts.isEmpty)
         model.selectedCommand = .IDC_NEW_WINDOW
         model.restoreDefaultShortcut(for: .IDC_NEW_WINDOW)
-        XCTAssertEqual(model.filteredSections.flatMap(\.items).map(\.command), [.IDC_DUPLICATE_TAB])
-        XCTAssertEqual(model.selectedCommand, .IDC_DUPLICATE_TAB)
-        model.restoreDefaultShortcut(for: .IDC_DUPLICATE_TAB)
+        XCTAssertEqual(model.filteredSections.flatMap(\.items).map(\.command), [.PHI_COPY_URL])
+        XCTAssertEqual(model.selectedCommand, .PHI_COPY_URL)
+        model.restoreDefaultShortcut(for: .PHI_COPY_URL)
         XCTAssertTrue(model.filteredSections.isEmpty)
         XCTAssertNil(model.selectedCommand)
     }
@@ -621,12 +621,69 @@ final class ShortcutSettingsPersistenceTests: XCTestCase {
         XCTAssertEqual(contents, saved)
     }
 
-    func testDisablingCommandWithNoDefaultStillPersistsExplicitDisable() throws {
+    func testDisablingRuntimeBindingWithoutSwiftDefaultPersistsExplicitDisable() throws {
         let command = CommandWrapper.IDC_DUPLICATE_TAB
         XCTAssertNil(Shortcuts.DefaultShortcuts[command])
-        let model = ShortcutsViewModel()
+        let model = ShortcutsViewModel(additionalBindings: {
+            [ShortcutBinding(commandID: command.rawValue, key: self.customKey,
+                             scope: .browser, source: .hidden)]
+        }, availableCommands: { [] })
         model.disableShortcut(for: command)
         _ = Shortcuts.reloadOverrides()
+        XCTAssertEqual(Shortcuts.overrideState(for: command.rawValue), .disabled)
+        XCTAssertTrue(try item(command, in: model).isOverridden)
+    }
+
+    func testDeletingUnassignedCommandDoesNotCreateOverride() throws {
+        let command = CommandWrapper.IDC_SAVE_PAGE
+        let model = ShortcutsViewModel(additionalBindings: { [] }, availableCommands: { [command] })
+        XCTAssertNil(Shortcuts.key(for: command))
+        XCTAssertTrue(model.inventory.bindings(for: command.rawValue).isEmpty)
+        model.selectedCommand = command
+        model.editingCommand = command
+        let event = try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero,
+            modifierFlags: [], timestamp: 0, windowNumber: 0, context: nil,
+            characters: "\u{7F}", charactersIgnoringModifiers: "\u{7F}", isARepeat: false, keyCode: 51))
+
+        model.handleCaptureEvent(event)
+
+        XCTAssertNil(model.capture)
+        XCTAssertEqual(writeCount, 0)
+        XCTAssertNil(Shortcuts.overrideState(for: command.rawValue))
+        XCTAssertFalse(try item(command, in: model).isOverridden)
+        XCTAssertEqual(contents, Data("[]".utf8))
+    }
+
+    func testDeletingNewAssignmentRestoresUnassignedBaseline() throws {
+        let command = CommandWrapper.IDC_SAVE_PAGE
+        let model = ShortcutsViewModel(additionalBindings: { [] }, availableCommands: { [command] })
+        model.setCustomShortcut(for: command, key: customKey)
+        XCTAssertTrue(try item(command, in: model).isOverridden)
+        model.editingCommand = command
+        let event = try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero,
+            modifierFlags: [], timestamp: 0, windowNumber: 0, context: nil,
+            characters: "\u{7F}", charactersIgnoringModifiers: "\u{7F}", isARepeat: false, keyCode: 51))
+
+        model.handleCaptureEvent(event)
+
+        XCTAssertNil(model.capture)
+        XCTAssertNil(Shortcuts.overrideState(for: command.rawValue))
+        XCTAssertNil(try item(command, in: model).shortcutKey)
+        XCTAssertFalse(try item(command, in: model).isOverridden)
+        XCTAssertEqual(contents, Data("[]".utf8))
+        try Shortcuts.reloadOverrides().get()
+        XCTAssertNil(Shortcuts.overrideState(for: command.rawValue))
+    }
+
+    func testDeletingCustomRuntimeBindingStillDisablesOriginalDefault() throws {
+        let command = CommandWrapper.IDC_DUPLICATE_TAB
+        let model = ShortcutsViewModel(additionalBindings: {
+            guard Shortcuts.overrideState(for: command.rawValue) == nil else { return [] }
+            return [ShortcutBinding(commandID: command.rawValue, key: self.customKey,
+                                    scope: .browser, source: .hidden)]
+        }, availableCommands: { [command] })
+        model.setCustomShortcut(for: command, key: ShortcutsKey(characters: "k", modifiers: [.command, .control]))
+        model.disableShortcut(for: command)
         XCTAssertEqual(Shortcuts.overrideState(for: command.rawValue), .disabled)
         XCTAssertTrue(try item(command, in: model).isOverridden)
     }

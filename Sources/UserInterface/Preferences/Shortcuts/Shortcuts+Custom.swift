@@ -18,6 +18,9 @@ extension Shortcuts {
     /// This takes precedence over defaults and saved overrides. It does not
     /// disable the key combinations themselves or non-keyboard command entry points.
     static let disabledShortcutCommands: Set<CommandWrapper> = [
+        // These actions remain available from menus without keyboard bindings.
+        .IDC_IMPORT_SETTINGS,
+        .IDC_NEW_TAB_TO_RIGHT,
         // Chromium UI commands that are not supported by Phi's native shell.
         .IDC_FOCUS_NEXT_PANE,
         .IDC_FOCUS_PREVIOUS_PANE,
@@ -170,7 +173,7 @@ extension Shortcuts {
         }
 
         /// Presentation order for additional commands, shown only when discovered
-        /// in the live inventory or saved overrides. These do not register defaults.
+        /// in available menus, live bindings, or saved overrides. These do not register defaults.
         var discoveredCommands: [CommandWrapper] {
             switch self {
             case .app:
@@ -314,6 +317,17 @@ extension Shortcuts {
             !($0.commandID.map { isShortcutDisabled(for: $0) } ?? false)
         }
         return ShortcutInventory(bindings: configured + activeAdditional)
+    }
+
+    /// Available menu actions can be configured before their first binding.
+    /// Hidden menu branches are excluded because Phi replaces or suppresses them.
+    static func availableMenuCommands(in menu: NSMenu? = NSApp.mainMenu) -> [CommandWrapper] {
+        guard let menu else { return [] }
+        return menu.items.filter { !$0.isHidden }.flatMap { item -> [CommandWrapper] in
+            if let submenu = item.submenu { return availableMenuCommands(in: submenu) }
+            guard item.action != nil, let command = CommandWrapper(rawValue: item.tag) else { return [] }
+            return [command]
+        }
     }
 
     static func menuBindings(

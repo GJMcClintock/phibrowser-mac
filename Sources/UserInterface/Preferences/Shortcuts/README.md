@@ -242,6 +242,9 @@ rebinding or disablement, as described below.
 
 ### Product-Disabled Shortcut Commands
 
+Import from Another Browser and New Tab to the Right remain menu actions only.
+Their shortcuts are omitted from settings, and existing saved bindings are ignored.
+
 `Shortcuts.disabledShortcutCommands` in `Shortcuts+Custom.swift` is the single
 configuration point for commands whose keyboard bindings Phi does not support.
 Add a `CommandWrapper` entry there to suppress its default and every saved custom
@@ -298,8 +301,9 @@ Non-keyboard command entry points and menu item visibility are unchanged.
   Chromium menu bindings and hidden accelerators are not suppressed. This policy
   stays in effect when Tab Search is customized or disabled.
 - Force Reload and Move Tab Left/Right are editable in their normal groups.
-  Other recognized browser commands are discovered from the runtime inventory
-  and saved overrides, including disabled overrides. `Group.discoveredCommands`
+  Other recognized browser commands are discovered from the runtime inventory,
+  available visible menu actions (including actions without a shortcut), and saved
+  overrides, including disabled overrides. `Group.discoveredCommands`
   assigns these rows to functional sections without making absent commands visible
   or adding defaults. Tab-group actions belong to Tab; bookmark actions and the
   bookmark-bar toggle belong to Bookmarks. Unclassified commands remain in Other
@@ -506,6 +510,10 @@ registration; toggling the preference off and on provides an explicit retry.
     still match in the pre-dispatch interceptor unless that Chromium command's
     binding was changed or disabled. An unhandled event continues to the hidden
     Chromium lookup.
+
+Restore All requires a confirmation alert explaining that custom shortcuts will
+be removed and the action cannot be undone. Cancelling leaves the configuration
+unchanged; confirming uses the existing atomic reset and recovery path.
 
 ## Persistence and Compatibility
 

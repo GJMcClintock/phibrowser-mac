@@ -81,6 +81,8 @@ class ShortcutsViewModel: ObservableObject {
     @Published private(set) var persistenceFailure: PersistenceFailure?
     private var cancellables = Set<AnyCancellable>()
     private let additionalBindings: () -> [ShortcutBinding]
+    private let availableCommands: () -> [CommandWrapper]
+    private var commandsCustomizedFromUnassigned = Set<CommandWrapper>()
     private(set) var inventory = ShortcutInventory(bindings: [])
     private var searchEntries: [ShortcutBinding.Owner: ShortcutSearchEntry] = [:]
     @Published private(set) var filteredSections: [(category: String, subtitle: String?, items: [ShortcutItem])] = []
@@ -198,8 +200,10 @@ class ShortcutsViewModel: ObservableObject {
         set { capture = newValue.map(Capture.command) }
     }
     
-    init(additionalBindings: @escaping () -> [ShortcutBinding] = Shortcuts.additionalBindings) {
+    init(additionalBindings: @escaping () -> [ShortcutBinding] = Shortcuts.additionalBindings,
+         availableCommands: @escaping () -> [CommandWrapper] = { Shortcuts.availableMenuCommands() }) {
         self.additionalBindings = additionalBindings
+        self.availableCommands = availableCommands
         SpaceManager.shared.$spaces
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
@@ -235,10 +239,11 @@ class ShortcutsViewModel: ObservableObject {
         })
         var newSections: [(category: String, subtitle: String?, items: [ShortcutItem])] = []
         
-        // Discover remaining browser commands from the live tables. Keep saved
+        // Discover available actions even before they have a binding. Keep saved
         // commands available after disabling them removes their runtime binding.
         let grouped = Set(Shortcuts.configurableCommands)
         let discovered = Set(inventory.bindings.compactMap(\.commandID)
+            + availableCommands().map(\.rawValue)
             + Array(Shortcuts.configuration.overrides.keys))
             .compactMap(CommandWrapper.init(rawValue:))
             .filter { !grouped.contains($0) && !$0.isSystemShortcut && shouldShow($0)
@@ -259,7 +264,7 @@ class ShortcutsViewModel: ObservableObject {
         let uncategorized = discovered.filter { !categorized.contains($0) }
         if !uncategorized.isEmpty {
             newSections.append((category: NSLocalizedString(
-                "settings.shortcuts.group.otherBrowser", value: "Other Browser Commands",
+                "settings.shortcuts.group.other", value: "Other",
                 comment: "Shortcuts settings - Additional customizable browser commands"),
                 subtitle: nil, items: uncategorized.map(makeItem)))
         }
@@ -418,13 +423,32 @@ class ShortcutsViewModel: ObservableObject {
     
     /// Save only this command. Conflicts remain visible for the user to resolve.
     func setCustomShortcut(for command: CommandWrapper, key: ShortcutsKey) {
+        // Runtime bindings already include overrides. Remember the unassigned
+        // baseline before replacing it, rather than treating the custom key as a default.
+        if !Shortcuts.isOverridden(command) {
+            if Shortcuts.DefaultShortcuts[command] == nil,
+               inventory.bindings(for: command.rawValue).isEmpty {
+                commandsCustomizedFromUnassigned.insert(command)
+            } else {
+                commandsCustomizedFromUnassigned.remove(command)
+            }
+        }
         recordingMessage = nil
         apply(Shortcuts.setOverride(.custom(key), for: command))
     }
     
-    /// Disables the shortcut by storing an explicit empty override.
+    /// Removes a new assignment, or explicitly disables inherited bindings.
     func disableShortcut(for command: CommandWrapper) {
-        apply(Shortcuts.setOverride(.disabled, for: command))
+        // Deleting an unassigned command does not create a customization.
+        if !Shortcuts.isOverridden(command),
+           Shortcuts.key(for: command) == nil,
+           inventory.bindings(for: command.rawValue).isEmpty {
+            recordingMessage = nil
+            capture = nil
+            return
+        }
+        let override: ShortcutOverride? = commandsCustomizedFromUnassigned.contains(command) ? nil : .disabled
+        apply(Shortcuts.setOverride(override, for: command))
     }
     
     /// Restores the default shortcut for the command.

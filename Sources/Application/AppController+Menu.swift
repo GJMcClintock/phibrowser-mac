@@ -842,6 +842,7 @@ extension AppController {
             if item.tag == CommandWrapper.IDC_SAVE_PAGE.rawValue {
                 item.keyEquivalent = ""
                 item.keyEquivalentModifierMask = .init(rawValue: 0)
+                Shortcuts.updateShortcut(for: item)
             }
         }
 
