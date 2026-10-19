@@ -702,7 +702,7 @@ final class PhiBrowserTests: XCTestCase {
 
         XCTAssertEqual(recordedKey, copyURLKey)
         XCTAssertEqual(recordedKey.characters, "c")
-        XCTAssertEqual(recordedKey.displayString, "⌘⇧C")
+        XCTAssertEqual(recordedKey.displayString, "⇧⌘C")
     }
 
     func testCyrillicCommandCaptureUsesLatinShiftedMenuEquivalent() throws {
@@ -723,7 +723,7 @@ final class PhiBrowserTests: XCTestCase {
 
         XCTAssertEqual(recordedKey.characters, "p")
         XCTAssertEqual(recordedKey.modifiers, [.command, .shift])
-        XCTAssertEqual(recordedKey.displayString, "⌘⇧P")
+        XCTAssertEqual(recordedKey.displayString, "⇧⌘P")
         XCTAssertEqual(menuKey.characters, "P")
         XCTAssertEqual(menuKey.modifiers, [.command])
     }
@@ -911,10 +911,10 @@ final class PhiBrowserTests: XCTestCase {
             items.first { $0.command == .IDC_SELECT_NEXT_TAB }
         )
 
-        XCTAssertEqual(previousTabItem.shortcutDisplay, "⌘⇧[")
+        XCTAssertEqual(previousTabItem.shortcutDisplay, "⇧⌘[")
         let back = try XCTUnwrap(items.first { $0.command == .IDC_BACK })
         XCTAssertFalse(previousTabItem.conflictingCommandNames.contains(back.name))
-        XCTAssertEqual(nextTabItem.shortcutDisplay, "⌘⇧]")
+        XCTAssertEqual(nextTabItem.shortcutDisplay, "⇧⌘]")
         let forward = try XCTUnwrap(items.first { $0.command == .IDC_FORWARD })
         XCTAssertFalse(nextTabItem.conflictingCommandNames.contains(forward.name))
     }
@@ -1237,7 +1237,7 @@ final class PhiBrowserTests: XCTestCase {
         )
 
         XCTAssertEqual(recordedKey, shortcut)
-        XCTAssertEqual(recordedKey.displayString, "⇧⌃C")
+        XCTAssertEqual(recordedKey.displayString, "⌃⇧C")
         XCTAssertEqual(command, .PHI_COPY_URL)
     }
 
@@ -1269,7 +1269,7 @@ final class PhiBrowserTests: XCTestCase {
         )
 
         XCTAssertEqual(recordedKey, semanticKey)
-        XCTAssertEqual(recordedKey.displayString, "⇧⌃П")
+        XCTAssertEqual(recordedKey.displayString, "⌃⇧П")
         XCTAssertEqual(
             CommandDispatcher.matchedPhiCommand(
                 for: event,
@@ -1382,7 +1382,7 @@ final class PhiBrowserTests: XCTestCase {
         )
 
         XCTAssertEqual(shortcut.keycapTokens, ["⌃", "⌥", "←"])
-        XCTAssertEqual(shortcut.displayString, "⌥⌃←")
+        XCTAssertEqual(shortcut.displayString, "⌃⌥←")
     }
 
     func testShortcutCaptureNormalizesShiftTabToTabCharacter() throws {
@@ -1410,7 +1410,7 @@ final class PhiBrowserTests: XCTestCase {
 
         XCTAssertEqual(shortcut.characters, "\t")
         XCTAssertEqual(shortcut.modifiers, [.control, .shift])
-        XCTAssertEqual(shortcut.displayString, "⇧⌃⇥")
+        XCTAssertEqual(shortcut.displayString, "⌃⇧⇥")
         XCTAssertEqual(shortcut.menuKeyEquivalent.characters, "\t")
         XCTAssertEqual(shortcut.menuKeyEquivalent.modifiers, [.control, .shift])
     }

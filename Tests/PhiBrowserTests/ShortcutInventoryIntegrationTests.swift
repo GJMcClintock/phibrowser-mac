@@ -10,7 +10,7 @@ import XCTest
 final class ShortcutInventoryIntegrationTests: XCTestCase {
     func testMenuEncodedShiftIsVisibleWithoutChangingBindingIdentity() {
         let menuKey = ShortcutsKey(characters: "C", modifiers: .command)
-        XCTAssertEqual(menuKey.displayString, "⌘⇧C")
+        XCTAssertEqual(menuKey.displayString, "⇧⌘C")
         XCTAssertEqual(menuKey.keycapTokens, ["⇧", "⌘", "C"])
         XCTAssertEqual(menuKey.modifiers, .command)
         XCTAssertEqual(ShortcutsKey(characters: "c", modifiers: .command).displayString, "⌘C")
@@ -227,7 +227,7 @@ final class ShortcutInventoryIntegrationTests: XCTestCase {
                     XCTAssertFalse(try item(.IDC_TAB_SEARCH, in: model).hasConflict)
                 } else {
                     XCTAssertEqual(conflicts.map(\.name), [service.title])
-                    XCTAssertEqual(conflicts.first?.keys, ["⌘⇧A"])
+                    XCTAssertEqual(conflicts.first?.keys, ["⇧⌘A"])
                 }
             }
         }

@@ -373,15 +373,7 @@ extension ShortcutsKey {
     }
 
     var displayString: String {
-        let modifiers = displayModifiers
-        var prefix = ""
-        if modifiers.contains(.function) { prefix += "fn" }
-        if modifiers.contains(.command) { prefix += "⌘" }
-        if modifiers.contains(.option) { prefix += "⌥" }
-        if modifiers.contains(.shift) { prefix += "⇧" }
-        if modifiers.contains(.control) { prefix += "⌃" }
-
-        return prefix + characterSymbol
+        keycapTokens.joined()
     }
 
     var keycapTokens: [String] {
