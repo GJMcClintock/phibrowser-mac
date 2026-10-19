@@ -2094,8 +2094,8 @@ final class PhiBrowserTests: XCTestCase {
         let managerItem = menu.items.dropFirst(3).first
         XCTAssertEqual(managerItem?.tag, CommandWrapper.IDC_SHOW_BOOKMARK_MANAGER.rawValue)
         XCTAssertEqual(managerItem?.action, #selector(BookmarkMenuTestTarget.menuAction(_:)))
-        XCTAssertEqual(managerItem?.keyEquivalent, "b")
-        XCTAssertEqual(managerItem?.keyEquivalentModifierMask, [.command, .option])
+        XCTAssertEqual(managerItem?.keyEquivalent, "")
+        XCTAssertEqual(managerItem?.keyEquivalentModifierMask, [])
         XCTAssertEqual(
             menu.items.dropFirst(4).first?.title,
             NSLocalizedString("app.bookmarksMenu.exportCurrentSpace", value: "Export Bookmarks...", comment: "Bookmarks menu - Menu item to export the current Space's bookmarks to an HTML file")

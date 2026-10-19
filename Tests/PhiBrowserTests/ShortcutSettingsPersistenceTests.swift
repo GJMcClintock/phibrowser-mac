@@ -56,6 +56,31 @@ final class ShortcutSettingsPersistenceTests: XCTestCase {
         try XCTUnwrap(model.sections.flatMap(\.items).first { $0.command == command })
     }
 
+    func testBookmarkManagerBindingSurvivesNativeMenuRepopulation() throws {
+        let target = ReleasedShortcutActionTarget()
+        let menu = NSMenu()
+        let command = CommandWrapper.IDC_SHOW_BOOKMARK_MANAGER
+        let action = #selector(ReleasedShortcutActionTarget.invoke(_:))
+        for state in [ShortcutOverride.custom(customKey), .disabled, nil] {
+            try Shortcuts.setOverride(state, for: command).get()
+            // Repopulating the native menu replaces the items Chromium built.
+            for _ in 0..<2 {
+                BookmarkMenuContentBuilder.populate(menu: menu, bookmarks: [],
+                    canBookmarkCurrentTab: false, canBookmarkAllTabs: false, canExportBookmarks: false,
+                    target: target, bookmarkThisTabAction: action, bookmarkAllTabsAction: action,
+                    bookmarkManagerAction: action, exportBookmarksAction: action, openBookmarkAction: action)
+                let manager = try XCTUnwrap(menu.items.first { $0.tag == command.rawValue })
+                let expected = Shortcuts.key(for: command)?.menuKeyEquivalent
+                XCTAssertEqual(manager.keyEquivalent, expected?.characters ?? "")
+                XCTAssertEqual(manager.keyEquivalentModifierMask, expected?.modifiers ?? [])
+                XCTAssertTrue(manager.target === target)
+                XCTAssertEqual(manager.action, action)
+                let keys = Shortcuts.menuBindings(in: menu).filter { $0.commandID == command.rawValue }.map(\.key.menuKeyEquivalent)
+                XCTAssertEqual(keys, expected.map { [$0] } ?? [])
+            }
+        }
+    }
+
     func testQuitStaysFixedAcrossLegacyOverridesReloadAndRestore() throws {
         let command = CommandWrapper.IDC_EXIT
         let defaultKey = try XCTUnwrap(Shortcuts.DefaultShortcuts[command])

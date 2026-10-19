@@ -41,16 +41,18 @@
 ## Settings Presentation
 
 The search section sits above the command list and selected-command detail pane.
-List selection and both search filters belong to `ShortcutsViewModel`; recording,
+List selection, search text, and the mutually exclusive filter belong to `ShortcutsViewModel`; recording,
 description, conflict, and restore sections are separate SwiftUI views.
 List selection only navigates and keeps the native selection highlight. Recording
 starts only from the detail keycaps or the shortcut button in a list row. Conflict
-links clear both filters and select a visible command without recording. Initial
+links clear the search text and filter and select a visible command without recording. Initial
 selection and search-driven selection do not capture keys or take focus from search. Each capture session has its own responder identity so delayed
 cancellation from the previous selection cannot cancel the new recording.
 The recording section renders individual keycaps using the same display tokens
-as other shortcut surfaces. Assigned shortcuts remain visible throughout recording;
-only unassigned commands preview held modifiers and a placeholder. Modifier changes
+as other shortcut surfaces. The current combination stays visible until a modifier
+is held; while modifiers are held, both assigned and unassigned commands preview
+those modifiers and an ellipsis. Releasing them restores the current combination.
+Modifier changes
 never save or restart capture. During recording, keycaps stay flat; completing a combination
 raises them and reveals their shadows. The view owns this cancellable animation,
 respects Reduce Motion, and resets its presentation when the selected command changes.
@@ -151,11 +153,14 @@ persistence continue to use the stored identity.
 
 1. `KeyCaptureView` captures events only while it is the first responder of its
    owning key window. Leaving that context cancels recording. The separate
-   `CommandShortcutCaptureView` only handles settings search shortcuts.
+   `CommandShortcutCaptureView` observes Command-F and Escape for search focus;
+   it does not record a combination into the search field.
 2. `ShortcutsViewModel` interprets `ShortcutsKey.recordingAction(for:)`. Plain
    Escape cancels and plain Backspace disables. Modified keys are bindings;
    Escape requires Command or Control. Shift-only printable keys are rejected.
-3. Captured-key search reads the inventory without saving or executing a command.
+3. Search accepts command names, modifier names/abbreviations/symbols, and key
+   characters as text (for example, `cmd ctrl S` or `⌘⌃S`). It filters cached
+   inventory entries without changing bindings or reordering matching commands.
 4. Recording saves only the selected command through `Shortcuts.setOverride`.
    There is no conflict confirmation or automatic removal of another command's
    keys. Conflicts, including read-only owners, appear in the detail pane after
@@ -163,6 +168,16 @@ persistence continue to use the stored identity.
 5. After a successful changed configuration, `Shortcuts` refreshes the native
    intercepted-command map and Chromium menu. `shortcutsDidChange` also notifies
    open settings of loading or saving failures without publishing failed writes.
+
+While `KeyCaptureNSView` monitors events, it holds a suspension of Phi's global
+Kiosk shortcut. The registrar unregisters every Carbon alias and cancels pending
+activation actions so the chord can reach the recorder. Saving or changing input
+sources does not re-register it while recording is active. Finishing capture,
+losing focus, detaching, or destroying the capture view releases that suspension;
+the last release restores the current binding only if the global preference is
+still enabled. A stale capture view cannot release another view's suspension.
+Carbon unregister failures retain the failure status and block Kiosk actions;
+the OS may still own the chord until unregister succeeds.
 
 Unmodified keys are not recorded. A non-Latin event is stored and displayed with
 a canonical Latin character only when AppKit supplies a verified ASCII equivalent
@@ -242,6 +257,9 @@ Non-keyboard command entry points and menu item visibility are unchanged.
   scope. It stays discoverable and conflicts with app-wide bindings, without
   falsely conflicting with the browser's default Close Tab. Explicit overlapping
   custom close bindings still conflict in both directions.
+  Peek expansion currently shares the Kiosk-only inventory scope even when the
+  Peek overlay is inside a browser window. Its collisions with browser-only
+  commands are therefore not reported by the current scope model.
 - Standard macOS editing/window services and native selectors remain in the
   conflict inventory but are omitted from settings. Their bindings are never changed by recording another command.
   Quit Phi is fixed to Command-Q and has no customization entry. Its default
@@ -455,14 +473,18 @@ registration; toggling the preference off and on provides an explicit retry.
   - `Shortcuts.updateShortcut(for:)` projects both an effective override and the
     corresponding Phi default. Menu items outside `DefaultShortcuts` are left
     unchanged.
+  - The native Bookmarks builder applies effective bindings to Bookmark This
+    Tab, Bookmark All Tabs, and Manage Bookmarks whenever it repopulates the menu.
+    Customization and disablement preserve each item's native action and target.
 - Hidden-shortcut boundary:
-  - An override replaces all hidden aliases of that command, including numeric
+  - A custom binding replaces all hidden aliases of that command, including numeric
     keypad bindings. An explicit disable clears every alias; removing the override
     restores Chromium's defaults. This covers `IDC_SELECT_NEXT_TAB`,
     `IDC_SELECT_PREVIOUS_TAB`, and numbered tab selection without adding them to
-    the native Phi interceptor.
-  - Back/Forward's delayed WebContents-only aliases are suppressed while those
-    commands have an override; the configured binding is matched by the main menu.
+    the native Phi interceptor. An exclusion record removes only matching aliases.
+  - Custom or disabled Back/Forward bindings suppress all delayed WebContents-only
+    aliases; a custom binding is matched by the main menu. Exclusion records
+    suppress only the specified aliases and keep the other defaults.
   - A native Phi command that conflicts with a hidden Chromium accelerator must
     still match in the pre-dispatch interceptor unless that Chromium command's
     binding was changed or disabled. An unhandled event continues to the hidden
@@ -577,6 +599,9 @@ baseline, not a user disable stored in `CustomShortcuts.json`, and it does not
 change when the corresponding Phi action is rebound or disabled. Restoring
 defaults therefore never revives an inherited Chromium action on these keys.
 Kiosk/Peek-only keys such as Command-O keep their separate contextual behavior.
+Save Page remains available as a menu action. Phi's native File-menu hook clears
+its keyboard equivalent even if a legacy configuration contains an override;
+it has no ordinary settings row without a discovered binding or saved override.
 
 The existing override bridge still applies explicit user bindings to retained
 menu and hidden entries. User-created collisions continue through normal
@@ -594,6 +619,11 @@ Paired integration tests also select real OS input sources, restore the previous
 source, and compare fixture events with the loaded Framework's menu matcher.
 This establishes matcher agreement for those fixtures, not physical typing or
 IME composition behavior for every input source.
+
+Shift plus printable numeric-keypad keys is a known matching gap: native
+normalization drops NumericPad and projects Shift into the character, while
+Chromium retains Shift for numeric-keypad events. A recorded combination can
+therefore match a native Phi command but fail to match an ordinary menu command.
 
 Native integration tests exercise the companion dispatcher, close-menu roles,
 menu bridge replacement, overlay handlers, and window-scoped Phi actions.
@@ -622,7 +652,9 @@ Framework does not execute that C++ test suite.
 
 Global Kiosk tests resolve OS keyboard-layout data through the shared matcher,
 inject registration and cleanup failures, and verify status/activation
-lifecycle. A separate Carbon integration case reserves a temporary test chord
+lifecycle. Recording tests cover alias release, overlapping recording sessions,
+restoration of a changed binding, cancelled activation, and unregister failure.
+A separate Carbon integration case reserves a temporary test chord
 to verify real conflict, recovery, and release. The ownership UI suite also
 activates Finder, invokes a custom global chord, checks Phi/Kiosk foreground
 presentation, then disables the binding and verifies that the old chord no
@@ -642,7 +674,7 @@ input-source-switching behavior for every keyboard layout.
 ### Bookmark bar command ownership
 
 `IDC_SHOW_BOOKMARK_BAR` retains its Chromium command identity and participates in
-View shortcut settings. Phi replaces the View menu entry with its native action,
+Bookmarks shortcut settings. Phi replaces the View menu entry with its native action,
 using the command's effective binding (default Cmd-Shift-B, custom, or disabled).
 Direct browser command dispatch also uses Phi's bookmark bar visibility setting;
 Kiosk consumes the command without falling back to Chromium. The native menu's

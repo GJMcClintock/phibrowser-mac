@@ -295,6 +295,89 @@ final class KioskGlobalShortcutTests: XCTestCase {
         XCTAssertEqual(api.active.values.map(\.configuration.keyCode), [UInt32(kVK_ANSI_N)])
     }
 
+    func testRecordingReleasesAllAliasesAndRestoresTheLatestBindingOnce() throws {
+        let api = FakeHotKeys()
+        let center = NotificationCenter()
+        let sources = NotificationCenter()
+        let layout = try layout("US")
+        var key = ShortcutsKey(characters: "+", modifiers: .command)
+        var actions = 0
+        let registrar = Registrar(action: { actions += 1 }, hotKeyAPI: api.api,
+            shortcut: { key }, keyboardLayout: { layout }, isApplicationActive: { true },
+            notificationCenter: center, inputSourceNotificationCenter: sources)
+        defer { registrar.invalidate() }
+        registrar.start(enabled: true)
+        let identifiers = api.active.values.map(\.identifier)
+        XCTAssertGreaterThan(identifiers.count, 1)
+
+        let resumeFirst = registrar.suspendForShortcutRecording()
+        let resumeSecond = registrar.suspendForShortcutRecording()
+        XCTAssertTrue(api.active.isEmpty)
+        for identifier in identifiers {
+            XCTAssertEqual(try deliver(identifier, to: registrar), OSStatus(eventNotHandledErr))
+        }
+        key = .init(characters: "n", modifiers: .control)
+        center.post(name: .shortcutsDidChange, object: nil)
+        sources.post(name: Registrar.inputSourceDidChangeNotification, object: nil)
+        XCTAssertTrue(api.active.isEmpty, "Saving or changing input sources must not resume capture early")
+        resumeFirst()
+        resumeFirst()
+        XCTAssertTrue(api.active.isEmpty, "An old recorder cannot release the active recorder's suspension")
+        resumeSecond()
+        let count = api.registerCalls.count
+        resumeSecond()
+        XCTAssertEqual(api.registerCalls.count, count)
+        XCTAssertEqual(registrar.status, .registered)
+        XCTAssertEqual(api.active.values.map(\.configuration.keyCode), [UInt32(kVK_ANSI_N)])
+        XCTAssertEqual(try deliver(try XCTUnwrap(api.active.values.first?.identifier), to: registrar), noErr)
+        XCTAssertEqual(actions, 1)
+    }
+
+    func testRecordingCancelsPendingActivationAndRespectsDisablement() throws {
+        let api = FakeHotKeys()
+        let center = NotificationCenter()
+        let activationObject = NSObject()
+        let layout = try layout("US")
+        var scheduled: [() -> Void] = []
+        var actions = 0
+        let registrar = Registrar(action: { actions += 1 }, hotKeyAPI: api.api,
+            shortcut: { .init(characters: "n", modifiers: .control) }, keyboardLayout: { layout },
+            isApplicationActive: { false }, activateApplication: {}, notificationCenter: center,
+            inputSourceNotificationCenter: NotificationCenter(), activationNotificationObject: activationObject,
+            scheduleAfterActivation: { scheduled.append($0) })
+        defer { registrar.invalidate() }
+        registrar.start(enabled: true)
+        XCTAssertEqual(try deliver(try XCTUnwrap(api.active.values.first?.identifier), to: registrar), noErr)
+        center.post(name: NSApplication.didBecomeActiveNotification, object: activationObject)
+        let resume = registrar.suspendForShortcutRecording()
+        try XCTUnwrap(scheduled.first)()
+        XCTAssertEqual(actions, 0)
+        registrar.setEnabled(false)
+        resume()
+        XCTAssertTrue(api.active.isEmpty)
+        XCTAssertEqual(registrar.status, .disabled)
+    }
+
+    func testRecordingUnregisterFailureBlocksActionsAndCanRecoverOnRelease() throws {
+        let api = FakeHotKeys()
+        let layout = try layout("US")
+        let registrar = Registrar(action: { XCTFail("A recording must not open Kiosk") }, hotKeyAPI: api.api,
+            shortcut: { .init(characters: "n", modifiers: .control) }, keyboardLayout: { layout },
+            isApplicationActive: { true }, notificationCenter: NotificationCenter(),
+            inputSourceNotificationCenter: NotificationCenter())
+        defer { registrar.invalidate() }
+        registrar.start(enabled: true)
+        let oldID = try XCTUnwrap(api.active.values.first?.identifier)
+        api.unregisterResult = FakeHotKeys.failure
+        let resume = registrar.suspendForShortcutRecording()
+        XCTAssertEqual(registrar.status, .failed(FakeHotKeys.failure))
+        XCTAssertEqual(try deliver(oldID, to: registrar), OSStatus(eventNotHandledErr))
+        api.unregisterResult = noErr
+        resume()
+        XCTAssertEqual(registrar.status, .registered)
+        XCTAssertNotEqual(api.active.values.first?.identifier.id, oldID.id)
+    }
+
     func testSettingsReportsEveryEnabledStateWithoutClaimingSuccessFromPreferenceAlone() {
         XCTAssertNil(NavigationsSettingsView.globalShortcutStatusDescription(.disabled))
         let descriptions = [Registrar.Status.registered, .unassigned, .unsupported, .failed(FakeHotKeys.failure)]

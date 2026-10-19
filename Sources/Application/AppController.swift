@@ -1064,6 +1064,10 @@ import PostHog
         kioskGlobalShortcutRegistrar.status
     }
 
+    func suspendKioskGlobalShortcutForRecording() -> () -> Void {
+        kioskGlobalShortcutRegistrar.suspendForShortcutRecording()
+    }
+
     @MainActor
     var shouldSuppressPostLoginRegularWindowForPendingKioskOpen: Bool {
         pendingHotKioskPresentationInFlight

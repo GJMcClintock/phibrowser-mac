@@ -115,6 +115,7 @@ final class KioskGlobalShortcutRegistrar {
     private var nextHotKeyID: UInt32 = 0
     private var activationGeneration: UInt64 = 0
     private var isEnabled = false
+    private var recordingSessions: Set<UUID> = []
     private(set) var status: Status = .disabled {
         didSet {
             if oldValue != status { notificationCenter.post(name: Self.statusDidChangeNotification, object: self) }
@@ -176,6 +177,20 @@ final class KioskGlobalShortcutRegistrar {
         refresh()
     }
 
+    /// Release Carbon ownership so the recorder receives the actual key event.
+    /// Each recorder releases only its own suspension, including during replacement.
+    func suspendForShortcutRecording() -> () -> Void {
+        assert(Thread.isMainThread)
+        let session = UUID()
+        recordingSessions.insert(session)
+        refresh()
+        return { [weak self] in
+            assert(Thread.isMainThread)
+            guard let self, self.recordingSessions.remove(session) != nil else { return }
+            self.refresh()
+        }
+    }
+
     func invalidate() {
         assert(Thread.isMainThread)
         if let shortcutsObserver {
@@ -187,6 +202,7 @@ final class KioskGlobalShortcutRegistrar {
             self.inputSourceObserver = nil
         }
         isEnabled = false
+        recordingSessions.removeAll()
         cancelPendingActivation()
         if unregisterCurrentShortcut() { status = .disabled }
         if let eventHandler {
@@ -275,6 +291,11 @@ final class KioskGlobalShortcutRegistrar {
 
     private func refresh() {
         assert(Thread.isMainThread)
+        guard recordingSessions.isEmpty else {
+            cancelPendingActivation()
+            if unregisterCurrentShortcut() { status = .disabled }
+            return
+        }
         let shortcut = shortcut()
         let configurations = Self.configurations(for: shortcut, isEnabled: isEnabled,
                                                 layout: isEnabled ? keyboardLayout() : nil)
@@ -331,7 +352,7 @@ final class KioskGlobalShortcutRegistrar {
             nil,
             &identifier
         )
-        guard status == noErr, isEnabled, self.status == .registered,
+        guard status == noErr, isEnabled, recordingSessions.isEmpty, self.status == .registered,
               identifier.signature == Self.hotKeySignature,
               registrations.contains(where: { $0.identifier.id == identifier.id }) else {
             return OSStatus(eventNotHandledErr)
