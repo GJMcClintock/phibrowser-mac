@@ -558,6 +558,30 @@ final class ScreenshotEditorTests: XCTestCase {
         XCTAssertEqual(view.textEntry?.string, "Existing text")
         view.cancelText()
     }
+    func testFitUpdatesHostedCanvasWithoutResizingOrEditingDocument() throws {
+        let editor = ScreenshotEditorWindowController(canvas: image(width: 1000, height: 800), fileName: "Fixture.png")
+        let window = try XCTUnwrap(editor.window as? ScreenshotEditorWindow)
+        defer { window.close() }
+        editor.showWindow(nil)
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.1))
+        let canvas = try XCTUnwrap(window.canvasResponder)
+        let viewport = try XCTUnwrap(canvas.enclosingScrollView).contentView.bounds.size
+        let expected = min(1, min(viewport.width / 1000, viewport.height / 800) * 0.998)
+        let frame = window.frame, generation = editor.model.generation
+        editor.model.zoomBy(2)
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.1))
+        XCTAssertGreaterThan(editor.model.zoom, expected + 0.1)
+
+        editor.model.fit()
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.1))
+        XCTAssertEqual(editor.model.zoom, expected, accuracy: 0.002)
+        XCTAssertEqual(canvas.zoom, expected, accuracy: 0.002)
+        XCTAssertEqual(window.frame, frame)
+        XCTAssertEqual(editor.model.generation, generation)
+        XCTAssertFalse(editor.model.canUndo)
+        XCTAssertFalse(window.isDocumentEdited)
+    }
+
     func testSaveSelectionCancellationDoesNotWriteOrMarkEditsSaved() {
         let editor = ScreenshotEditorWindowController(canvas: image(), fileName: "Fixture.jpg")
         defer { editor.window?.close() }

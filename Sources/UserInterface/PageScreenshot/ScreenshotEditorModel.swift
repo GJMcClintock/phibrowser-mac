@@ -408,7 +408,11 @@ final class ScreenshotEditorModel {
     func redo() { prepareForCommand?(); cancelInteraction(); cropRect = nil; tool = .select; undoManager.redo(); changed() }
     func setZoomExact(_ value: Double) { if value.isFinite { zoom = max(0.02, min(32, value)) } }
     func zoomBy(_ factor: Double) { prepareForCommand?(); cancelInteraction(); hasUserZoomed = true; setZoomExact(zoom * factor) }
-    func fit() { prepareForCommand?(); cancelInteraction(); hasUserZoomed = false }
+    func fit() {
+        prepareForCommand?(); cancelInteraction(); hasUserZoomed = false
+        // Refresh the hosted viewport even when no document or zoom value changed yet.
+        changed()
+    }
     func snapshot() -> ScreenshotSnapshot {
         prepareForCommand?(); cancelInteraction()
         return ScreenshotSnapshot(source: source, annotations: annotations)

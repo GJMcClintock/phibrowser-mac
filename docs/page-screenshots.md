@@ -187,9 +187,14 @@ not mark edits saved. After confirmation, the editor snapshots the ordered
 objects and source image; ImageIO PNG/JPEG encoding or CoreGraphics single-page PDF
 writing happens off the main actor. Atomic writes use the current image dimensions, including confirmed crops.
 PNG encoding is lossless; JPG quality is 0.9; PDF uses one point per source pixel, with the background
-image and vector/text annotations. Documents containing Blur regions are flattened
-into a single raster image in PDF so the original pixels and hidden text are not
-embedded beneath removable overlays. Transparent pixels use a white backdrop.
+image and vector/text annotations. Documents containing Blur regions or annotations
+extending beyond the image bounds are flattened into a single raster image in PDF.
+This prevents recovery of obscured pixels or cropped annotation content through
+overlay removal or page-boundary expansion, while keeping the editor's objects
+editable. Transparent pixels use a white backdrop.
+Text containment includes the actual CoreText glyph bounds, since large glyphs can
+extend beyond a narrow text frame. Measurement and drawing share the same layout;
+unknown glyph bounds also require flattening.
 Preview magnification and screen backing scale do not affect any export.
 The unedited Save toast writes the captured PNG bytes unchanged.
 

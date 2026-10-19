@@ -55,8 +55,19 @@ enum ScreenshotImageExport {
             guard let consumer = CGDataConsumer(data: data), let context = CGContext(consumer: consumer, mediaBox: &box, nil) else { throw ExportError.encodingFailed }
             context.beginPDFPage(nil)
             context.setFillColor(CGColor(gray: 1, alpha: 1)); context.fill(box)
-            if snapshot.annotations.contains(where: { $0.kind == .mosaic }) {
-                // Never embed the unobscured source or hidden text beneath a removable PDF overlay.
+            let needsFlattening = snapshot.annotations.contains { annotation in
+                if annotation.kind == .mosaic { return true }
+                if annotation.kind == .text {
+                    return !box.contains(ScreenshotSceneRenderer.textDrawingBounds(for: annotation))
+                }
+                // Include stroke and arrowhead extents when checking for clipped artwork.
+                let padding = annotation.style.width / 2
+                    + (annotation.kind == .arrow ? annotation.style.arrowHeadLength : 0)
+                return !box.contains(annotation.bounds.insetBy(dx: -padding, dy: -padding))
+            }
+            if needsFlattening {
+                // Page bounds and clipping paths do not remove recoverable PDF content.
+                // Flatten obscured or clipped objects without changing the editable document.
                 context.draw(try composite(snapshot), in: box)
             } else {
                 context.draw(snapshot.source, in: box)
