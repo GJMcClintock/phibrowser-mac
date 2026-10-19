@@ -20,7 +20,7 @@ struct ShortcutRecordingSection: View {
     }
 
     private var tokens: [String] {
-        if !item.shortcutKeycapTokens.isEmpty {
+        if recordingModifiers.isEmpty && !item.shortcutKeycapTokens.isEmpty {
             return item.shortcutKeycapTokens
         }
         if isRecording {
@@ -65,7 +65,7 @@ struct ShortcutRecordingSection: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel(isRecording ? recordingPrompt : item.shortcutDisplay)
-            .accessibilityValue(isRecording ? (item.shortcutKey == nil ? tokens.dropLast().joined() : item.shortcutDisplay) : "")
+            .accessibilityValue(isRecording ? tokens.joined() : "")
             .accessibilityIdentifier("shortcuts.record.\(item.command.rawValue)")
 
             Text(isRecording
