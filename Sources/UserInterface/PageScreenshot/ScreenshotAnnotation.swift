@@ -216,6 +216,42 @@ enum ScreenshotSceneRenderer {
             CGSize(width: max(4, annotation.frame.width - 8), height: .greatestFiniteMagnitude), nil)
         return ceil(size.height) + 8
     }
+    private static func textFrame(for annotation: ScreenshotAnnotation) -> CTFrame? {
+        let rect = annotation.frame.insetBy(dx: 4, dy: 4)
+        guard rect.width > 0, rect.height > 0 else { return nil }
+        let attributed = NSAttributedString(string: annotation.text, attributes: [
+            NSAttributedString.Key(kCTFontAttributeName as String): CTFontCreateWithName(".AppleSystemUIFont" as CFString, annotation.style.fontSize, nil),
+            NSAttributedString.Key(kCTForegroundColorAttributeName as String): annotation.style.color.cgColor,
+        ])
+        let path = CGPath(rect: CGRect(origin: .zero, size: rect.size), transform: nil)
+        return CTFramesetterCreateFrame(CTFramesetterCreateWithAttributedString(attributed),
+                                       CFRange(location: 0, length: 0), path, nil)
+    }
+
+    /// A CoreText frame lays out lines but does not clip oversized glyphs to its path.
+    static func textDrawingBounds(for annotation: ScreenshotAnnotation) -> CGRect {
+        guard let frame = textFrame(for: annotation) else { return annotation.frame }
+        let lines = CTFrameGetLines(frame) as! [CTLine]
+        guard !lines.isEmpty else { return annotation.frame }
+        var origins = [CGPoint](repeating: .zero, count: lines.count)
+        CTFrameGetLineOrigins(frame, CFRange(location: 0, length: 0), &origins)
+        let rect = annotation.frame.insetBy(dx: 4, dy: 4)
+        var bounds = annotation.frame
+        for (line, origin) in zip(lines, origins) {
+            let glyphs = CTLineGetImageBounds(line, nil)
+            // An unknown extent must not allow potentially clipped text into a vector PDF.
+            guard !glyphs.isNull,
+                  [glyphs.minX, glyphs.minY, glyphs.maxX, glyphs.maxY, origin.x, origin.y].allSatisfy(\.isFinite) else { return .infinite }
+            guard !glyphs.isEmpty else { continue }
+            let drawn = CGRect(x: rect.minX + origin.x + glyphs.minX,
+                               y: rect.maxY - origin.y - glyphs.maxY,
+                               width: glyphs.width, height: glyphs.height)
+            // Reserve one source pixel for antialiasing beyond the ideal glyph bounds.
+            bounds = bounds.union(drawn.insetBy(dx: -1, dy: -1))
+        }
+        return bounds
+    }
+
     /// Generate only the coarse pixels, keeping interactive previews small even for large areas.
     /// White compositing makes the mosaic opaque over transparent sources and earlier annotations.
     static func mosaicImage(source: CGImage, rect: CGRect) -> CGImage? {
@@ -252,17 +288,11 @@ enum ScreenshotSceneRenderer {
         context.setLineCap(.round); context.setLineJoin(.round)
         if annotation.kind == .text {
             let rect = annotation.frame.insetBy(dx: 4, dy: 4)
-            guard rect.width > 0, rect.height > 0 else { return }
-            let attributed = NSAttributedString(string: annotation.text, attributes: [
-                NSAttributedString.Key(kCTFontAttributeName as String): CTFontCreateWithName(".AppleSystemUIFont" as CFString, annotation.style.fontSize, nil),
-                NSAttributedString.Key(kCTForegroundColorAttributeName as String): annotation.style.color.cgColor,
-            ])
-            let setter = CTFramesetterCreateWithAttributedString(attributed)
+            guard let frame = textFrame(for: annotation) else { return }
             context.translateBy(x: rect.minX, y: rect.maxY)
             context.scaleBy(x: 1, y: -1)
             context.textMatrix = .identity
-            let path = CGPath(rect: CGRect(origin: .zero, size: rect.size), transform: nil)
-            CTFrameDraw(CTFramesetterCreateFrame(setter, CFRange(location: 0, length: 0), path, nil), context)
+            CTFrameDraw(frame, context)
         } else {
             context.addPath(annotation.path)
             context.drawPath(using: annotation.style.filled && [.rectangle, .ellipse].contains(annotation.kind) ? .fillStroke : .stroke)

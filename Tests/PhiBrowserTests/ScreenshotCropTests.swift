@@ -1,4 +1,5 @@
 import AppKit
+import PDFKit
 import XCTest
 @testable import Phi
 
@@ -122,6 +123,76 @@ final class ScreenshotCropTests: XCTestCase {
         XCTAssertGreaterThan(pixel(rendered, x: 20, y: 320).b, 230)
         XCTAssertGreaterThan(pixel(rendered, x: 230, y: 130).g, 180)
     }
+    func testPDFCropCannotRecoverTextOutsidePageByExpandingPageBounds() throws {
+        let m = model()
+        m.commitText("VISIBLE\nSECRET-OUTSIDE-CROP", frame: CGRect(x: 10, y: 10, width: 600, height: 80))
+        let original = m.annotations
+        let uncropped = try XCTUnwrap(PDFDocument(data: ScreenshotImageExport.encode(m.snapshot(), format: .pdf)))
+        XCTAssertTrue(uncropped.string?.contains("SECRET-OUTSIDE-CROP") == true,
+                      "Fully visible text should retain the existing vector export")
+
+        selectCrop(m, .zero, CGPoint(x: 700, y: 40)); m.cropToSelection()
+        XCTAssertEqual(m.annotations, original, "Cropping must preserve the editable text object")
+        let pdf = try XCTUnwrap(PDFDocument(data: ScreenshotImageExport.encode(m.snapshot(), format: .pdf)))
+        let page = try XCTUnwrap(pdf.page(at: 0))
+        XCTAssertEqual(page.bounds(for: .mediaBox), CGRect(x: 0, y: 0, width: 700, height: 40))
+        let expanded = CGRect(x: 0, y: -100, width: 700, height: 200)
+        page.setBounds(expanded, for: .mediaBox)
+        page.setBounds(expanded, for: .cropBox)
+        let reopened = try XCTUnwrap(PDFDocument(data: XCTUnwrap(pdf.dataRepresentation())))
+        XCTAssertFalse(reopened.string?.contains("SECRET-OUTSIDE-CROP") == true,
+                       "Cropped text must be absent from the PDF, not merely outside its page bounds")
+        m.undo()
+        XCTAssertEqual(m.annotations, original)
+        XCTAssertEqual(m.width, 1000)
+    }
+
+    func testPDFCropCannotRecoverGlyphsOverflowingANarrowTextFrame() throws {
+        let background = try XCTUnwrap(ScreenshotSceneRenderer.bitmapContext(width: 1000, height: 800))
+        background.setFillColor(CGColor(gray: 1, alpha: 1))
+        background.fill(CGRect(x: 0, y: 0, width: 1000, height: 800))
+        let source = try XCTUnwrap(background.makeImage())
+        for width: CGFloat in [12, 20, 40] {
+            let m = ScreenshotEditorModel(canvas: source)
+            m.textSize = 80
+            m.commitText("SECRET", frame: CGRect(x: 100, y: 100, width: 500, height: 100))
+            let initial = try XCTUnwrap(m.selected)
+            m.beginInteraction(at: CGPoint(x: initial.frame.maxX, y: initial.frame.midY), tolerance: 2)
+            m.continueInteraction(at: CGPoint(x: 100 + width, y: initial.frame.midY)); m.endInteraction()
+            selectCrop(m, CGPoint(x: 100, y: 0), CGPoint(x: 100 + width, y: 800)); m.cropToSelection()
+            let frame = try XCTUnwrap(m.annotations.first).frame
+            XCTAssertTrue(CGRect(x: 0, y: 0, width: m.width, height: m.height).contains(frame))
+
+            let pdf = try XCTUnwrap(PDFDocument(data: ScreenshotImageExport.encode(m.snapshot(), format: .pdf)))
+            let page = try XCTUnwrap(pdf.page(at: 0))
+            let expanded = CGRect(x: 0, y: 0, width: 200, height: 800)
+            page.setBounds(expanded, for: .mediaBox); page.setBounds(expanded, for: .cropBox)
+            let data = try XCTUnwrap(pdf.dataRepresentation())
+            let reopened = try XCTUnwrap(PDFDocument(data: data))
+            XCTAssertFalse(reopened.string?.replacingOccurrences(of: "\n", with: "").contains("SECRET") == true)
+            let document = try XCTUnwrap(CGPDFDocument(try XCTUnwrap(CGDataProvider(data: data as CFData))))
+            let context = try XCTUnwrap(ScreenshotSceneRenderer.bitmapContext(width: 200, height: 800))
+            context.setFillColor(CGColor(gray: 1, alpha: 1)); context.fill(expanded)
+            context.drawPDFPage(try XCTUnwrap(document.page(at: 1)))
+            let bytes = try XCTUnwrap(context.data).assumingMemoryBound(to: UInt8.self)
+            var visiblePixels = 0, recoveredPixels = 0
+            for y in 0..<800 {
+                for x in 0..<200 {
+                    let offset = y * context.bytesPerRow + x * 4
+                    if bytes[offset] > 120 && bytes[offset + 1] < 160 && bytes[offset + 2] < 160 {
+                        if x < Int(width) { visiblePixels += 1 } else { recoveredPixels += 1 }
+                    }
+                }
+            }
+            XCTAssertGreaterThan(visiblePixels, 0, "Export must retain the visible portions of the glyphs")
+            XCTAssertEqual(recoveredPixels, 0, "Expanding the PDF must not recover clipped glyphs at width \(width)")
+            m.undo()
+            let uncropped = try XCTUnwrap(PDFDocument(data: ScreenshotImageExport.encode(m.snapshot(), format: .pdf)))
+            XCTAssertTrue(uncropped.string?.replacingOccurrences(of: "\n", with: "").contains("SECRET") == true,
+                          "Glyphs fully inside the restored canvas should retain vector export")
+        }
+    }
+
     private func fixture(zoom: Double = 1) -> (ScreenshotEditorModel, ScreenshotCanvasView, NSScrollView, NSWindow) {
         let m = model(), canvas = ScreenshotCanvasView(), scroll = NSScrollView(frame: CGRect(x: 0, y: 0, width: 320, height: 240))
         m.setZoomExact(zoom); canvas.zoom = zoom; canvas.model = m
