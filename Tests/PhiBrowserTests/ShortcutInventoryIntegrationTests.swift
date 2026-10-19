@@ -98,14 +98,19 @@ final class ShortcutInventoryIntegrationTests: XCTestCase {
         XCTAssertTrue(model.inventory.bindings(for: CommandWrapper.IDC_WINDOW_MUTE_SITE.rawValue).isEmpty)
     }
 
-    func testOpenFileAndQuitAreDiscoverableAndExplainConflicts() throws {
+    func testOpenFileIsEditableAndFixedQuitStillExplainsConflicts() throws {
         install([.IDC_DUPLICATE_TAB: .custom(try XCTUnwrap(Shortcuts.DefaultShortcuts[.IDC_EXIT]))])
         let model = ShortcutsViewModel(additionalBindings: { [] })
         XCTAssertEqual(try item(.IDC_OPEN_FILE, in: model).shortcutKey,
                        ShortcutsKey(characters: "o", modifiers: .command))
-        let quit = try item(.IDC_EXIT, in: model)
-        XCTAssertEqual(quit.shortcutKey, ShortcutsKey(characters: "q", modifiers: .command))
-        XCTAssertTrue(try item(.IDC_DUPLICATE_TAB, in: model).conflictingCommandNames.contains(quit.name))
+        XCTAssertFalse(model.sections.flatMap(\.items).contains { $0.command == .IDC_EXIT })
+        XCTAssertFalse(model.reservedShortcuts.contains { $0.id == .command(CommandWrapper.IDC_EXIT.rawValue) })
+        let quit = try XCTUnwrap(model.conflicts(for: .IDC_DUPLICATE_TAB).first {
+            $0.id == .command(CommandWrapper.IDC_EXIT.rawValue)
+        })
+        XCTAssertNil(quit.command)
+        XCTAssertEqual(quit.keys, ["⌘Q"])
+        XCTAssertFalse(quit.name.isEmpty)
     }
 
     func testSystemServicesAreHiddenButStillReportConflictingAssignments() throws {
@@ -195,6 +200,7 @@ final class ShortcutInventoryIntegrationTests: XCTestCase {
     }
 
     func testUnavailableServicesDoNotConflictButOtherServiceStatesStillDo() throws {
+        install([.IDC_TAB_SEARCH: .custom(.init(characters: "m", modifiers: [.command, .shift]))])
         let menu = NSMenu()
         let services = NSMenu(title: "Services")
         services.autoenablesItems = false
@@ -207,8 +213,8 @@ final class ShortcutInventoryIntegrationTests: XCTestCase {
         nested.autoenablesItems = false
         group.submenu = nested
         services.addItem(group)
-        let service = NSMenuItem(title: "Search man Page Index in Terminal",
-                                 action: NSSelectorFromString("_processRequest:"), keyEquivalent: "A")
+        let service = NSMenuItem(title: "Open man Page in Terminal",
+                                 action: NSSelectorFromString("_processRequest:"), keyEquivalent: "M")
         service.keyEquivalentModifierMask = .command
         service.allowsKeyEquivalentWhenHidden = true
         nested.addItem(service)
@@ -227,7 +233,7 @@ final class ShortcutInventoryIntegrationTests: XCTestCase {
                     XCTAssertFalse(try item(.IDC_TAB_SEARCH, in: model).hasConflict)
                 } else {
                     XCTAssertEqual(conflicts.map(\.name), [service.title])
-                    XCTAssertEqual(conflicts.first?.keys, ["⇧⌘A"])
+                    XCTAssertEqual(conflicts.first?.keys, ["⇧⌘M"])
                 }
             }
         }
@@ -236,6 +242,50 @@ final class ShortcutInventoryIntegrationTests: XCTestCase {
         service.isHidden = true
         service.isEnabled = false
         XCTAssertEqual(Shortcuts.menuBindings(in: menu, servicesMenu: nil).count, 1)
+    }
+
+    func testReplacedServicesSnapshotDoesNotReserveKeysOrHideChromiumConflicts() throws {
+        let registeredServices = NSMenu(title: "Registered Services")
+        let services = NSMenu(title: "Localized Services")
+        services.autoenablesItems = false
+        let service = NSMenuItem(title: "Search man Page Index in Terminal",
+                                 action: NSSelectorFromString("_processRequest:"), keyEquivalent: "A")
+        service.keyEquivalentModifierMask = .command
+        service.isHidden = false
+        service.isEnabled = true
+        services.addItem(service)
+        services.addItem(NSMenuItem(title: "Localized Settings",
+                                    action: NSSelectorFromString("_configureServicesMenu:"), keyEquivalent: ""))
+        let mainMenu = NSMenu()
+        let parent = NSMenuItem()
+        parent.submenu = services
+        mainMenu.addItem(parent)
+        var currentServices = services
+        let model = ShortcutsViewModel(additionalBindings: {
+            Shortcuts.menuBindings(in: mainMenu, servicesMenu: currentServices)
+        })
+        XCTAssertTrue(service.keyEquivalent.isEmpty)
+        XCTAssertTrue((service.copy() as? NSMenuItem)?.keyEquivalent.isEmpty == true)
+        XCTAssertTrue(model.conflicts(for: .IDC_TAB_SEARCH).isEmpty)
+
+        // Reproduce the live mismatch after a menu rebuild: the visible tree
+        // retains enabled service entries, but AppKit owns a different menu.
+        currentServices = registeredServices
+        model.rebuildSections()
+        XCTAssertTrue(model.conflicts(for: .IDC_TAB_SEARCH).isEmpty)
+        XCTAssertFalse(try item(.IDC_TAB_SEARCH, in: model).hasConflict)
+
+        // A hidden Chromium menu command outside Services still reserves its key.
+        let browserItem = NSMenuItem(title: "Find", action: NSSelectorFromString("commandDispatch:"),
+                                     keyEquivalent: "A")
+        browserItem.tag = CommandWrapper.IDC_FIND.rawValue
+        browserItem.keyEquivalentModifierMask = .command
+        browserItem.isHidden = true
+        browserItem.isEnabled = false
+        mainMenu.addItem(browserItem)
+        model.rebuildSections()
+        XCTAssertEqual(model.conflicts(for: .IDC_TAB_SEARCH).map(\.command), [.IDC_FIND])
+        XCTAssertTrue(model.conflicts(for: .IDC_FIND).contains { $0.command == .IDC_TAB_SEARCH })
     }
 
     func testMenuSnapshotIncludesHiddenKeysUsedByChromiumMatching() throws {

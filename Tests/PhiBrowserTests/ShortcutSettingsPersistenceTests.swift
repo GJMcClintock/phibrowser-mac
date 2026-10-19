@@ -54,6 +54,52 @@ final class ShortcutSettingsPersistenceTests: XCTestCase {
         try XCTUnwrap(model.sections.flatMap(\.items).first { $0.command == command })
     }
 
+    func testQuitStaysFixedAcrossLegacyOverridesReloadAndRestore() throws {
+        let command = CommandWrapper.IDC_EXIT
+        let defaultKey = try XCTUnwrap(Shortcuts.DefaultShortcuts[command])
+        let bridge = try XCTUnwrap(ChromiumLauncher.sharedInstance().bridge)
+
+        func assertFixedQuit() throws {
+            bridge.requestRebuildMainMenu()
+            let menu = try XCTUnwrap(NSApp.mainMenu)
+            let appMenu = try XCTUnwrap(menu.items.first?.submenu)
+            let quit = try XCTUnwrap(appMenu.items.first { $0.tag == command.rawValue })
+            XCTAssertEqual(quit.action, NSSelectorFromString("terminate:"))
+            XCTAssertTrue(quit.target === NSApp)
+            XCTAssertEqual(quit.keyEquivalent, "q")
+            XCTAssertEqual(quit.keyEquivalentModifierMask, .command)
+            XCTAssertEqual(Shortcuts.key(for: command), defaultKey)
+            XCTAssertNil(Shortcuts.overrideState(for: command.rawValue))
+            XCTAssertFalse(Shortcuts.isOverridden(command))
+            let override = try XCTUnwrap(PhiChromiumCoordinator.shared.keyEquivalentOverride(
+                forCommand: Int32(command.rawValue)))
+            XCTAssertEqual(override["keyEquivalent"] as? String, "q")
+            XCTAssertEqual(override["modifierFlags"] as? UInt, NSEvent.ModifierFlags.command.rawValue)
+            let model = ShortcutsViewModel()
+            XCTAssertFalse(model.sections.flatMap(\.items).contains { $0.command == command })
+            XCTAssertEqual(Set(model.inventory.bindings(for: command.rawValue).map(\.key)), [defaultKey])
+        }
+
+        try assertFixedQuit()
+        let model = ShortcutsViewModel()
+        model.setCustomShortcut(for: command, key: customKey)
+        model.disableShortcut(for: command)
+        XCTAssertEqual(writeCount, 0)
+        XCTAssertTrue(Shortcuts.configuration.overrides.isEmpty)
+        try assertFixedQuit()
+
+        for legacy in [ShortcutOverride.custom(customKey), .disabled, .excluding([defaultKey])] {
+            // Simulate configurations saved before Quit became fixed.
+            let url = try XCTUnwrap(Shortcuts.configuration.fileURL)
+            try Shortcuts.configuration.set(legacy, for: command.rawValue, at: url)
+            try Shortcuts.reloadOverrides().get()
+            XCTAssertEqual(Shortcuts.configuration.overrides[command.rawValue], legacy)
+            try assertFixedQuit()
+        }
+        try Shortcuts.restoreOverrides().get()
+        try assertFixedQuit()
+    }
+
     func testBookmarkBarCommandKeepsNativeActionAcrossShortcutChanges() throws {
         let bridge = try XCTUnwrap(ChromiumLauncher.sharedInstance().bridge)
         let layoutKey = PhiPreferences.GeneralSettings.layoutModeKey

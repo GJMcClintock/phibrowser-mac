@@ -323,6 +323,7 @@ extension AppController {
             AppLogWarn("⚠️ NSApp is nil — startObservingMainMenu() called too early.")
             return
         }
+        startObservingServiceShortcuts()
         menuObservation = app.observe(\.mainMenu, options: [.new, .old]) { [weak self] app, change in
             AppLogDebug("Main menu changed: \(change)")
             self?.hookAndRebuildMainMenu()
@@ -343,6 +344,50 @@ extension AppController {
                 self.refreshPrefGatedMenuItems()
             }
         }
+    }
+
+    /// Reserve Tab Search's default chord within Phi, without changing the
+    /// user's Services preferences or removing the service's menu action.
+    func startObservingServiceShortcuts() {
+        let center = NotificationCenter.default
+        for name in [NSMenu.didAddItemNotification, NSMenu.didChangeItemNotification,
+                     NSMenu.didBeginTrackingNotification] {
+            center.removeObserver(self, name: name, object: nil)
+            center.addObserver(self, selector: #selector(serviceMenuItemsDidChange(_:)),
+                               name: name, object: nil)
+        }
+        if let menu = NSApp.mainMenu { Self.suppressReservedServiceShortcut(in: menu) }
+        if let menu = NSApp.servicesMenu { Self.suppressReservedServiceShortcut(in: menu) }
+    }
+
+    @objc private func serviceMenuItemsDidChange(_ notification: Notification) {
+        guard let menu = notification.object as? NSMenu else { return }
+        if let index = notification.userInfo?["NSMenuItemIndex"] as? Int,
+           menu.items.indices.contains(index) {
+            Self.suppressReservedServiceShortcut(on: menu.items[index])
+        } else {
+            Self.suppressReservedServiceShortcut(in: menu)
+        }
+    }
+
+    static func suppressReservedServiceShortcut(in menu: NSMenu) {
+        menu.items.forEach { suppressReservedServiceShortcut(on: $0) }
+    }
+
+    private static func suppressReservedServiceShortcut(on item: NSMenuItem) {
+        if let submenu = item.submenu { suppressReservedServiceShortcut(in: submenu) }
+        // AppKit dispatches Services through this selector, including items in
+        // replacement menus that no longer equal NSApp.servicesMenu.
+        guard item.action == NSSelectorFromString("_processRequest:") else { return }
+        let declared = item.keyEquivalent.isEmpty ? (item.copy() as? NSMenuItem ?? item) : item
+        let key = ShortcutsKey(characters: declared.keyEquivalent,
+                               modifiers: declared.keyEquivalentModifierMask)
+        let reserved = ShortcutsKey(characters: "a", modifiers: [.command, .shift])
+        guard key.menuKeyEquivalent == reserved.menuKeyEquivalent else { return }
+        // Explicitly clear the declared key too, so detached inventory copies
+        // cannot restore it. Reentrant change notifications see an empty key.
+        item.keyEquivalent = ""
+        item.keyEquivalentModifierMask = []
     }
     
     /// Schedules the main-menu hook so pref-gated items appear or disappear
@@ -369,6 +414,7 @@ extension AppController {
         guard let mainMenu = NSApp.mainMenu else {
             return
         }
+        Self.suppressReservedServiceShortcut(in: mainMenu)
 
         var hasBookmarksMenu = false
         for menuItem in mainMenu.items {

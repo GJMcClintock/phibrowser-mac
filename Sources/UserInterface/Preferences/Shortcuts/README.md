@@ -244,13 +244,22 @@ Non-keyboard command entry points and menu item visibility are unchanged.
   custom close bindings still conflict in both directions.
 - Standard macOS editing/window services and native selectors remain in the
   conflict inventory but are omitted from settings. Their bindings are never changed by recording another command.
+  Quit Phi is fixed to Command-Q and has no customization entry. Its default
+  remains in conflict detection; saved custom, disabled, or excluded Quit
+  bindings are ignored by native lookup and menu overrides. New Quit override
+  requests are ignored without writing preferences.
   AppKit can expose an empty `keyEquivalent` for a live menu item whose key is
   also assigned elsewhere. For empty keys, inventory collection checks a
   detached copy of the item to recover its declared binding and report the
   conflict. Explicitly cleared bindings remain empty in the copy and stay excluded.
   Entries under `NSApp.servicesMenu` that are both hidden and disabled are excluded
-  from the snapshot. This does not exclude hidden Chromium menu items or Framework
-  hidden accelerators; visible or enabled Services still participate in conflicts.
+  from the snapshot. Independently, `AppController` reserves Command-Shift-A for
+  browser use by clearing that key from AppKit Services (`_processRequest:`).
+  It handles menu insertion, item changes, menu tracking and main-menu replacement,
+  including detached Services copies. Service actions remain available by menu;
+  other service keys and the user's system-wide Services preferences are unchanged.
+  Chromium menu bindings and hidden accelerators are not suppressed. This policy
+  stays in effect when Tab Search is customized or disabled.
 - Force Reload and Move Tab Left/Right are editable in their normal groups.
   Other recognized browser commands are discovered from the runtime inventory
   and saved overrides, including disabled overrides. Their default labels come

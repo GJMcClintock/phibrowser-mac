@@ -11,6 +11,9 @@ extension Notification.Name {
 }
 
 extension Shortcuts {
+    /// These commands always use product defaults, including with legacy overrides.
+    static let fixedShortcutCommands: Set<CommandWrapper> = [.IDC_EXIT]
+
     /// Product policy: add commands here to release all their keyboard bindings.
     /// This takes precedence over defaults and saved overrides. It does not
     /// disable the key combinations themselves or non-keyboard command entry points.
@@ -81,7 +84,7 @@ extension Shortcuts {
         var commands: [CommandWrapper] {
             switch self {
             case .app:
-                return [.IDC_OPTIONS, .IDC_EXIT]
+                return [.IDC_OPTIONS]
             case .file:
                 var commands: [CommandWrapper] = [.IDC_NEW_TAB,
                         .IDC_NEW_WINDOW,
@@ -193,10 +196,16 @@ extension Shortcuts {
     }
     
     static func overrideState(for commandId: Int) -> ShortcutOverride? {
-        configuration.overrides[commandId]
+        if let command = CommandWrapper(rawValue: commandId), fixedShortcutCommands.contains(command) {
+            return nil
+        }
+        return configuration.overrides[commandId]
     }
 
     static func chromiumOverrideState(for commandID: Int) -> ShortcutOverride? {
+        if let command = CommandWrapper(rawValue: commandID), fixedShortcutCommands.contains(command) {
+            return DefaultShortcuts[command].map(ShortcutOverride.custom)
+        }
         if isShortcutDisabled(for: commandID) {
             return .disabled
         }
@@ -209,6 +218,7 @@ extension Shortcuts {
         _ state: ShortcutOverride?, for command: CommandWrapper,
         updating conflicts: [Int: ShortcutOverride] = [:]
     ) -> Result<Void, Error> {
+        guard !fixedShortcutCommands.contains(command) else { return .success(()) }
         var override = state
         if case .custom(let key) = state, key == DefaultShortcuts[command] {
             override = nil
@@ -264,6 +274,7 @@ extension Shortcuts {
 
     static func bindingInventory(additionalBindings: [ShortcutBinding]) -> ShortcutInventory {
         let commands = Set(configurableCommands)
+            .union(fixedShortcutCommands)
             .union(configuration.overrides.keys.compactMap(CommandWrapper.init(rawValue:)))
         let configured = commands.compactMap { command -> ShortcutBinding? in
             guard let key = key(for: command) else { return nil }
@@ -432,7 +443,7 @@ extension CommandWrapper {
     /// Standard macOS menu services reserve keys without appearing in settings.
     var isSystemShortcut: Bool {
         switch self {
-        case .IDC_HIDE_APP, .IDC_MINIMIZE_WINDOW,
+        case .IDC_EXIT, .IDC_HIDE_APP, .IDC_MINIMIZE_WINDOW,
              .IDC_CONTENT_CONTEXT_UNDO, .IDC_CONTENT_CONTEXT_REDO,
              .IDC_CONTENT_CONTEXT_CUT, .IDC_CONTENT_CONTEXT_COPY,
              .IDC_CONTENT_CONTEXT_PASTE, .IDC_CONTENT_CONTEXT_PASTE_AND_MATCH_STYLE,

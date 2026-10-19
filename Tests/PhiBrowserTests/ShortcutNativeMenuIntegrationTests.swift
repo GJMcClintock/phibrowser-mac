@@ -11,10 +11,82 @@ import XCTest
 private final class ShortcutMenuActionTarget: NSObject {
     var invocationCount = 0
     @objc func invokeShortcut(_ sender: Any?) { invocationCount += 1 }
+    @objc(_processRequest:) func processService(_ sender: Any?) { invocationCount += 1 }
 }
 
 @MainActor
 final class ShortcutNativeMenuIntegrationTests: XCTestCase {
+    func testServiceShortcutIsClearedOnInsertionAndReassignment() throws {
+        try XCTUnwrap(AppController.shared).startObservingServiceShortcuts()
+        let menu = NSMenu()
+        menu.autoenablesItems = false
+        let service = NSMenuItem(title: "Localized service", action: NSSelectorFromString("_processRequest:"),
+                                 keyEquivalent: "A")
+        service.keyEquivalentModifierMask = .command
+        menu.addItem(service)
+        XCTAssertTrue(service.keyEquivalent.isEmpty)
+        XCTAssertTrue(try XCTUnwrap(service.copy() as? NSMenuItem).keyEquivalent.isEmpty)
+        XCTAssertNotNil(service.action)
+        for hidden in [false, true] {
+            service.isHidden = hidden
+            service.isEnabled = !hidden
+            service.keyEquivalentModifierMask = [.command, .shift]
+            service.keyEquivalent = "a"
+            XCTAssertTrue(service.keyEquivalent.isEmpty)
+            XCTAssertTrue(try XCTUnwrap(service.copy() as? NSMenuItem).keyEquivalent.isEmpty)
+        }
+        service.keyEquivalentModifierMask = .command
+        service.keyEquivalent = "M"
+        XCTAssertEqual(service.keyEquivalent, "M")
+    }
+
+    func testServiceSuppressionCoversReplacementSubmenusAndMenuTracking() throws {
+        try XCTUnwrap(AppController.shared).startObservingServiceShortcuts()
+        let menu = NSMenu()
+        let submenu = NSMenu(title: "Replacement")
+        let service = NSMenuItem(title: "Localized service", action: nil, keyEquivalent: "A")
+        service.keyEquivalentModifierMask = .command
+        submenu.addItem(service)
+        // Target/action can be installed after the key, without a key-change notification.
+        service.action = NSSelectorFromString("_processRequest:")
+        let parent = NSMenuItem()
+        parent.submenu = submenu
+        menu.addItem(parent)
+        XCTAssertTrue(service.keyEquivalent.isEmpty)
+        service.action = nil
+        service.keyEquivalentModifierMask = .command
+        service.keyEquivalent = "A"
+        service.action = NSSelectorFromString("_processRequest:")
+        NotificationCenter.default.post(name: NSMenu.didBeginTrackingNotification, object: menu)
+        XCTAssertTrue(service.keyEquivalent.isEmpty)
+    }
+
+    func testReservedChordInvokesBrowserActionInsteadOfService() throws {
+        try XCTUnwrap(AppController.shared).startObservingServiceShortcuts()
+        let menu = NSMenu()
+        menu.autoenablesItems = false
+        let serviceTarget = ShortcutMenuActionTarget()
+        let browserTarget = ShortcutMenuActionTarget()
+        let service = NSMenuItem(title: "Service", action: NSSelectorFromString("_processRequest:"),
+                                 keyEquivalent: "A")
+        service.target = serviceTarget
+        service.keyEquivalentModifierMask = .command
+        menu.addItem(service)
+        let browser = NSMenuItem(title: "Tab Search", action: #selector(ShortcutMenuActionTarget.invokeShortcut(_:)),
+                                 keyEquivalent: "A")
+        browser.tag = CommandWrapper.IDC_TAB_SEARCH.rawValue
+        browser.target = browserTarget
+        browser.keyEquivalentModifierMask = .command
+        menu.addItem(browser)
+        let event = try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero,
+            modifierFlags: [.command, .shift], timestamp: 0, windowNumber: 0, context: nil,
+            characters: "A", charactersIgnoringModifiers: "A", isARepeat: false, keyCode: 0))
+        XCTAssertTrue(menu.performKeyEquivalent(with: event))
+        XCTAssertEqual(browserTarget.invocationCount, 1)
+        XCTAssertEqual(serviceTarget.invocationCount, 0)
+        XCTAssertEqual(Shortcuts.menuBindings(in: menu).map(\.commandID), [browser.tag])
+    }
+
     private func dispatcher(handlingPriority: Int32?) throws -> NSObject {
         let base = try XCTUnwrap(NSClassFromString("ChromeCommandDispatcherDelegate") as? NSObject.Type)
         guard let handlingPriority else { return base.init() }
