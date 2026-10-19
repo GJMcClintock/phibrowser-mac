@@ -60,6 +60,29 @@ final class ContentSurfaceHostingTests: XCTestCase {
         XCTAssertLessThan(sent.clip.width, sent.frame.width, "precondition: the page overruns its host")
     }
 
+    /// The surface rounds the part of a page that shows, so a page that
+    /// overruns its host for a slide keeps the corners its host shows there,
+    /// as AppKit's rounded clip gives a page drawing itself.
+    func testAPageWiderThanItsHostKeepsItsHostsCorners() throws {
+        let fixture = try makeFixture()
+        let settled = try XCTUnwrap(fixture.lastSent())
+        XCTAssertGreaterThan(settled.bottomRight, 0, "precondition: the page's bottom right is rounded")
+        let page = try XCTUnwrap(
+            fixture.container.children.compactMap { $0 as? WebContentViewController }.first)
+        page.setContentFrameSyncPausedForPanelTransition(true)
+
+        fixture.webView.setFrameSize(NSSize(width: fixture.webView.frame.width + 200,
+                                            height: fixture.webView.frame.height))
+        RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+
+        let sent = try XCTUnwrap(fixture.lastSent())
+        XCTAssertLessThan(sent.clip.width, sent.frame.width, "precondition: the page overruns its host")
+        XCTAssertEqual(sent.topLeft, settled.topLeft)
+        XCTAssertEqual(sent.topRight, settled.topRight)
+        XCTAssertEqual(sent.bottomRight, settled.bottomRight)
+        XCTAssertEqual(sent.bottomLeft, settled.bottomLeft)
+    }
+
     /// A web view attached again during a hold starts square and on top
     /// while nothing is sent, so the first pass after the hold tells every
     /// web view again, changed or not.

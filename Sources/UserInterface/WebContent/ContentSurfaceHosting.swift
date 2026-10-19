@@ -228,30 +228,36 @@ final class ContentSurfaceHosting {
         return nil
     }
 
-    /// The radii AppKit gives `webView`'s corners: at each corner, the largest
-    /// corner radius among its clipping ancestors below `container` whose own
-    /// corner it reaches. A corner that reaches none stays square: one next to
-    /// docked DevTools, the top of a page under the address bar. Also where
-    /// `webView` is in the window and the part of it that those ancestors and
-    /// `container`, whose bounds the surface draws in, leave visible: a page
-    /// whose frame sync is paused for a slide keeps its old size while its
-    /// host narrows.
+    /// Where `webView` is in the window and the part of it that its clipping
+    /// ancestors below `container`, and `container`, whose bounds the surface
+    /// draws in, leave visible: a page whose frame sync is paused for a slide
+    /// keeps its old size while its host narrows. Also the radii AppKit gives
+    /// that part's corners: at each corner, the largest corner radius among
+    /// those ancestors whose own corner it reaches. The surface rounds that
+    /// part, not the whole web view (cc rounds a layer's bounds cut to its
+    /// clip rect), so a page overrunning its host keeps the host's corners.
+    /// A corner that reaches none stays square: one next to docked DevTools,
+    /// the top of a page under the address bar.
     private static func hosting(of webView: NSView, zOrder: Int, below container: NSView,
                                 windowHeight: CGFloat) -> Hosting {
         var hosting = Hosting(zOrder: zOrder)
         let frame = webView.convert(webView.bounds, to: nil)
         var visible = frame.intersection(container.convert(container.bounds, to: nil))
+        var clips: [NSView] = []
         var ancestor = webView.superview
         while let clip = ancestor, clip !== container {
             ancestor = clip.superview
-            guard let layer = clip.layer, layer.masksToBounds else {
+            guard clip.layer?.masksToBounds == true else {
                 continue
             }
             visible = visible.intersection(clip.convert(clip.bounds, to: nil))
-            guard layer.cornerRadius > 0 else {
+            clips.append(clip)
+        }
+        for clip in clips where !visible.isEmpty {
+            guard let layer = clip.layer, layer.cornerRadius > 0 else {
                 continue
             }
-            let rect = clip.convert(webView.bounds, from: webView)
+            let rect = clip.convert(visible, from: nil)
             let bounds = clip.bounds
             let atMinX = abs(rect.minX - bounds.minX) < 0.5
             let atMaxX = abs(rect.maxX - bounds.maxX) < 0.5
