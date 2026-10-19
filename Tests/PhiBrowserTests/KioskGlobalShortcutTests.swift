@@ -61,6 +61,23 @@ final class KioskGlobalShortcutTests: XCTestCase {
                        .init(keyCode: UInt32(kVK_ANSI_C), modifiers: UInt32(cmdKey | shiftKey)))
     }
 
+    func testShiftedKeypadRegistersOnlyShiftedPhysicalKeys() throws {
+        let layout = try layout("US")
+        for (code, character) in [(kVK_ANSI_Keypad1, "1"), (kVK_ANSI_KeypadPlus, "+")] {
+            let event = try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero,
+                modifierFlags: [.control, .shift, .numericPad], timestamp: 0, windowNumber: 0,
+                context: nil, characters: character, charactersIgnoringModifiers: character,
+                isARepeat: false, keyCode: UInt16(code)))
+            let key = try XCTUnwrap(ShortcutsKey.recordingKey(for: event, inputSourceIdentifier: "com.apple.keylayout.US"))
+            XCTAssertEqual(Registrar.configurations(for: key, isEnabled: true, layout: layout),
+                           [.init(keyCode: UInt32(code), modifiers: UInt32(controlKey | shiftKey))])
+            let unshifted = ShortcutsKey(characters: character, modifiers: .control)
+            let aliases = Registrar.configurations(for: unshifted, isEnabled: true, layout: layout)
+            XCTAssertTrue(aliases.contains(.init(keyCode: UInt32(code), modifiers: UInt32(controlKey))))
+            XCTAssertFalse(aliases.contains(.init(keyCode: UInt32(code), modifiers: UInt32(controlKey | shiftKey))))
+        }
+    }
+
     func testUnavailableLayoutDoesNotInventAnANSIPrintableBinding() {
         XCTAssertNil(configuration(for: .init(characters: "z", modifiers: .control), isEnabled: true, layout: nil))
         XCTAssertEqual(configuration(for: .init(characters: "\u{F72D}", modifiers: .control), isEnabled: true, layout: nil),

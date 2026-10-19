@@ -66,6 +66,26 @@ final class ShortcutConfigurationTests: XCTestCase {
         XCTAssertEqual(loaded.overrides[reloadID], custom)
     }
 
+    func testExplicitKeypadShiftSurvivesReloadAlongsideLegacyRecordsAndExclusions() throws {
+        let legacy = Data("[{\"commandId\":999991,\"key\":{\"characters\":\"1\",\"modifiersRaw\":393216}}]".utf8)
+        try legacy.write(to: url)
+        var configuration = ShortcutConfiguration()
+        try configuration.reload(from: url)
+        let oldKey = ShortcutsKey(characters: "1", modifiers: [.control, .shift])
+        let keypad = ShortcutsKey(characters: "1", modifiers: [.control, .shift], preservesShift: true)
+        XCTAssertEqual(configuration.overrides[999991], .custom(oldKey))
+        XCTAssertEqual(oldKey.menuKeyEquivalent.modifiers, .control)
+        try configuration.set(.custom(keypad), for: reloadID, at: url)
+        try configuration.set(.excluding([keypad]), for: 999992, at: url)
+        var loaded = ShortcutConfiguration()
+        try loaded.reload(from: url)
+        XCTAssertEqual(loaded.overrides[reloadID], .custom(keypad))
+        XCTAssertEqual(loaded.overrides[reloadID]?.key?.menuKeyEquivalent.modifiers, [.control, .shift])
+        XCTAssertEqual(loaded.overrides[999991], .custom(oldKey))
+        XCTAssertEqual(loaded.overrides[999992], .excluding([keypad]))
+        XCTAssertFalse(try XCTUnwrap(loaded.overrides[999992]).excludes(oldKey))
+    }
+
     func testWriteFailureKeepsRuntimeAndDiskAndCanRetry() throws {
         _ = try seed()
         let original = try Data(contentsOf: url)

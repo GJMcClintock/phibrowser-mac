@@ -125,8 +125,22 @@ AppKit menu identity:     P + Command
 
 `menuKeyEquivalent` performs this projection by uppercasing a printable
 character and removing Shift from the modifier mask, except when a held Fn
-requires Shift to remain in Chromium's mask. Control characters and
+or a printable numeric-keypad event requires Shift to remain in Chromium's mask. Control characters and
 function keys retain Shift; for example, Shift-Tab remains `"\t" + Shift`.
+
+Recorded Shift combinations from printable keypad hardware keys store the
+optional `preservesShift: true` field. For example, Ctrl-Shift-Keypad-1 keeps
+both modifiers and does not collide with Ctrl-1. Unshifted keypad digits remain
+aliases of the ordinary digits. NumericPad is event metadata, not a stored
+modifier; navigation keys carrying that flag do not become printable keypad
+bindings. Menu and Framework inventory records already contain projected masks,
+so importing an explicit printable Shift mask also preserves it. Conflict checks,
+native dispatch, menu overrides, and per-alias exclusions share this identity.
+
+Older files omit `preservesShift` and retain the legacy projection. Their keypad
+origin cannot be inferred safely from characters and modifiers alone. Re-record
+an affected Shift-keypad combination to opt into the corrected identity; loading
+or saving unrelated shortcuts does not guess or rewrite its origin.
 
 Shifted punctuation must store the character AppKit actually reports. For
 example, the US-layout Select Previous/Next Tab defaults store `{` and `}` plus
@@ -382,6 +396,9 @@ aliases. Legacy layout candidates are used only when no canonical candidate
 exists. Navigation/control keys use fixed hardware codes. A missing layout does
 not silently substitute ANSI for a printable binding. Input-source changes and
 `shortcutsDidChange` refresh the registration through the same path.
+Synthetic keypad events carry NumericPad and preserve explicit Shift just like
+recorded events. The system-conflict reader uses this same physical resolver, so
+a Ctrl-1 reservation does not also reserve Ctrl-Shift-Keypad-1.
 
 Registration requests exclusive ownership so another application's existing
 hotkey is reported as a conflict, rather than accepting a registration whose
@@ -620,10 +637,15 @@ source, and compare fixture events with the loaded Framework's menu matcher.
 This establishes matcher agreement for those fixtures, not physical typing or
 IME composition behavior for every input source.
 
-Shift plus printable numeric-keypad keys is a known matching gap: native
-normalization drops NumericPad and projects Shift into the character, while
-Chromium retains Shift for numeric-keypad events. A recorded combination can
-therefore match a native Phi command but fail to match an ordinary menu command.
+Shift-keypad regression tests cover digits and printable operators, distinct
+shifted/unshifted dispatch, configuration reload, menu/bridge round trips, alias
+exclusions, Carbon registration, and system-conflict reporting. Paired fixtures
+compare the corrected Phi identity with the loaded Framework's existing matcher;
+they do not substitute for physical full-keyboard acceptance testing.
+The Command-QWERTY fixtures exclude the existing character-projection gaps for
+Shift-Keypad-Equals, JIS Keypad-Comma, and Keypad-Enter: Chromium maps the first
+through OEM_PLUS, has no JIS keypad-comma mapping, and maps Enter to Return.
+Preserving Shift does not resolve those separate layout-specific differences.
 
 Native integration tests exercise the companion dispatcher, close-menu roles,
 menu bridge replacement, overlay handlers, and window-scoped Phi actions.

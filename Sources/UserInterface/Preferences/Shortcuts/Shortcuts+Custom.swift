@@ -355,7 +355,7 @@ extension Shortcuts {
                 }
                 return [ShortcutBinding(
                     owner: owner,
-                    key: ShortcutsKey(characters: keyItem.keyEquivalent,
+                    key: ShortcutsKey(menuKeyEquivalent: keyItem.keyEquivalent,
                                       modifiers: keyItem.keyEquivalentModifierMask),
                     scope: scope, source: .menu,
                     title: item.title
@@ -383,7 +383,7 @@ extension Shortcuts {
                   let source = record["source"] as? String,
                   source == "hidden" || source == "webContents" else { return nil }
             return ShortcutBinding(commandID: commandID,
-                                   key: ShortcutsKey(characters: characters,
+                                   key: ShortcutsKey(menuKeyEquivalent: characters,
                                                      modifiers: .init(rawValue: modifiers)),
                                    scope: CommandWrapper(rawValue: commandID)?.shortcutScope ?? .browser,
                                    source: source == "hidden" ? .hidden : .webContents)

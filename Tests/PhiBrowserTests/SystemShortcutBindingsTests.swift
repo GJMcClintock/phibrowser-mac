@@ -14,6 +14,7 @@ final class SystemShortcutBindingsTests: XCTestCase {
         switch Int(code) {
         case kVK_ANSI_1: return flags.contains(.shift) ? "!" : "1"
         case kVK_ANSI_2: return flags.contains(.shift) ? "@" : "2"
+        case kVK_ANSI_Keypad1: return "1"
         case kVK_ANSI_Equal: return flags.contains(.shift) ? "+" : "="
         case kVK_ANSI_J: return flags.contains(.shift) ? "J" : "j"
         default: return nil
@@ -42,6 +43,15 @@ final class SystemShortcutBindingsTests: XCTestCase {
         let inventory = ShortcutInventory(bindings: bindings + [binding(key)])
         XCTAssertEqual(inventory.conflicts(for: CommandWrapper.PHI_SELECT_SPACE_0.rawValue,
                                            key: key, in: .browser).map(\.owner), [.system])
+    }
+
+    func testShiftedKeypadDoesNotInheritTheControlOneSystemWarning() {
+        let shifted = ShortcutsKey(characters: "1", modifiers: [.control, .shift], preservesShift: true)
+        let ordinaryReservations = [record(), record(kVK_ANSI_Keypad1)]
+        XCTAssertTrue(SystemShortcutBindings.conflicts(with: [binding(shifted)],
+            records: ordinaryReservations, layout: layout).isEmpty)
+        XCTAssertEqual(SystemShortcutBindings.conflicts(with: [binding(shifted)],
+            records: [record(kVK_ANSI_Keypad1, modifiers: controlKey | shiftKey)], layout: layout).map(\.key), [shifted])
     }
 
     func testDisabledMalformedAndDifferentChordsDoNotReserveKeys() {

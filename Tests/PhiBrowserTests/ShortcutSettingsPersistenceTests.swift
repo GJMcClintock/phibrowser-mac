@@ -494,6 +494,41 @@ final class ShortcutSettingsPersistenceTests: XCTestCase {
         XCTAssertTrue(try item(.IDC_RELOAD, in: model).hasConflict)
     }
 
+    func testShiftedKeypadSurvivesSettingsReloadBridgeAndMenuInventory() throws {
+        let source = "com.apple.keylayout.US"
+        let shiftedEvent = try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero,
+            modifierFlags: [.control, .shift, .numericPad], timestamp: 0, windowNumber: 0,
+            context: nil, characters: "1", charactersIgnoringModifiers: "1", isARepeat: false, keyCode: 83))
+        let key = try XCTUnwrap(ShortcutsKey.recordingKey(for: shiftedEvent, inputSourceIdentifier: source))
+        for command in [CommandWrapper.IDC_SELECT_TAB_0, .PHI_COPY_URL] {
+            let model = ShortcutsViewModel(additionalBindings: { [] })
+            model.setCustomShortcut(for: command, key: key)
+            XCTAssertNil(model.persistenceFailure)
+            try Shortcuts.configuration.reload(from: XCTUnwrap(Shortcuts.configuration.fileURL))
+            CommandDispatcher.reloadPhiShortcutMap()
+            XCTAssertEqual(Shortcuts.key(for: command), key)
+            let bridge = try XCTUnwrap(PhiChromiumCoordinator.shared.keyEquivalentOverride(forCommand: Int32(command.rawValue)))
+            XCTAssertEqual(bridge["keyEquivalent"] as? String, "1")
+            XCTAssertEqual(bridge["modifierFlags"] as? UInt, NSEvent.ModifierFlags([.control, .shift]).rawValue)
+
+            let menu = NSMenu()
+            let menuItem = NSMenuItem(title: "Keypad binding", action: NSSelectorFromString("commandDispatch:"), keyEquivalent: "")
+            menuItem.tag = command.rawValue
+            menu.addItem(menuItem)
+            Shortcuts.updateShortcut(for: menuItem)
+            XCTAssertEqual(menuItem.keyEquivalentModifierMask, [.control, .shift])
+            let bindings = Shortcuts.menuBindings(in: menu)
+            XCTAssertEqual(bindings.count, 1)
+            XCTAssertEqual(bindings.first?.key.menuKeyEquivalent, key.menuKeyEquivalent)
+            let inventory = ShortcutInventory(bindings: bindings)
+            XCTAssertTrue(inventory.occupants(of: .init(characters: "1", modifiers: .control)).isEmpty)
+            XCTAssertEqual(inventory.occupants(of: key).map(\.commandID), [command.rawValue])
+            XCTAssertEqual(try XCTUnwrap(ShortcutsKey.eventKeys(for: shiftedEvent, inputSourceIdentifier: source))
+                .matches(Shortcuts.key(for: command)), true)
+            try Shortcuts.setOverride(nil, for: command).get()
+        }
+    }
+
     func testSaveFailureKeepsUIAndBridgeAtPreviousBindingThenRetrySucceeds() throws {
         let model = ShortcutsViewModel()
         let command = CommandWrapper.PHI_COPY_URL

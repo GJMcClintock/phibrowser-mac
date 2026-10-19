@@ -83,6 +83,56 @@ final class ShortcutLayoutIntegrationTests: XCTestCase {
         }
     }
 
+    func testPairedFrameworkDistinguishesShiftedPrintableKeypadBindings() throws {
+        let keypadKeys = [
+            (kVK_ANSI_Keypad0, "0"), (kVK_ANSI_Keypad1, "1"), (kVK_ANSI_Keypad2, "2"),
+            (kVK_ANSI_Keypad3, "3"), (kVK_ANSI_Keypad4, "4"), (kVK_ANSI_Keypad5, "5"),
+            (kVK_ANSI_Keypad6, "6"), (kVK_ANSI_Keypad7, "7"), (kVK_ANSI_Keypad8, "8"),
+            (kVK_ANSI_Keypad9, "9"), (kVK_ANSI_KeypadPlus, "+"), (kVK_ANSI_KeypadMinus, "-"),
+            (kVK_ANSI_KeypadMultiply, "*"), (kVK_ANSI_KeypadDivide, "/"),
+            (kVK_ANSI_KeypadEquals, "="), (kVK_ANSI_KeypadDecimal, "."), (kVK_JIS_KeypadComma, ",")
+        ]
+        for source in ["com.apple.keylayout.US", commandQWERTY] {
+            try withInputSource(source) {
+                for (code, character) in keypadKeys {
+                    // Command-QWERTY maps keypad '=' through OEM_PLUS and
+                    // has no JIS keypad-comma mapping. Those pre-existing
+                    // character-projection gaps are separate from Shift loss.
+                    if source == commandQWERTY && [kVK_ANSI_KeypadEquals, kVK_JIS_KeypadComma].contains(code) {
+                        continue
+                    }
+                    let shiftedEvent = try event(characters: character, semantic: character,
+                        flags: [.control, .shift, .numericPad], code: code)
+                    let shifted = ShortcutsKey(characters: character, modifiers: [.control, .shift], preservesShift: true)
+                    try assertPairedMatch(shiftedEvent, source: source, expected: shifted)
+                    let unshiftedEvent = try event(characters: character, semantic: character,
+                        flags: [.control, .numericPad], code: code)
+                    let unshifted = ShortcutsKey(characters: character, modifiers: .control)
+                    try assertPairedMatch(unshiftedEvent, source: source, expected: unshifted)
+                    XCTAssertFalse(try frameworkMatches(unshifted, event: shiftedEvent))
+                    XCTAssertFalse(try frameworkMatches(shifted, event: unshiftedEvent))
+                    let map: [ShortcutsKey: CommandWrapper] = [shifted: .PHI_COPY_URL, unshifted: .PHI_SELECT_SPACE_0]
+                    XCTAssertEqual(CommandDispatcher.matchedPhiCommand(for: shiftedEvent,
+                        shortcutMap: map, inputSourceIdentifier: source), .PHI_COPY_URL)
+                    XCTAssertEqual(CommandDispatcher.matchedPhiCommand(for: unshiftedEvent,
+                        shortcutMap: map, inputSourceIdentifier: source), .PHI_SELECT_SPACE_0)
+                }
+                let mainDigit = try event(characters: "!", semantic: "!", flags: [.control, .shift], code: kVK_ANSI_1)
+                try assertPairedMatch(mainDigit, source: source, expected: .init(characters: "!", modifiers: [.control, .shift]))
+                let mainPlus = try event(characters: "+", semantic: "+", flags: [.control, .shift], code: kVK_ANSI_Equal)
+                try assertPairedMatch(mainPlus, source: source, expected: .init(characters: "+", modifiers: [.control, .shift]))
+                for (code, character) in [(kVK_UpArrow, "\u{F700}"), (kVK_ANSI_KeypadEnter, "\u{3}")] {
+                    // The Framework projects keypad Enter to Return under
+                    // Command-QWERTY; this test does not change that mapping.
+                    if source == commandQWERTY && code == kVK_ANSI_KeypadEnter { continue }
+                    let special = try event(characters: character, semantic: character,
+                        flags: [.control, .shift, .numericPad], code: code)
+                    try assertPairedMatch(special, source: source, expected: .init(characters: character, modifiers: [.control, .shift]))
+                }
+            }
+        }
+    }
+
     func testPairedFrameworkPreservesSemanticGermanAndDvorakKeys() throws {
         for (source, character, keyCode) in [
             ("com.apple.keylayout.German", "z", kVK_ANSI_Y),

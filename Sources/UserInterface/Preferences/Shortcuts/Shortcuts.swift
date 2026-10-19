@@ -268,14 +268,43 @@ struct ShortcutsKey: Hashable, Codable {
 
     let characters: String
     let modifiersRaw: UInt
+    // Keypad Shift is not encoded in the printable character. Optional for
+    // old configuration files, whose physical key origin cannot be recovered.
+    private let preservesShift: Bool?
 
     var modifiers: NSEvent.ModifierFlags {
         NSEvent.ModifierFlags(rawValue: modifiersRaw)
     }
 
-    init(characters: String, modifiers: NSEvent.ModifierFlags) {
+    init(characters: String, modifiers: NSEvent.ModifierFlags, preservesShift: Bool = false) {
         self.characters = characters
         self.modifiersRaw = modifiers.rawValue
+        self.preservesShift = preservesShift && modifiers.contains(.shift) ? true : nil
+    }
+
+    /// Menu/Framework records are already projected. An explicit Shift mask
+    /// must survive a round trip through the inventory and alias exclusions.
+    init(menuKeyEquivalent characters: String, modifiers: NSEvent.ModifierFlags) {
+        self.init(characters: characters, modifiers: modifiers)
+        if modifiers.contains(.shift), isPrintableMenuCharacter {
+            self.init(characters: characters, modifiers: modifiers, preservesShift: true)
+        }
+    }
+
+    /// NumericPad also appears on navigation events. Only printable keypad
+    /// hardware keys need the extra Shift identity; Enter/Clear stay special.
+    static func isPrintableKeypadKeyCode(_ keyCode: UInt16) -> Bool {
+        switch Int(keyCode) {
+        case kVK_ANSI_Keypad0, kVK_ANSI_Keypad1, kVK_ANSI_Keypad2,
+             kVK_ANSI_Keypad3, kVK_ANSI_Keypad4, kVK_ANSI_Keypad5,
+             kVK_ANSI_Keypad6, kVK_ANSI_Keypad7, kVK_ANSI_Keypad8,
+             kVK_ANSI_Keypad9, kVK_ANSI_KeypadDecimal, kVK_ANSI_KeypadMultiply,
+             kVK_ANSI_KeypadPlus, kVK_ANSI_KeypadDivide, kVK_ANSI_KeypadMinus,
+             kVK_ANSI_KeypadEquals, kVK_JIS_KeypadComma:
+            return true
+        default:
+            return false
+        }
     }
 
     /// AppKit encodes Shift in printable key equivalents instead of the modifier mask.
@@ -288,7 +317,9 @@ struct ShortcutsKey: Hashable, Codable {
         // Chromium retains Shift when Function is a real held modifier on a
         // printable key. Navigation/function-key event flags are filtered at
         // capture, so their automatic Function bit never reaches this identity.
-        if !menuModifiers.contains(.function) { menuModifiers.remove(.shift) }
+        if preservesShift != true && !menuModifiers.contains(.function) {
+            menuModifiers.remove(.shift)
+        }
         return MenuKeyEquivalent(
             characters: characters.uppercased(),
             modifiers: menuModifiers
@@ -309,12 +340,17 @@ struct ShortcutsKey: Hashable, Codable {
         } else {
             modifiers.remove(.function)
         }
-        let semanticKey = semanticEventKey(for: event, modifiers: modifiers)
-        let latinKey = latinEventKey(
+        func retainingKeypadShift(_ key: ShortcutsKey?) -> ShortcutsKey? {
+            guard let key, key.isPrintableMenuCharacter,
+                  modifiers.contains(.shift), isPrintableKeypadKeyCode(event.keyCode) else { return key }
+            return ShortcutsKey(characters: key.characters, modifiers: key.modifiers, preservesShift: true)
+        }
+        let semanticKey = retainingKeypadShift(semanticEventKey(for: event, modifiers: modifiers))
+        let latinKey = retainingKeypadShift(latinEventKey(
             for: event,
             modifiers: modifiers,
             inputSourceIdentifier: inputSourceIdentifier
-        )
+        ))
 
         guard let canonical = latinKey ?? semanticKey else { return nil }
         // Prefer the layout-independent Latin key for new recordings and command

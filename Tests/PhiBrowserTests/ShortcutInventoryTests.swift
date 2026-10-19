@@ -5,6 +5,7 @@
 
 import XCTest
 import AppKit
+import Carbon.HIToolbox
 #if !SHORTCUTS_HOSTLESS_TESTS
 @testable import Phi
 #endif
@@ -74,6 +75,26 @@ final class ShortcutInventoryTests: XCTestCase {
         let inventory = ShortcutInventory(bindings: [binding(1, key: legacy), binding(2, key: recorded)])
         XCTAssertEqual(inventory.conflicts(for: 2, key: recorded, in: .all).map(\.commandID), [1])
         XCTAssertEqual(inventory.occupants(of: legacy).count, 2)
+    }
+
+    func testShiftedKeypadDoesNotConflictWithUnshiftedDigitOrPunctuation() throws {
+        for (code, character) in [(kVK_ANSI_Keypad1, "1"), (kVK_ANSI_KeypadPlus, "+")] {
+            let unshifted = ShortcutsKey(characters: character, modifiers: .control)
+            let shiftedEvent = try event(UInt16(code), character, [.control, .shift, .numericPad])
+            let shifted = try XCTUnwrap(ShortcutsKey.recordingKey(for: shiftedEvent))
+            let inventory = ShortcutInventory(bindings: [binding(1, key: unshifted), binding(2, key: shifted)])
+            XCTAssertEqual(shifted.menuKeyEquivalent.modifiers, [.control, .shift])
+            XCTAssertTrue(inventory.conflicts(for: 1, key: unshifted, in: .all).isEmpty)
+            XCTAssertTrue(inventory.conflicts(for: 2, key: shifted, in: .all).isEmpty)
+            let keys = try XCTUnwrap(ShortcutsKey.eventKeys(for: shiftedEvent))
+            XCTAssertTrue(keys.matches(shifted))
+            XCTAssertFalse(keys.matches(unshifted))
+            XCTAssertFalse(try XCTUnwrap(ShortcutsKey.eventKeys(
+                for: event(UInt16(code), character, [.control, .numericPad]))).matches(shifted))
+            XCTAssertFalse(ShortcutOverride.excluding([shifted]).excludes(unshifted))
+            let menuKey = ShortcutsKey(menuKeyEquivalent: character, modifiers: [.control, .shift])
+            XCTAssertTrue(ShortcutOverride.excluding([shifted]).excludes(menuKey))
+        }
     }
 
     func testInputOrderAndDuplicateMetadataDoNotChangeResults() {

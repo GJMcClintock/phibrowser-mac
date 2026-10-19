@@ -239,9 +239,11 @@ final class KioskGlobalShortcutRegistrar {
         var matches: [Configuration: Int] = [:]
         for keyCode in UInt16(0)...UInt16(127) {
             for flags in candidates {
+                let eventFlags = ShortcutsKey.isPrintableKeypadKeyCode(keyCode)
+                    ? flags.union(.numericPad) : flags
                 guard let semantic = layout.characters(keyCode, flags.intersection(.shift)),
                       let characters = layout.characters(keyCode, flags),
-                      let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags,
+                      let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: eventFlags,
                           timestamp: 0, windowNumber: 0, context: nil, characters: characters,
                           charactersIgnoringModifiers: semantic, isARepeat: false, keyCode: keyCode),
                       let rank = ShortcutsKey.eventKeys(for: event, inputSourceIdentifier: layout.inputSourceIdentifier)?
