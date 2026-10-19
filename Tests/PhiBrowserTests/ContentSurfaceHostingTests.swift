@@ -39,13 +39,12 @@ final class ContentSurfaceHostingTests: XCTestCase {
         XCTAssertEqual(sent.clip, sent.frame, "the whole page shows")
     }
 
-    /// A page whose frame sync is paused for a panel slide keeps its old
-    /// width while its host narrows; only the part inside the host shows.
+    /// A page laid out wider than its host shows only the part inside it.
     func testAPageWiderThanItsHostIsClippedToTheHost() throws {
         let fixture = try makeFixture()
         let page = try XCTUnwrap(
             fixture.container.children.compactMap { $0 as? WebContentViewController }.first)
-        page.setContentFrameSyncPausedForPanelTransition(true)
+        try XCTUnwrap(page.hostViewForTesting as? WebContentHostView).isFrameSyncPaused = true
 
         fixture.webView.setFrameSize(NSSize(width: fixture.webView.frame.width + 200,
                                             height: fixture.webView.frame.height))
@@ -61,15 +60,15 @@ final class ContentSurfaceHostingTests: XCTestCase {
     }
 
     /// The surface rounds the part of a page that shows, so a page that
-    /// overruns its host for a slide keeps the corners its host shows there,
-    /// as AppKit's rounded clip gives a page drawing itself.
+    /// overruns its host keeps the corners its host shows there, as AppKit's
+    /// rounded clip gives a page drawing itself.
     func testAPageWiderThanItsHostKeepsItsHostsCorners() throws {
         let fixture = try makeFixture()
         let settled = try XCTUnwrap(fixture.lastSent())
         XCTAssertGreaterThan(settled.bottomRight, 0, "precondition: the page's bottom right is rounded")
         let page = try XCTUnwrap(
             fixture.container.children.compactMap { $0 as? WebContentViewController }.first)
-        page.setContentFrameSyncPausedForPanelTransition(true)
+        try XCTUnwrap(page.hostViewForTesting as? WebContentHostView).isFrameSyncPaused = true
 
         fixture.webView.setFrameSize(NSSize(width: fixture.webView.frame.width + 200,
                                             height: fixture.webView.frame.height))
@@ -81,23 +80,6 @@ final class ContentSurfaceHostingTests: XCTestCase {
         XCTAssertEqual(sent.topRight, settled.topRight)
         XCTAssertEqual(sent.bottomRight, settled.bottomRight)
         XCTAssertEqual(sent.bottomLeft, settled.bottomLeft)
-    }
-
-    /// A web view attached again during a hold starts square and on top
-    /// while nothing is sent, so the first pass after the hold tells every
-    /// web view again, changed or not.
-    func testTheFirstPassAfterAHoldTellsEveryWebViewAgain() throws {
-        let fixture = try makeFixture()
-        let told = try XCTUnwrap(fixture.lastSent())
-        fixture.hosting.isHeld = true
-        RunLoop.main.run(until: Date().addingTimeInterval(0.1))
-        let sendCount = fixture.sends.count
-
-        fixture.hosting.isHeld = false
-        RunLoop.main.run(until: Date().addingTimeInterval(0.1))
-
-        XCTAssertEqual(fixture.sends.count, sendCount + 1)
-        XCTAssertEqual(fixture.lastSent(), told)
     }
 
     /// A framework without the rect and clip takes only the radii and the z
@@ -121,26 +103,75 @@ final class ContentSurfaceHostingTests: XCTestCase {
     // MARK: - Extension side panel slide
 
     /// The extension side panel slides in by a Core Animation group, which
-    /// puts the page's host at its end frame at once: the surface's view
-    /// stays at its frame and no change to the page is told until the slide
-    /// ends.
-    func testASidePanelSlideHoldsTheSurfaceAndSendsNothing() throws {
-        WebContentContainerViewController.panelSlideDurationForTesting = 60
+    /// puts the views around the page at their end frame at once while the
+    /// page follows its card on every frame. The surface's view keeps its
+    /// frame, and the page is told each frame what shows, rounded, not the
+    /// part the end frame leaves.
+    func testASidePanelSlideInTellsThePageWhatShowsOnEveryFrame() throws {
+        WebContentContainerViewController.panelSlideDurationForTesting = 0.5
         let fixture = try makeFixture()
         let surfaceFrame = fixture.surfaceView.frame
         let sendCount = fixture.sends.count
 
-        fixture.slideInSidePanel()
-        // The slide pauses the page's frame sync; a page laid out wider
-        // meanwhile changes its rect, which a pass not held would send.
-        fixture.webView.setFrameSize(NSSize(width: fixture.webView.frame.width + 200,
-                                            height: fixture.webView.frame.height))
+        // Through the model, which separates the page card as on device.
+        fixture.state.updateExtensionSidePanel(fixture.sidePanelState)
+        XCTAssertTrue(fixture.hosting.isHeld, "precondition: the slide holds")
+        var surfaceMoved = false
+        waitUntil({ !fixture.hosting.isHeld }) {
+            surfaceMoved = surfaceMoved || fixture.surfaceView.frame != surfaceFrame
+        }
         RunLoop.main.run(until: Date().addingTimeInterval(0.1))
 
-        XCTAssertTrue(fixture.hosting.isHeld)
-        XCTAssertTrue(fixture.surfaceView.translatesAutoresizingMaskIntoConstraints)
-        XCTAssertEqual(fixture.surfaceView.frame, surfaceFrame)
-        XCTAssertEqual(fixture.sends.count, sendCount, "the page was told during the slide")
+        XCTAssertFalse(fixture.hosting.isHeld, "the slide never ended")
+        XCTAssertFalse(surfaceMoved, "the surface's view moved during the slide")
+        let told = fixture.toldPage(since: sendCount)
+        let widths = told.map(\.clip.width)
+        let settled = try XCTUnwrap(told.last)
+        XCTAssertGreaterThan(Set(widths).count, 3, "the page was not told the slide: \(widths)")
+        XCTAssertGreaterThan(widths.max() ?? 0, settled.clip.width + 100,
+                             "the page was cut to its end frame: \(widths)")
+        assertWholeAndRounded(told)
+    }
+
+    /// Sliding out, the page grows with its card on every frame and keeps
+    /// its bottom right corner rounded.
+    func testASidePanelSlideOutTellsThePageWhatShowsOnEveryFrame() throws {
+        WebContentContainerViewController.panelSlideDurationForTesting = 0.05
+        let fixture = try makeFixture()
+        // Through the model, which separates the page card as on device.
+        fixture.state.updateExtensionSidePanel(fixture.sidePanelState)
+        waitUntil { !fixture.hosting.isHeld }
+        RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+        let sendCount = fixture.sends.count
+
+        WebContentContainerViewController.panelSlideDurationForTesting = 0.5
+        fixture.state.updateExtensionSidePanel(nil)
+        RunLoop.main.run(until: Date().addingTimeInterval(0.8))
+
+        let told = fixture.toldPage(since: sendCount)
+        let widths = told.map(\.clip.width)
+        XCTAssertGreaterThan(Set(widths).count, 3, "the page was not told the slide: \(widths)")
+        XCTAssertGreaterThan(widths.last ?? 0, (widths.first ?? 0) + 100, "the page did not grow")
+        assertWholeAndRounded(told)
+    }
+
+    /// A web view that leaves the window and comes back is told again, even
+    /// what it was told before: the surface attaches it again square and on
+    /// top.
+    func testAWebViewMountedAgainIsToldAgain() throws {
+        let fixture = try makeFixture()
+        let told = try XCTUnwrap(fixture.lastSent())
+        let tab = try XCTUnwrap(fixture.state.focusingTab)
+        fixture.state.focusingTab = fixture.otherTab
+        RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+        XCTAssertNil(fixture.webView.window, "precondition: the page left the window")
+        let sendCount = fixture.sends.count
+
+        fixture.state.focusingTab = tab
+        RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+
+        XCTAssertNotNil(fixture.webView.window, "precondition: the page is back")
+        XCTAssertEqual(fixture.toldPage(since: sendCount).last, told)
     }
 
     func testTheSlideEndReleasesTheHold() throws {
@@ -307,6 +338,27 @@ final class ContentSurfaceHostingTests: XCTestCase {
                        file: file, line: line)
     }
 
+    /// Every send shows the whole page, which follows its card, never cut to
+    /// a container's end frame nor past the card; its bottom corners are the
+    /// card's, or the frame's while the card still fills it.
+    private func assertWholeAndRounded(_ told: [ContentSurfaceHosting.Hosting],
+                                       file: StaticString = #filePath,
+                                       line: UInt = #line) {
+        let radii: Set<CGFloat> = [LiquidGlassCompatible.webContentInnerComponentsCornerRadius,
+                                   LiquidGlassCompatible.webContentContainerCornerRadius]
+        for hosting in told {
+            // Within a point: on the slide's first frame the frame's layer
+            // starts moving before the split does, as AppKit's own clip shows.
+            let edges = [hosting.clip.minX - hosting.frame.minX, hosting.clip.maxX - hosting.frame.maxX,
+                         hosting.clip.minY - hosting.frame.minY, hosting.clip.maxY - hosting.frame.maxY]
+            XCTAssertTrue(edges.allSatisfy { abs($0) < 1 },
+                          "clip \(hosting.clip) of page \(hosting.frame)", file: file, line: line)
+            XCTAssertTrue(radii.contains(hosting.bottomLeft) && radii.contains(hosting.bottomRight),
+                          "bottom radii \(hosting.bottomLeft) / \(hosting.bottomRight)",
+                          file: file, line: line)
+        }
+    }
+
     /// Runs the main run loop until `done` or two seconds pass, calling
     /// `sample` on every turn.
     private func waitUntil(_ done: () -> Bool, sampling sample: () -> Void = {}) {
@@ -370,17 +422,26 @@ final class ContentSurfaceHostingTests: XCTestCase {
             sends.last { $0.address === page }?.hosting
         }
 
+        /// What the page was told after the first `count` sends.
+        func toldPage(since count: Int) -> [ContentSurfaceHosting.Hosting] {
+            sends.dropFirst(count).filter { $0.address === page }.map(\.hosting)
+        }
+
         /// `rect`, in window coordinates, with its origin at the window's top left.
         func flipped(_ rect: NSRect) -> NSRect {
             NSRect(x: rect.minX, y: window.frame.height - rect.maxY,
                    width: rect.width, height: rect.height)
         }
 
+        var sidePanelState: BrowserState.ExtensionSidePanelState {
+            BrowserState.ExtensionSidePanelState(
+                extensionId: "test-extension", displayName: "Test Extension", iconPNG: nil,
+                wrapper: sidePanel)
+        }
+
         /// Opens an extension side panel, which slides in, the window being on screen.
         func slideInSidePanel() {
-            container.attachExtensionSidePanel(BrowserState.ExtensionSidePanelState(
-                extensionId: "test-extension", displayName: "Test Extension", iconPNG: nil,
-                wrapper: sidePanel))
+            container.attachExtensionSidePanel(sidePanelState)
         }
 
         /// The page / AI Chat split and the view it fills.

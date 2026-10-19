@@ -1460,11 +1460,10 @@ class WebContentContainerViewController: NSViewController {
     /// Holds the surface's view at its current frame while the extension
     /// side panel slides in. That slide is a Core Animation one, which sets
     /// `contentContainer` to its end frame at once; the surface would shrink
-    /// with it and cut the paused page short, leaving the backdrop between
-    /// the page and the incoming panel. Held, the page goes on under the
-    /// panel at its old size, as it does drawing itself. The reconcile holds
-    /// too (`ContentSurfaceHosting.isHeld`), as it would clip the page to its
-    /// host's end frame. Does nothing while already held.
+    /// with it and cut the page short while its card still narrows, leaving
+    /// the backdrop between the page and the incoming panel. Held, it keeps
+    /// room for the page, which follows its card on every frame
+    /// (`ContentSurfaceHosting.isHeld`). Does nothing while already held.
     private func holdContentSurfaceForPanelSlide() {
         guard let contentSurfaceView, let contentSurfaceHosting, !contentSurfaceHosting.isHeld,
               contentSurfaceView.superview === contentContainer else { return }
@@ -1475,7 +1474,7 @@ class WebContentContainerViewController: NSViewController {
         contentSurfaceHosting.isHeld = true
     }
 
-    /// Lets the surface's view and the reconcile go once the slide ends, or
+    /// Lets the surface's view go once the slide ends, or
     /// sooner when a tab switch, the current tab's close, the panel's close or
     /// content fullscreen cuts it short. Does nothing unless held.
     private func releaseContentSurfaceHold() {
@@ -1635,7 +1634,7 @@ class WebContentContainerViewController: NSViewController {
     /// Settle a freshly opened panel into the right slot, animating it in
     /// from the window's right edge while the page area shrinks in the same
     /// animation group (matching the AI Chat expand: default
-    /// NSAnimationContext duration, page frame sync paused for the ride).
+    /// NSAnimationContext duration).
     /// The panel starts frame-driven just off-screen; re-installing its
     /// constraints inside the group makes the implicit animation
     /// interpolate every affected frame to the settled layout.
@@ -1716,10 +1715,9 @@ class WebContentContainerViewController: NSViewController {
             width: panelView.frame.width + panelInset,
             height: panelView.frame.height + panelInset * 2)
 
-        let pausedController = currentWebContentController
-        pausedController?.setContentFrameSyncPausedForPanelTransition(true)
+        let pageController = currentWebContentController
         holdContentSurfaceForPanelSlide()
-        let transition = pausedController?.beginPanelTransition()
+        let transition = pageController?.beginPanelTransition()
         NSAnimationContext.runAnimationGroup({ context in
             if let duration = Self.panelSlideDurationForTesting {
                 context.duration = duration
@@ -1729,14 +1727,12 @@ class WebContentContainerViewController: NSViewController {
             remakeContentLayout()
             view.layoutSubtreeIfNeeded()
             // A slide-out this one cut short left the page split mid-flight.
-            pausedController?.retargetContentSplitForPanelTransition()
-        }, completionHandler: { [weak self, weak pausedController] in
-            // First, so the frame sync and the surface below read the
-            // aligned size.
+            pageController?.retargetContentSplitForPanelTransition()
+        }, completionHandler: { [weak self, weak pageController] in
+            // First, so the surface below is let go at the aligned size.
             if let transition {
-                pausedController?.finishPanelTransition(transition)
+                pageController?.finishPanelTransition(transition)
             }
-            pausedController?.setContentFrameSyncPausedForPanelTransition(false)
             self?.releaseContentSurfaceHold()
             // Settle on completion only: during the slide the stale outline
             // still traces the full-width card the panel is covering, while
@@ -1807,9 +1803,8 @@ class WebContentContainerViewController: NSViewController {
             remakeContentLayout()
         } else {
             closingExtensionSidePanelView = panelView
-            let pausedController = currentWebContentController
-            pausedController?.setContentFrameSyncPausedForPanelTransition(true)
-            let transition = pausedController?.beginPanelTransition()
+            let pageController = currentWebContentController
+            let transition = pageController?.beginPanelTransition()
             NSAnimationContext.runAnimationGroup({ context in
                 if let duration = Self.panelSlideDurationForTesting {
                     context.duration = duration
@@ -1844,12 +1839,11 @@ class WebContentContainerViewController: NSViewController {
                     view.bounds.maxX + WebContentConstant.edgesSpacing
                 view.layoutSubtreeIfNeeded()
                 // A slide-in this one cut short left the page split mid-flight.
-                pausedController?.retargetContentSplitForPanelTransition()
-            }, completionHandler: { [weak self, weak pausedController] in
+                pageController?.retargetContentSplitForPanelTransition()
+            }, completionHandler: { [weak self, weak pageController] in
                 if let transition {
-                    pausedController?.finishPanelTransition(transition)
+                    pageController?.finishPanelTransition(transition)
                 }
-                pausedController?.setContentFrameSyncPausedForPanelTransition(false)
                 self?.settlePanelTransitionOuterBorder()
                 guard let self, self.closingExtensionSidePanelView === panelView
                 else { return }

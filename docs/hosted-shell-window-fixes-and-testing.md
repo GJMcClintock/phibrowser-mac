@@ -110,14 +110,17 @@ oldest loses its frame, as does a tab idle for more than five minutes.
 Switching back to one, its renderer usually draws a new frame before the
 mount, as Chromium makes the tab visible on activation; a frame later than
 four frames after the mount shows the page-area backdrop until it lands.
-While the AI Chat panel slides, it moves with its split item and a page
-stays inside its card, as self-drawn ones do: the client tells the surface
-each web view's rect and visible part on every pass (ADR 0010, "Radii,
-stacking, position and clip"). While the extension side panel slides in,
-the page goes on under the incoming panel at its old size, the client
-holding the surface's view and telling it nothing until the slide ends
-(ADR 0010); meanwhile the page card's right corners show square, a residual
-accepted with review finding M24.
+While the AI Chat panel or the extension side panel slides, in or out, the
+page resizes with its card on every frame and keeps the card's rounded
+corners, as self-drawn ones do: the client tells the surface each web
+view's rect and visible part on every pass (ADR 0010, "Radii, stacking,
+position and clip"). While the extension side panel slides in, the client
+also holds the surface's view at its old frame so the narrowing page keeps
+room (ADR 0010). Switching between the two panels, the page card, with
+its header, only moves toward its settled width: from AI Chat to the
+extension side panel, it takes that width at once under the outgoing chat;
+the other way, the chat slides in to meet it, and it narrows only once the
+chat needs the room.
 
 The feature is on by default. Run the content-surface row as is, then once
 with `--disable-features=PhiContentSurface` as a smoke test: no crash, and no

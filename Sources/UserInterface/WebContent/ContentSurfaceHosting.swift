@@ -59,13 +59,9 @@ final class ContentSurfaceHosting {
     private weak var sentUnder: NSView?
     /// Set while the page container holds the surface's view at its frame
     /// from before an extension side panel slides in
-    /// (`WebContentContainerViewController`).
-    /// That slide is a Core Animation one, which sets every frame to its end
-    /// value at once: a page whose frame sync is paused would be clipped to
-    /// its narrowed host before the panel covers the rest. No pass sends
-    /// anything meanwhile; the first one after the hold tells every web view
-    /// the settled layout, as one attached again meanwhile starts square and
-    /// on top.
+    /// (`WebContentContainerViewController`), so the surface keeps room for
+    /// a page that narrows with its card on every frame. Passes go on
+    /// meanwhile (`clippingRect(of:)`).
     var isHeld = false
     /// Whether the framework takes a web view's rect and visible part
     /// (`setContentHosting(_:frameInWindow:…)`). An older one takes only the
@@ -117,7 +113,7 @@ final class ContentSurfaceHosting {
         guard let container, let browserState,
               let bridge = ChromiumLauncher.sharedInstance().bridge,
               let window = container.window,
-              !container.isHiddenOrHasHiddenAncestor, !isHeld else {
+              !container.isHiddenOrHasHiddenAncestor else {
             // A web view attached again meanwhile has lost what it was told.
             sent.removeAll()
             return
@@ -230,35 +226,35 @@ final class ContentSurfaceHosting {
 
     /// Where `webView` is in the window and the part of it that its clipping
     /// ancestors below `container`, and `container`, whose bounds the surface
-    /// draws in, leave visible: a page whose frame sync is paused for a slide
-    /// keeps its old size while its host narrows. Also the radii AppKit gives
-    /// that part's corners: at each corner, the largest corner radius among
-    /// those ancestors whose own corner it reaches. The surface rounds that
-    /// part, not the whole web view (cc rounds a layer's bounds cut to its
-    /// clip rect), so a page overrunning its host keeps the host's corners.
-    /// A corner that reaches none stays square: one next to docked DevTools,
-    /// the top of a page under the address bar.
+    /// draws in, leave visible (`clippingRect(of:)`). Also the radii AppKit
+    /// gives that part's corners: at each corner, the largest corner radius
+    /// among those ancestors whose own corner it reaches. The surface rounds
+    /// that part, not the whole web view (cc rounds a layer's bounds cut to
+    /// its clip rect), so a page overrunning its host keeps the host's
+    /// corners. A corner that reaches none stays square: one next to docked
+    /// DevTools, the top of a page under the address bar.
     private static func hosting(of webView: NSView, zOrder: Int, below container: NSView,
                                 windowHeight: CGFloat) -> Hosting {
         var hosting = Hosting(zOrder: zOrder)
         let frame = webView.convert(webView.bounds, to: nil)
-        var visible = frame.intersection(container.convert(container.bounds, to: nil))
-        var clips: [NSView] = []
+        var visible = frame.intersection(clippingRect(of: container))
+        var clips: [(view: NSView, rect: CGRect)] = []
         var ancestor = webView.superview
         while let clip = ancestor, clip !== container {
             ancestor = clip.superview
             guard clip.layer?.masksToBounds == true else {
                 continue
             }
-            visible = visible.intersection(clip.convert(clip.bounds, to: nil))
-            clips.append(clip)
+            let clipping = clippingRect(of: clip)
+            visible = visible.intersection(clipping)
+            clips.append((clip, clipping))
         }
-        for clip in clips where !visible.isEmpty {
+        for (clip, clipping) in clips where !visible.isEmpty {
             guard let layer = clip.layer, layer.cornerRadius > 0 else {
                 continue
             }
             let rect = clip.convert(visible, from: nil)
-            let bounds = clip.bounds
+            let bounds = clip.convert(clipping, from: nil)
             let atMinX = abs(rect.minX - bounds.minX) < 0.5
             let atMaxX = abs(rect.maxX - bounds.maxX) < 0.5
             let atMinY = abs(rect.minY - bounds.minY) < 0.5
@@ -286,5 +282,23 @@ final class ContentSurfaceHosting {
         hosting.frame = fromTop(frame)
         hosting.clip = visible.isEmpty ? .zero : fromTop(visible)
         return hosting
+    }
+
+    /// The rect in the window that `view` clips a page to. The extension
+    /// side panel slides by Core Animation: the views around the page take
+    /// their end frame at once and only their layers move, while the page's
+    /// card follows the page / AI Chat split frame by frame, laid out for
+    /// the next display (a frame ahead of the layers' presented state). On
+    /// screen the card stays inside them, so mid-slide such a view clips to
+    /// the wider of its frame and its layer's presented width, leaving the
+    /// card to bound the page. The slide moves no left edge and changes no
+    /// height.
+    private static func clippingRect(of view: NSView) -> CGRect {
+        var rect = view.convert(view.bounds, to: nil)
+        if let layer = view.layer, layer.animationKeys() != nil,
+           let presented = layer.presentation() {
+            rect.size.width += max(0, presented.bounds.width - layer.bounds.width)
+        }
+        return rect
     }
 }
