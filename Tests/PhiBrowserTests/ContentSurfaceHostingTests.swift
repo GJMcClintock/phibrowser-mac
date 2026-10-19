@@ -161,7 +161,138 @@ final class ContentSurfaceHostingTests: XCTestCase {
         }
     }
 
+    // MARK: - Page / AI Chat split across a cut-short slide
+
+    /// The split follows its host by autoresizing, which a slide animates.
+    /// Closing the panel mid-slide resizes the host again: the split must
+    /// go back with it, never wider than its card, and end at its width.
+    func testClosingTheSidePanelMidSlideLeavesTheSplitAtItsHostWidth() throws {
+        try assertClosingTheSlideShortKeepsTheSplitInItsHost(after: 0.1)
+    }
+
+    /// The same before the slide's first frame, while the split still has
+    /// its host's old width but is on its way to the narrowed one.
+    func testClosingTheSidePanelBeforeItsSlideStartsLeavesTheSplitAtItsHostWidth() throws {
+        try assertClosingTheSlideShortKeepsTheSplitInItsHost(after: 0)
+    }
+
+    /// Reopening the panel while it slides out: the split narrows with its
+    /// host, never narrower than its card, and ends at its width.
+    func testReopeningTheSidePanelMidSlideOutLeavesTheSplitAtItsHostWidth() throws {
+        WebContentContainerViewController.panelSlideDurationForTesting = 0.05
+        let fixture = try makeFixture()
+        let (split, superview) = try fixture.contentSplit()
+        fixture.slideInSidePanel()
+        waitUntil { !fixture.hosting.isHeld }
+        WebContentContainerViewController.panelSlideDurationForTesting = 60
+        fixture.container.detachExtensionSidePanel()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+        XCTAssertLessThan(split.frame.width, superview.bounds.width - 100,
+                          "precondition: the slide-out is still running")
+
+        WebContentContainerViewController.panelSlideDurationForTesting = 0.2
+        fixture.slideInSidePanel()
+        var narrowest = CGFloat.infinity
+        waitUntil({ !fixture.hosting.isHeld }) {
+            narrowest = min(narrowest, split.frame.width - superview.bounds.width)
+        }
+
+        XCTAssertFalse(fixture.hosting.isHeld, "the slide-in never ended")
+        XCTAssertGreaterThanOrEqual(narrowest, -0.5, "the split went narrower than its card")
+        XCTAssertEqual(split.frame.width, superview.bounds.width, accuracy: 0.5)
+    }
+
+    /// A window resize mid-slide, outside the slide's group, is put right
+    /// when the slide ends.
+    func testResizingTheWindowMidSlideLeavesTheSplitAtItsHostWidth() throws {
+        WebContentContainerViewController.panelSlideDurationForTesting = 0.5
+        let fixture = try makeFixture()
+        let (split, superview) = try fixture.contentSplit()
+        fixture.slideInSidePanel()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+        XCTAssertTrue(fixture.hosting.isHeld, "precondition: the slide is still running")
+
+        fixture.window.setContentSize(NSSize(width: 1300, height: 800))
+        waitUntil { !fixture.hosting.isHeld }
+
+        XCTAssertFalse(fixture.hosting.isHeld, "the slide never ended")
+        XCTAssertEqual(split.frame.width, superview.bounds.width, accuracy: 0.5)
+    }
+
+    /// Another tab's slide never moves this tab's split, so it must not
+    /// cancel the alignment this tab's own slide owes it: a window resize
+    /// mid-slide, then a switch to the other tab and a panel close there,
+    /// all before the slide ends.
+    func testAnotherTabsSlideLeavesTheFirstTabsSplitAtItsHostWidth() throws {
+        WebContentContainerViewController.panelSlideDurationForTesting = 0.5
+        let fixture = try makeFixture()
+        let tab = try XCTUnwrap(fixture.state.focusingTab)
+        let (split, superview) = try fixture.contentSplit()
+        fixture.slideInSidePanel()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+        fixture.window.setContentSize(NSSize(width: 1300, height: 800))
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+
+        fixture.state.focusingTab = fixture.otherTab
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        XCTAssertNil(split.window, "precondition: the first tab is unmounted")
+        XCTAssertNotNil(fixture.container.extensionSidePanelViewForTesting,
+                        "precondition: the panel is still open")
+        // The slide's completion puts the split on its superview, so a split
+        // still off it means that slide has not ended.
+        XCTAssertGreaterThan(abs(split.frame.width - superview.bounds.width), 1,
+                             "precondition: the first tab's slide is still running")
+        WebContentContainerViewController.panelSlideDurationForTesting = 0.2
+        fixture.container.detachExtensionSidePanel()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.8))
+        fixture.state.focusingTab = tab
+        RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+
+        XCTAssertEqual(split.frame.width, superview.bounds.width, accuracy: 0.5)
+    }
+
     // MARK: - Helpers
+
+    /// Closes the panel `delay` into a slide long enough that only the
+    /// close ends it, and follows the slide-out to its end.
+    private func assertClosingTheSlideShortKeepsTheSplitInItsHost(
+        after delay: TimeInterval,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws {
+        WebContentContainerViewController.panelSlideDurationForTesting = 60
+        let fixture = try makeFixture()
+        let (split, superview) = try fixture.contentSplit()
+        fixture.slideInSidePanel()
+        let panel = try XCTUnwrap(fixture.container.extensionSidePanelViewForTesting,
+                                  file: file, line: line)
+        if delay > 0 {
+            RunLoop.main.run(until: Date().addingTimeInterval(delay))
+        }
+
+        WebContentContainerViewController.panelSlideDurationForTesting = 0.2
+        fixture.container.detachExtensionSidePanel()
+        var widest = -CGFloat.infinity
+        waitUntil({ panel.superview == nil }) {
+            widest = max(widest, split.frame.width - superview.bounds.width)
+        }
+
+        XCTAssertNil(panel.superview, "the slide-out never ended", file: file, line: line)
+        XCTAssertLessThanOrEqual(widest, 0.5, "the split went wider than its card",
+                                 file: file, line: line)
+        XCTAssertEqual(split.frame.width, superview.bounds.width, accuracy: 0.5,
+                       file: file, line: line)
+    }
+
+    /// Runs the main run loop until `done` or two seconds pass, calling
+    /// `sample` on every turn.
+    private func waitUntil(_ done: () -> Bool, sampling sample: () -> Void = {}) {
+        let deadline = Date().addingTimeInterval(2)
+        while !done(), Date() < deadline {
+            sample()
+            RunLoop.main.run(until: Date().addingTimeInterval(0.005))
+        }
+    }
 
     /// The slide is long enough that only `interrupt` can end it.
     private func assertCuttingTheSlideShortReleasesTheHold(
@@ -227,6 +358,14 @@ final class ContentSurfaceHostingTests: XCTestCase {
             container.attachExtensionSidePanel(BrowserState.ExtensionSidePanelState(
                 extensionId: "test-extension", displayName: "Test Extension", iconPNG: nil,
                 wrapper: sidePanel))
+        }
+
+        /// The page / AI Chat split and the view it fills.
+        func contentSplit() throws -> (split: NSSplitView, superview: NSView) {
+            let page = try XCTUnwrap(
+                container.children.compactMap { $0 as? WebContentViewController }.first)
+            let split = page.contentSplitViewForTesting
+            return (split, try XCTUnwrap(split.superview))
         }
     }
 

@@ -301,9 +301,8 @@ class WebContentContainerViewController: NSViewController {
     /// synchronously and layout tests can assert the end state.
     static var panelSlideAnimationsDisabledForTesting = false
 
-    /// Test seam: the panel slide-in's duration, so a test can keep the
-    /// slide running while it cuts it short, or see it end; nil keeps
-    /// AppKit's.
+    /// Test seam: the panel slides' duration, so a test can keep a slide
+    /// running while it cuts it short, or see it end; nil keeps AppKit's.
     static var panelSlideDurationForTesting: TimeInterval?
 
     /// True when a panel attach/detach should settle immediately instead of
@@ -1720,6 +1719,7 @@ class WebContentContainerViewController: NSViewController {
         let pausedController = currentWebContentController
         pausedController?.setContentFrameSyncPausedForPanelTransition(true)
         holdContentSurfaceForPanelSlide()
+        let transition = pausedController?.beginPanelTransition()
         NSAnimationContext.runAnimationGroup({ context in
             if let duration = Self.panelSlideDurationForTesting {
                 context.duration = duration
@@ -1728,7 +1728,14 @@ class WebContentContainerViewController: NSViewController {
             panelView.translatesAutoresizingMaskIntoConstraints = false
             remakeContentLayout()
             view.layoutSubtreeIfNeeded()
+            // A slide-out this one cut short left the page split mid-flight.
+            pausedController?.retargetContentSplitForPanelTransition()
         }, completionHandler: { [weak self, weak pausedController] in
+            // First, so the frame sync and the surface below read the
+            // aligned size.
+            if let transition {
+                pausedController?.finishPanelTransition(transition)
+            }
             pausedController?.setContentFrameSyncPausedForPanelTransition(false)
             self?.releaseContentSurfaceHold()
             // Settle on completion only: during the slide the stale outline
@@ -1802,7 +1809,11 @@ class WebContentContainerViewController: NSViewController {
             closingExtensionSidePanelView = panelView
             let pausedController = currentWebContentController
             pausedController?.setContentFrameSyncPausedForPanelTransition(true)
+            let transition = pausedController?.beginPanelTransition()
             NSAnimationContext.runAnimationGroup({ context in
+                if let duration = Self.panelSlideDurationForTesting {
+                    context.duration = duration
+                }
                 context.allowsImplicitAnimation = true
                 // Freeze the card at its current frame, then slide it off
                 // the right edge; the layout funnel (no-panel solution now)
@@ -1832,7 +1843,12 @@ class WebContentContainerViewController: NSViewController {
                 panelView.frame.origin.x =
                     view.bounds.maxX + WebContentConstant.edgesSpacing
                 view.layoutSubtreeIfNeeded()
+                // A slide-in this one cut short left the page split mid-flight.
+                pausedController?.retargetContentSplitForPanelTransition()
             }, completionHandler: { [weak self, weak pausedController] in
+                if let transition {
+                    pausedController?.finishPanelTransition(transition)
+                }
                 pausedController?.setContentFrameSyncPausedForPanelTransition(false)
                 self?.settlePanelTransitionOuterBorder()
                 guard let self, self.closingExtensionSidePanelView === panelView

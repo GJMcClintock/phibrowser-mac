@@ -177,6 +177,11 @@ class WebContentViewController: NSViewController {
     /// Counts AI Chat expand/collapse transitions, so a completion handler
     /// can tell whether its transition is still the latest.
     private var aiChatTransitionCount = 0
+    /// Counts the container's extension side panel slides over this page, so
+    /// a slide's completion handler can tell whether its slide is still this
+    /// page's latest. Per page: another tab's slide never moves this split,
+    /// so it must not cancel the alignment this page's own slide owes it.
+    private var panelTransitionCount = 0
     
     /// Chromium's `restoreFocus` / `focus` silently fails on pages that haven't
     /// loaded yet (url=nil).  When set, the `$url` observer will re-trigger
@@ -342,6 +347,9 @@ class WebContentViewController: NSViewController {
 
     /// Test-only view of the page card (panel-separation style coverage).
     var leftContainerViewForTesting: NSView { leftContainerView }
+
+    /// Test-only view of the page / AI Chat split.
+    var contentSplitViewForTesting: NSSplitView { contentSplitViewController.splitView }
 
     /// Whether this page paints the themed vibrancy backdrop in the margins
     /// around its card. Follows its container's
@@ -3077,6 +3085,42 @@ class WebContentViewController: NSViewController {
             hostView.isFrameSyncPaused = false
             hostView.forceSyncAllSubviewFrames()
         }
+    }
+
+    /// Numbers a container side panel slide over this page, for
+    /// `finishPanelTransition(_:)`.
+    func beginPanelTransition() -> Int {
+        panelTransitionCount += 1
+        return panelTransitionCount
+    }
+
+    /// Aims the page / AI Chat split at the view it fills (its superview,
+    /// whatever wraps it), from inside a container side panel slide's group
+    /// after its layout. `NSSplitViewController` keeps the split as an
+    /// autoresizing subview, and a slide animates the split's own frame:
+    /// autoresizing adds each resize of the superview to the split's width
+    /// of the moment, so a second resize while a slide is under way (the
+    /// panel closed or reopened mid-slide) would leave the split wider or
+    /// narrower than its card for good. The new animation replaces the one
+    /// autoresizing just made and heads for the superview's bounds, which is
+    /// where an uninterrupted slide goes anyway.
+    func retargetContentSplitForPanelTransition() {
+        let splitView = contentSplitViewController.splitView
+        guard let superview = splitView.superview else { return }
+        splitView.animator().frame = superview.bounds
+    }
+
+    /// From a side panel slide's completion handler: puts the split on its
+    /// superview's bounds at once, which catches a resize made outside the
+    /// slide's group (the window resized mid-slide), but only after this
+    /// page's latest slide. AppKit also runs the completion of a slide that
+    /// a newer one replaced, partway through the newer one.
+    func finishPanelTransition(_ transition: Int) {
+        let splitView = contentSplitViewController.splitView
+        guard transition == panelTransitionCount, let superview = splitView.superview,
+              splitView.frame != superview.bounds else { return }
+        splitView.frame = superview.bounds
+        view.layoutSubtreeIfNeeded()
     }
 
     /// Detaches an expanded AI Chat from the split layout right before the
