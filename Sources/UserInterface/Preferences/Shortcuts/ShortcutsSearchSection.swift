@@ -69,7 +69,7 @@ struct ShortcutsFilterMenu: View {
                 .frame(width: ShortcutsSearchLayout.controlHeight, height: ShortcutsSearchLayout.controlHeight)
                 .background {
                     RoundedRectangle(cornerRadius: 7, style: .continuous)
-                        .themedFill(isHovered ? .hover : .clear)
+                        .themedFill(selection != .all || isHovered ? .hover : .clear)
                 }
                 .contentShape(Rectangle())
                 .onHover { isHovered = $0 }
