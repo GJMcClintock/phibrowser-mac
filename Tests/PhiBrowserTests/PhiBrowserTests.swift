@@ -10,6 +10,27 @@ import SwiftUI
 @testable import Phi
 
 final class PhiBrowserTests: XCTestCase {
+
+    /// In-memory fixtures never write the signed-in account's configuration.
+    private var shortcutOverrides: [CommandWrapper: ShortcutOverride] {
+        get {
+            Dictionary(uniqueKeysWithValues: Shortcuts.configuration.overrides.compactMap { id, value in
+                CommandWrapper(rawValue: id).map { ($0, value) }
+            })
+        }
+        set {
+            Shortcuts.configuration = ShortcutConfiguration(
+                overrides: Dictionary(uniqueKeysWithValues: newValue.map { ($0.key.rawValue, $0.value) }),
+                fileURL: Shortcuts.configuration.fileURL,
+                files: .init(
+                    read: { _ in throw CocoaError(.fileReadNoPermission) },
+                    write: { _, _ in throw CocoaError(.fileWriteNoPermission) },
+                    backup: { _, _ in throw CocoaError(.fileWriteNoPermission) }
+                )
+            )
+        }
+    }
+
     private enum InputSource {
         static let us = "com.apple.keylayout.US"
         static let russian = "com.apple.keylayout.Russian"
@@ -101,7 +122,7 @@ final class PhiBrowserTests: XCTestCase {
             NavigationsSettingsView.globalShortcutTitle(
                 shortcutDescription: "⌘⌥N"
             ),
-            "Open Kiosk when press ⌘⌥N in any app"
+            "Open Kiosk when pressing ⌘⌥N in any app"
         )
     }
 
@@ -111,17 +132,17 @@ final class PhiBrowserTests: XCTestCase {
         )
 
         XCTAssertNil(
-            KioskGlobalShortcutRegistrar.configuration(
+            KioskGlobalShortcutRegistrar.configurations(
                 for: shortcut,
                 isEnabled: false
-            )
+            ).first
         )
 
         let configuration = try XCTUnwrap(
-            KioskGlobalShortcutRegistrar.configuration(
+            KioskGlobalShortcutRegistrar.configurations(
                 for: shortcut,
                 isEnabled: true
-            )
+            ).first
         )
         XCTAssertEqual(configuration.keyCode, UInt32(kVK_ANSI_N))
         XCTAssertEqual(
@@ -175,17 +196,17 @@ final class PhiBrowserTests: XCTestCase {
     }
 
     func testKioskSpaceShortcutsIgnoreOrdinaryWindowOverrides() throws {
-        let previousOverrides = Shortcuts.overridedShortcuts
+        let previousConfiguration = Shortcuts.configuration
         defer {
-            Shortcuts.overridedShortcuts = previousOverrides
+            Shortcuts.configuration = previousConfiguration
             CommandDispatcher.reloadPhiShortcutMap()
         }
-        Shortcuts.overridedShortcuts = [:]
+        shortcutOverrides = [:]
         CommandDispatcher.reloadPhiShortcutMap()
-        Shortcuts.overridedShortcuts[.IDC_OPEN_FILE] = ShortcutsKey(
+        shortcutOverrides[.IDC_OPEN_FILE] = .custom(ShortcutsKey(
             characters: "p", modifiers: [.command, .shift]
-        )
-        Shortcuts.overridedShortcuts[.PHI_TOGGLE_SIDEBAR] = .some(nil)
+        ))
+        shortcutOverrides[.PHI_TOGGLE_SIDEBAR] = .disabled
 
         for (character, modifiers, command) in [
             ("o", NSEvent.ModifierFlags.command, CommandWrapper.PHI_KIOSK_OPEN_IN_SPACE),
@@ -210,9 +231,9 @@ final class PhiBrowserTests: XCTestCase {
     }
 
     func testKioskSpaceShortcutsSupportRebindingDisablingAndRestoring() throws {
-        let previousOverrides = Shortcuts.overridedShortcuts
-        defer { Shortcuts.overridedShortcuts = previousOverrides }
-        Shortcuts.overridedShortcuts = [:]
+        let previousConfiguration = Shortcuts.configuration
+        defer { Shortcuts.configuration = previousConfiguration }
+        shortcutOverrides = [:]
         for (character, modifiers, command) in [
             ("o", NSEvent.ModifierFlags.command, CommandWrapper.PHI_KIOSK_OPEN_IN_SPACE),
             ("O", NSEvent.ModifierFlags([.command, .shift]), CommandWrapper.PHI_KIOSK_CHOOSE_SPACE),
@@ -225,9 +246,9 @@ final class PhiBrowserTests: XCTestCase {
                 characters: "o", charactersIgnoringModifiers: "o",
                 modifiers: [.command, .control], keyCode: UInt16(kVK_ANSI_O)
             )
-            Shortcuts.overridedShortcuts[command] = ShortcutsKey(
+            shortcutOverrides[command] = .custom(ShortcutsKey(
                 characters: "o", modifiers: [.command, .control]
-            )
+            ))
             XCTAssertNil(CommandDispatcher.interceptedKioskCommand(
                 for: originalEvent, inputSourceIdentifier: InputSource.us
             ))
@@ -235,14 +256,14 @@ final class PhiBrowserTests: XCTestCase {
                 for: customEvent, inputSourceIdentifier: InputSource.us
             ), command)
 
-            Shortcuts.overridedShortcuts[command] = .some(nil)
+            shortcutOverrides[command] = .disabled
             XCTAssertNil(CommandDispatcher.interceptedKioskCommand(
                 for: customEvent, inputSourceIdentifier: InputSource.us
             ))
             XCTAssertNil(CommandDispatcher.interceptedKioskCommand(
                 for: originalEvent, inputSourceIdentifier: InputSource.us
             ))
-            Shortcuts.overridedShortcuts.removeValue(forKey: command)
+            shortcutOverrides.removeValue(forKey: command)
             XCTAssertEqual(CommandDispatcher.interceptedKioskCommand(
                 for: originalEvent, inputSourceIdentifier: InputSource.us
             ), command)
@@ -255,17 +276,17 @@ final class PhiBrowserTests: XCTestCase {
 
     @MainActor
     func testKioskShortcutSettingsIgnoreCommandsUnavailableInKiosk() throws {
-        let previousOverrides = Shortcuts.overridedShortcuts
-        defer { Shortcuts.overridedShortcuts = previousOverrides }
-        Shortcuts.overridedShortcuts = [:]
+        let previousConfiguration = Shortcuts.configuration
+        defer { Shortcuts.configuration = previousConfiguration }
+        shortcutOverrides = [:]
         let viewModel = ShortcutsViewModel()
 
         for command in [
             CommandWrapper.PHI_NEW_CONVERSATION, .PHI_TOGGLE_CHATBAR,
             .IDC_TAB_SEARCH, .IDC_DEV_TOOLS,
         ] {
-            Shortcuts.overridedShortcuts[.PHI_KIOSK_CHOOSE_SPACE] =
-                try XCTUnwrap(Shortcuts.key(for: command))
+            shortcutOverrides[.PHI_KIOSK_CHOOSE_SPACE] =
+                .custom(try XCTUnwrap(Shortcuts.key(for: command)))
             viewModel.rebuildSections()
             let items = viewModel.sections.flatMap(\.items)
             let picker = try XCTUnwrap(items.first {
@@ -276,8 +297,8 @@ final class PhiBrowserTests: XCTestCase {
             XCTAssertFalse(other.conflictingCommandNames.contains(picker.name))
         }
 
-        Shortcuts.overridedShortcuts[.PHI_KIOSK_CHOOSE_SPACE] =
-            Shortcuts.key(for: .PHI_NEW_CONVERSATION)
+        shortcutOverrides[.PHI_KIOSK_CHOOSE_SPACE] =
+            .custom(try XCTUnwrap(Shortcuts.key(for: .PHI_NEW_CONVERSATION)))
         let event = try makeShortcutKeyEvent(
             characters: "O", charactersIgnoringModifiers: "O",
             modifiers: [.command, .shift], keyCode: UInt16(kVK_ANSI_O)
@@ -289,9 +310,9 @@ final class PhiBrowserTests: XCTestCase {
 
     @MainActor
     func testKioskShortcutSettingsSeparateWindowContextsButReportSharedConflicts() throws {
-        let previousOverrides = Shortcuts.overridedShortcuts
-        defer { Shortcuts.overridedShortcuts = previousOverrides }
-        Shortcuts.overridedShortcuts = [:]
+        let previousConfiguration = Shortcuts.configuration
+        defer { Shortcuts.configuration = previousConfiguration }
+        shortcutOverrides = [:]
         let viewModel = ShortcutsViewModel()
         let section = try XCTUnwrap(viewModel.sections.first {
             $0.category == Shortcuts.Group.kiosk.title
@@ -299,8 +320,8 @@ final class PhiBrowserTests: XCTestCase {
         XCTAssertEqual(section.items.map(\.command), Shortcuts.Group.kiosk.commands)
         XCTAssertTrue(section.items.allSatisfy { !$0.hasConflict })
 
-        Shortcuts.overridedShortcuts[.PHI_KIOSK_CHOOSE_SPACE] =
-            Shortcuts.key(for: .PHI_COPY_URL)
+        shortcutOverrides[.PHI_KIOSK_CHOOSE_SPACE] =
+            .custom(try XCTUnwrap(Shortcuts.key(for: .PHI_COPY_URL)))
         viewModel.rebuildSections()
         let items = viewModel.sections.flatMap(\.items)
         XCTAssertTrue(try XCTUnwrap(items.first {
@@ -313,8 +334,8 @@ final class PhiBrowserTests: XCTestCase {
             $0.command == .PHI_TOGGLE_SIDEBAR
         }).hasConflict)
 
-        Shortcuts.overridedShortcuts[.PHI_KIOSK_CHOOSE_SPACE] =
-            Shortcuts.key(for: .PHI_KIOSK_OPEN_IN_SPACE)
+        shortcutOverrides[.PHI_KIOSK_CHOOSE_SPACE] =
+            .custom(try XCTUnwrap(Shortcuts.key(for: .PHI_KIOSK_OPEN_IN_SPACE)))
         viewModel.rebuildSections()
         let kioskItems = try XCTUnwrap(viewModel.sections.first {
             $0.category == Shortcuts.Group.kiosk.title
@@ -323,12 +344,12 @@ final class PhiBrowserTests: XCTestCase {
     }
 
     func testNewKioskWindowShortcutInterceptsChromiumNewSplitTabShortcut() throws {
-        let previousOverrides = Shortcuts.overridedShortcuts
+        let previousConfiguration = Shortcuts.configuration
         defer {
-            Shortcuts.overridedShortcuts = previousOverrides
+            Shortcuts.configuration = previousConfiguration
             CommandDispatcher.reloadPhiShortcutMap()
         }
-        Shortcuts.overridedShortcuts.removeValue(forKey: .PHI_NEW_KIOSK_WINDOW)
+        shortcutOverrides.removeValue(forKey: .PHI_NEW_KIOSK_WINDOW)
         CommandDispatcher.reloadPhiShortcutMap()
 
         let event = try makeShortcutKeyEvent(
@@ -349,15 +370,15 @@ final class PhiBrowserTests: XCTestCase {
     }
 
     func testChromiumNewSplitTabShortcutFallsThroughAfterKioskShortcutChanges() throws {
-        let previousOverrides = Shortcuts.overridedShortcuts
+        let previousConfiguration = Shortcuts.configuration
         defer {
-            Shortcuts.overridedShortcuts = previousOverrides
+            Shortcuts.configuration = previousConfiguration
             CommandDispatcher.reloadPhiShortcutMap()
         }
-        Shortcuts.overridedShortcuts[.PHI_NEW_KIOSK_WINDOW] = ShortcutsKey(
+        shortcutOverrides[.PHI_NEW_KIOSK_WINDOW] = .custom(ShortcutsKey(
             characters: "k",
             modifiers: [.command, .control]
-        )
+        ))
         CommandDispatcher.reloadPhiShortcutMap()
 
         let splitTabEvent = try makeShortcutKeyEvent(
@@ -389,12 +410,12 @@ final class PhiBrowserTests: XCTestCase {
     }
 
     func testNewIncognitoSpaceShortcutIsIntercepted() throws {
-        let previousOverrides = Shortcuts.overridedShortcuts
+        let previousConfiguration = Shortcuts.configuration
         defer {
-            Shortcuts.overridedShortcuts = previousOverrides
+            Shortcuts.configuration = previousConfiguration
             CommandDispatcher.reloadPhiShortcutMap()
         }
-        Shortcuts.overridedShortcuts.removeValue(forKey: .PHI_NEW_INCOGNITO_SPACE)
+        shortcutOverrides.removeValue(forKey: .PHI_NEW_INCOGNITO_SPACE)
         CommandDispatcher.reloadPhiShortcutMap()
 
         let event = try makeShortcutKeyEvent(
@@ -414,10 +435,10 @@ final class PhiBrowserTests: XCTestCase {
     }
 
     func testFileMenuInstallsPhiItemsBelowIncognitoWindow() throws {
-        let previousOverrides = Shortcuts.overridedShortcuts
-        defer { Shortcuts.overridedShortcuts = previousOverrides }
-        Shortcuts.overridedShortcuts.removeValue(forKey: .PHI_NEW_KIOSK_WINDOW)
-        Shortcuts.overridedShortcuts.removeValue(forKey: .PHI_NEW_INCOGNITO_SPACE)
+        let previousConfiguration = Shortcuts.configuration
+        defer { Shortcuts.configuration = previousConfiguration }
+        shortcutOverrides.removeValue(forKey: .PHI_NEW_KIOSK_WINDOW)
+        shortcutOverrides.removeValue(forKey: .PHI_NEW_INCOGNITO_SPACE)
 
         let menu = NSMenu(title: "File")
         let incognitoItem = NSMenuItem(
@@ -484,10 +505,10 @@ final class PhiBrowserTests: XCTestCase {
             [.control]
         )
 
-        Shortcuts.overridedShortcuts[.PHI_NEW_KIOSK_WINDOW] = ShortcutsKey(
+        shortcutOverrides[.PHI_NEW_KIOSK_WINDOW] = .custom(ShortcutsKey(
             characters: "k",
             modifiers: [.command, .control]
-        )
+        ))
         AppController.installOrUpdateFileMenuItems(in: menu, target: nil)
         let customizedItem = try XCTUnwrap(menu.items.first {
             $0.tag == CommandWrapper.PHI_NEW_KIOSK_WINDOW.rawValue
@@ -498,10 +519,10 @@ final class PhiBrowserTests: XCTestCase {
             [.command, .control]
         )
 
-        Shortcuts.overridedShortcuts[.PHI_NEW_INCOGNITO_SPACE] = ShortcutsKey(
+        shortcutOverrides[.PHI_NEW_INCOGNITO_SPACE] = .custom(ShortcutsKey(
             characters: "i",
             modifiers: [.command, .control]
-        )
+        ))
         AppController.installOrUpdateFileMenuItems(in: menu, target: nil)
         let customizedIncognitoSpaceItem = try XCTUnwrap(menu.items.first {
             $0.tag == CommandWrapper.PHI_NEW_INCOGNITO_SPACE.rawValue
@@ -514,9 +535,9 @@ final class PhiBrowserTests: XCTestCase {
     }
 
     func testFileMenuInstallsSharePageAbovePrintAndRemovesChromiumShareSubmenu() throws {
-        let previousOverrides = Shortcuts.overridedShortcuts
-        defer { Shortcuts.overridedShortcuts = previousOverrides }
-        Shortcuts.overridedShortcuts.removeValue(forKey: .PHI_SHARE_PAGE)
+        let previousConfiguration = Shortcuts.configuration
+        defer { Shortcuts.configuration = previousConfiguration }
+        shortcutOverrides.removeValue(forKey: .PHI_SHARE_PAGE)
 
         let menu = NSMenu(title: "File")
         menu.addItem(.separator())
@@ -566,10 +587,10 @@ final class PhiBrowserTests: XCTestCase {
             )
         }
 
-        Shortcuts.overridedShortcuts[.PHI_SHARE_PAGE] = ShortcutsKey(
+        shortcutOverrides[.PHI_SHARE_PAGE] = .custom(ShortcutsKey(
             characters: "u",
             modifiers: [.command, .control]
-        )
+        ))
         AppController.installOrUpdateFileMenuItems(in: menu, target: nil)
         let customizedItem = try XCTUnwrap(menu.items.first {
             $0.tag == CommandWrapper.PHI_SHARE_PAGE.rawValue
@@ -681,7 +702,7 @@ final class PhiBrowserTests: XCTestCase {
 
         XCTAssertEqual(recordedKey, copyURLKey)
         XCTAssertEqual(recordedKey.characters, "c")
-        XCTAssertEqual(recordedKey.displayString, "⌘⇧C")
+        XCTAssertEqual(recordedKey.displayString, "⇧⌘C")
     }
 
     func testCyrillicCommandCaptureUsesLatinShiftedMenuEquivalent() throws {
@@ -702,7 +723,7 @@ final class PhiBrowserTests: XCTestCase {
 
         XCTAssertEqual(recordedKey.characters, "p")
         XCTAssertEqual(recordedKey.modifiers, [.command, .shift])
-        XCTAssertEqual(recordedKey.displayString, "⌘⇧P")
+        XCTAssertEqual(recordedKey.displayString, "⇧⌘P")
         XCTAssertEqual(menuKey.characters, "P")
         XCTAssertEqual(menuKey.modifiers, [.command])
     }
@@ -806,17 +827,17 @@ final class PhiBrowserTests: XCTestCase {
     }
 
     func testShortcutViewModelReportsMenuEquivalentConflict() throws {
-        let previousOverrides = Shortcuts.overridedShortcuts
-        defer { Shortcuts.overridedShortcuts = previousOverrides }
-        Shortcuts.overridedShortcuts = [
-            .IDC_BACK: ShortcutsKey(
+        let previousConfiguration = Shortcuts.configuration
+        defer { Shortcuts.configuration = previousConfiguration }
+        shortcutOverrides = [
+            .IDC_BACK: .custom(ShortcutsKey(
                 characters: "+",
                 modifiers: [.command, .shift]
-            ),
-            .IDC_FORWARD: ShortcutsKey(
+            )),
+            .IDC_FORWARD: .custom(ShortcutsKey(
                 characters: "+",
                 modifiers: [.command]
-            ),
+            )),
         ]
 
         let viewModel = ShortcutsViewModel()
@@ -877,9 +898,9 @@ final class PhiBrowserTests: XCTestCase {
     }
 
     func testShortcutViewModelPresentsBracketDefaultsWithoutFalseConflicts() throws {
-        let previousOverrides = Shortcuts.overridedShortcuts
-        defer { Shortcuts.overridedShortcuts = previousOverrides }
-        Shortcuts.overridedShortcuts = [:]
+        let previousConfiguration = Shortcuts.configuration
+        defer { Shortcuts.configuration = previousConfiguration }
+        shortcutOverrides = [:]
 
         let viewModel = ShortcutsViewModel()
         let items = viewModel.sections.flatMap(\.items)
@@ -890,17 +911,19 @@ final class PhiBrowserTests: XCTestCase {
             items.first { $0.command == .IDC_SELECT_NEXT_TAB }
         )
 
-        XCTAssertEqual(previousTabItem.shortcutDisplay, "⌘⇧[")
-        XCTAssertFalse(previousTabItem.hasConflict)
-        XCTAssertEqual(nextTabItem.shortcutDisplay, "⌘⇧]")
-        XCTAssertFalse(nextTabItem.hasConflict)
+        XCTAssertEqual(previousTabItem.shortcutDisplay, "⇧⌘[")
+        let back = try XCTUnwrap(items.first { $0.command == .IDC_BACK })
+        XCTAssertFalse(previousTabItem.conflictingCommandNames.contains(back.name))
+        XCTAssertEqual(nextTabItem.shortcutDisplay, "⇧⌘]")
+        let forward = try XCTUnwrap(items.first { $0.command == .IDC_FORWARD })
+        XCTAssertFalse(nextTabItem.conflictingCommandNames.contains(forward.name))
     }
 
     func testNativeMenuWriterProjectsDefaultShiftedPrintableShortcut() {
         let command = CommandWrapper.PHI_TOGGLE_CHATBAR
-        let previousOverrides = Shortcuts.overridedShortcuts
-        defer { Shortcuts.overridedShortcuts = previousOverrides }
-        Shortcuts.overridedShortcuts.removeValue(forKey: command)
+        let previousConfiguration = Shortcuts.configuration
+        defer { Shortcuts.configuration = previousConfiguration }
+        shortcutOverrides.removeValue(forKey: command)
 
         let item = NSMenuItem(
             title: "Toggle Chatbar",
@@ -933,6 +956,43 @@ final class PhiBrowserTests: XCTestCase {
             ),
             .PHI_COPY_URL
         )
+    }
+
+    func testShortcutMatchingPrefersExactStoredKeyOverMenuEquivalent() throws {
+        let event = try makeShortcutKeyEvent(
+            characters: "+", charactersIgnoringModifiers: "+",
+            modifiers: [.command, .shift], keyCode: UInt16(kVK_ANSI_Equal)
+        )
+        let exact = ShortcutsKey(characters: "+", modifiers: [.command, .shift])
+        let equivalent = ShortcutsKey(characters: "+", modifiers: .command)
+        let keys = try XCTUnwrap(ShortcutsKey.eventKeys(for: event, inputSourceIdentifier: InputSource.us))
+        XCTAssertTrue(keys.matches(exact))
+        XCTAssertTrue(keys.matches(equivalent))
+        XCTAssertFalse(keys.matches(nil))
+        XCTAssertFalse(keys.matches(ShortcutsKey(characters: "+", modifiers: [.command, .option])))
+        XCTAssertEqual(CommandDispatcher.matchedPhiCommand(
+            for: event, shortcutMap: [equivalent: .PHI_COPY_URL, exact: .PHI_TOGGLE_READER],
+            inputSourceIdentifier: InputSource.us
+        ), .PHI_TOGGLE_READER)
+    }
+
+    func testShortcutMenuEquivalentTieUsesStableCommandOrder() throws {
+        let event = try makeShortcutKeyEvent(
+            characters: "C", charactersIgnoringModifiers: "C", modifiers: [.command, .shift]
+        )
+        // Both stored forms project to Command-Capital-C, while neither is
+        // the canonical lower-case c plus Shift. Old files can contain both.
+        let first = ShortcutsKey(characters: "C", modifiers: .command)
+        let second = ShortcutsKey(characters: "C", modifiers: [.command, .shift])
+        XCTAssertEqual(first.menuKeyEquivalent, second.menuKeyEquivalent)
+        let expected = [CommandWrapper.PHI_COPY_URL, .PHI_TOGGLE_READER].min { $0.rawValue < $1.rawValue }
+        for pairs in [[(first, CommandWrapper.PHI_COPY_URL), (second, .PHI_TOGGLE_READER)],
+                      [(second, CommandWrapper.PHI_TOGGLE_READER), (first, .PHI_COPY_URL)]] {
+            XCTAssertEqual(CommandDispatcher.matchedPhiCommand(
+                for: event, shortcutMap: Dictionary(uniqueKeysWithValues: pairs),
+                inputSourceIdentifier: InputSource.us
+            ), expected)
+        }
     }
 
     func testLatinAndCyrillicEventsResolveToSameCanonicalShortcut() throws {
@@ -1160,9 +1220,9 @@ final class PhiBrowserTests: XCTestCase {
         let event = try makeShortcutKeyEvent(
             characters: "C",
             charactersIgnoringModifiers: "\u{0421}",
-            modifiers: [.shift]
+            modifiers: [.control, .shift]
         )
-        let shiftOnlyKey = ShortcutsKey(characters: "c", modifiers: [.shift])
+        let shortcut = ShortcutsKey(characters: "c", modifiers: [.control, .shift])
         let recordedKey = try XCTUnwrap(
             ShortcutsKey.recordingKey(
                 for: event,
@@ -1172,13 +1232,22 @@ final class PhiBrowserTests: XCTestCase {
 
         let command = CommandDispatcher.matchedPhiCommand(
             for: event,
-            shortcutMap: [shiftOnlyKey: .PHI_COPY_URL],
+            shortcutMap: [shortcut: .PHI_COPY_URL],
             inputSourceIdentifier: InputSource.russian
         )
 
-        XCTAssertEqual(recordedKey, shiftOnlyKey)
-        XCTAssertEqual(recordedKey.displayString, "⇧C")
+        XCTAssertEqual(recordedKey, shortcut)
+        XCTAssertEqual(recordedKey.displayString, "⌃⇧C")
         XCTAssertEqual(command, .PHI_COPY_URL)
+    }
+
+    func testLegacyShiftOnlyASCIIShortcutMatchesWithoutAllowingNewRecording() throws {
+        let event = try makeShortcutKeyEvent(characters: "C", charactersIgnoringModifiers: "\u{0421}", modifiers: .shift)
+        let key = ShortcutsKey(characters: "c", modifiers: .shift)
+        XCTAssertNil(ShortcutsKey.recordingKey(for: event, inputSourceIdentifier: InputSource.russian))
+        XCTAssertEqual(ShortcutsKey.eventKeys(for: event, inputSourceIdentifier: InputSource.russian)?.canonical, key)
+        XCTAssertEqual(CommandDispatcher.matchedPhiCommand(for: event,
+            shortcutMap: [key: .PHI_COPY_URL], inputSourceIdentifier: InputSource.russian), .PHI_COPY_URL)
     }
 
     func testNonASCIICaptureKeepsSemanticKeyWithoutASCIIEquivalent() throws {
@@ -1200,7 +1269,7 @@ final class PhiBrowserTests: XCTestCase {
         )
 
         XCTAssertEqual(recordedKey, semanticKey)
-        XCTAssertEqual(recordedKey.displayString, "⇧⌃П")
+        XCTAssertEqual(recordedKey.displayString, "⌃⇧П")
         XCTAssertEqual(
             CommandDispatcher.matchedPhiCommand(
                 for: event,
@@ -1313,7 +1382,7 @@ final class PhiBrowserTests: XCTestCase {
         )
 
         XCTAssertEqual(shortcut.keycapTokens, ["⌃", "⌥", "←"])
-        XCTAssertEqual(shortcut.displayString, "⌥⌃←")
+        XCTAssertEqual(shortcut.displayString, "⌃⌥←")
     }
 
     func testShortcutCaptureNormalizesShiftTabToTabCharacter() throws {
@@ -1341,7 +1410,7 @@ final class PhiBrowserTests: XCTestCase {
 
         XCTAssertEqual(shortcut.characters, "\t")
         XCTAssertEqual(shortcut.modifiers, [.control, .shift])
-        XCTAssertEqual(shortcut.displayString, "⇧⌃⇥")
+        XCTAssertEqual(shortcut.displayString, "⌃⇧⇥")
         XCTAssertEqual(shortcut.menuKeyEquivalent.characters, "\t")
         XCTAssertEqual(shortcut.menuKeyEquivalent.modifiers, [.control, .shift])
     }
@@ -1980,9 +2049,9 @@ final class PhiBrowserTests: XCTestCase {
     }
 
     func testBookmarkMenuContentBuilderAddsBookmarkThisTabAndRecursiveBookmarks() {
-        let previousOverrides = Shortcuts.overridedShortcuts
-        defer { Shortcuts.overridedShortcuts = previousOverrides }
-        Shortcuts.overridedShortcuts[.IDC_SHOW_BOOKMARK_MANAGER] = .some(nil)
+        let previousConfiguration = Shortcuts.configuration
+        defer { Shortcuts.configuration = previousConfiguration }
+        shortcutOverrides[.IDC_SHOW_BOOKMARK_MANAGER] = .disabled
 
         let rootBookmark = Bookmark(title: "Phi", url: "https://phibrowser.com")
         let folder = Bookmark(folderTitle: "Favorites")
@@ -2025,8 +2094,8 @@ final class PhiBrowserTests: XCTestCase {
         let managerItem = menu.items.dropFirst(3).first
         XCTAssertEqual(managerItem?.tag, CommandWrapper.IDC_SHOW_BOOKMARK_MANAGER.rawValue)
         XCTAssertEqual(managerItem?.action, #selector(BookmarkMenuTestTarget.menuAction(_:)))
-        XCTAssertEqual(managerItem?.keyEquivalent, "b")
-        XCTAssertEqual(managerItem?.keyEquivalentModifierMask, [.command, .option])
+        XCTAssertEqual(managerItem?.keyEquivalent, "")
+        XCTAssertEqual(managerItem?.keyEquivalentModifierMask, [])
         XCTAssertEqual(
             menu.items.dropFirst(4).first?.title,
             NSLocalizedString("app.bookmarksMenu.exportCurrentSpace", value: "Export Bookmarks...", comment: "Bookmarks menu - Menu item to export the current Space's bookmarks to an HTML file")

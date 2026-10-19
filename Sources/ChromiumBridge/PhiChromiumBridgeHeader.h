@@ -727,7 +727,8 @@ typedef NS_ENUM(NSInteger, PhiGhostMaterializeOutcome) {
 /// call when the replay produced one.
 - (void)restoredWindowSnapshot:(NSDictionary<NSString *, id> *)snapshot
                       windowId:(int64_t)windowId;
-// Returns a custom shortcut override, or nil to use Chromium defaults.
+// Returns keyEquivalent/modifierFlags to replace all bindings, or
+// excludedKeyEquivalents to remove matching defaults only. Nil inherits defaults.
 - (nullable NSDictionary<NSString*, id>*)keyEquivalentOverrideForCommand:
     (int)commandId;
 
@@ -1708,6 +1709,10 @@ typedef NS_ENUM(NSInteger, PhiGhostMaterializeOutcome) {
 
 // Asks Chromium to rebuild the main menu after shortcut settings change.
 - (void)requestRebuildMainMenu;
+
+// Main thread only. Effective hidden aliases, including WebContents-only ones.
+// Each entry contains commandId, keyEquivalent, modifierFlags, and source.
+- (NSArray<NSDictionary<NSString*, id>*>*)shortcutBindings;
 
 /// Whether UMA metrics + crash reporting is enabled — the state of the
 /// "Help improve Phi's features and performance" toggle in chrome://settings.

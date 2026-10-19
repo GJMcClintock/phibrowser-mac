@@ -281,7 +281,6 @@ extension AppController {
     static let manageUserDataHelpSeparatorTag = 500012
     static let manageUserDataParentItemTag = 500013
     static let timeMachineBackupsParentItemTag = 500014
-    static let toggleBookmarkBarItemTag = 500003
     static let toggleBookmarkBarOnNewTabItemTag = 500004
     static let layoutModeDefaultItemTag = 500005
     static let layoutModeNavigationAtTopItemTag = 500006
@@ -324,6 +323,7 @@ extension AppController {
             AppLogWarn("⚠️ NSApp is nil — startObservingMainMenu() called too early.")
             return
         }
+        startObservingServiceShortcuts()
         menuObservation = app.observe(\.mainMenu, options: [.new, .old]) { [weak self] app, change in
             AppLogDebug("Main menu changed: \(change)")
             self?.hookAndRebuildMainMenu()
@@ -344,6 +344,50 @@ extension AppController {
                 self.refreshPrefGatedMenuItems()
             }
         }
+    }
+
+    /// Reserve Tab Search's default chord within Phi, without changing the
+    /// user's Services preferences or removing the service's menu action.
+    func startObservingServiceShortcuts() {
+        let center = NotificationCenter.default
+        for name in [NSMenu.didAddItemNotification, NSMenu.didChangeItemNotification,
+                     NSMenu.didBeginTrackingNotification] {
+            center.removeObserver(self, name: name, object: nil)
+            center.addObserver(self, selector: #selector(serviceMenuItemsDidChange(_:)),
+                               name: name, object: nil)
+        }
+        if let menu = NSApp.mainMenu { Self.suppressReservedServiceShortcut(in: menu) }
+        if let menu = NSApp.servicesMenu { Self.suppressReservedServiceShortcut(in: menu) }
+    }
+
+    @objc private func serviceMenuItemsDidChange(_ notification: Notification) {
+        guard let menu = notification.object as? NSMenu else { return }
+        if let index = notification.userInfo?["NSMenuItemIndex"] as? Int,
+           menu.items.indices.contains(index) {
+            Self.suppressReservedServiceShortcut(on: menu.items[index])
+        } else {
+            Self.suppressReservedServiceShortcut(in: menu)
+        }
+    }
+
+    static func suppressReservedServiceShortcut(in menu: NSMenu) {
+        menu.items.forEach { suppressReservedServiceShortcut(on: $0) }
+    }
+
+    private static func suppressReservedServiceShortcut(on item: NSMenuItem) {
+        if let submenu = item.submenu { suppressReservedServiceShortcut(in: submenu) }
+        // AppKit dispatches Services through this selector, including items in
+        // replacement menus that no longer equal NSApp.servicesMenu.
+        guard item.action == NSSelectorFromString("_processRequest:") else { return }
+        let declared = item.keyEquivalent.isEmpty ? (item.copy() as? NSMenuItem ?? item) : item
+        let key = ShortcutsKey(characters: declared.keyEquivalent,
+                               modifiers: declared.keyEquivalentModifierMask)
+        let reserved = ShortcutsKey(characters: "a", modifiers: [.command, .shift])
+        guard key.menuKeyEquivalent == reserved.menuKeyEquivalent else { return }
+        // Explicitly clear the declared key too, so detached inventory copies
+        // cannot restore it. Reentrant change notifications see an empty key.
+        item.keyEquivalent = ""
+        item.keyEquivalentModifierMask = []
     }
     
     /// Schedules the main-menu hook so pref-gated items appear or disappear
@@ -370,6 +414,7 @@ extension AppController {
         guard let mainMenu = NSApp.mainMenu else {
             return
         }
+        Self.suppressReservedServiceShortcut(in: mainMenu)
 
         var hasBookmarksMenu = false
         for menuItem in mainMenu.items {
@@ -390,7 +435,7 @@ extension AppController {
                     item.tag == CommandWrapper.PHI_TOGGLE_READER.rawValue ||
                     item.tag == AppController.viewLibraryItemTag ||
                     item.tag == AppController.viewMenuPhiSectionSeparatorTag ||
-                    item.tag == AppController.toggleBookmarkBarItemTag ||
+                    item.tag == CommandWrapper.IDC_SHOW_BOOKMARK_BAR.rawValue ||
                     item.tag == AppController.toggleBookmarkBarOnNewTabItemTag ||
                     item.tag == AppController.layoutModeDefaultItemTag ||
                     item.tag == AppController.layoutModeNavigationAtTopItemTag ||
@@ -456,9 +501,8 @@ extension AppController {
                 submenu.addItem(bookmarkBarSeparator)
                 let toggleBookmarkBarItem = NSMenuItem(title: NSLocalizedString("app.viewMenu.alwaysShowBookmarkBar", value: "Always Show Bookmark Bar", comment: "View menu - Menu item to always show the bookmark bar"),
                                                    action: #selector(toggleBookmarkBar(_:)),
-                                                   keyEquivalent: "b")
-                toggleBookmarkBarItem.keyEquivalentModifierMask = [.command, .shift]
-                toggleBookmarkBarItem.tag = AppController.toggleBookmarkBarItemTag
+                                                   keyEquivalent: "")
+                applyEffectiveShortcut(.IDC_SHOW_BOOKMARK_BAR, to: toggleBookmarkBarItem)
                 toggleBookmarkBarItem.target = self
                 submenu.addItem(toggleBookmarkBarItem)
                 let toggleBookmarkBarOnNewTabItem = NSMenuItem(title: NSLocalizedString("app.viewMenu.showBookmarkBarOnNewTab", value: "Show Bookmark Bar on New Tab", comment: "View menu - Menu item to show the bookmark bar on new tab pages"),
@@ -592,6 +636,7 @@ extension AppController {
             
             if menuRole == .edit, let subMenu = menuItem.submenu {
                 installOrUpdateCopyURLMenuItem(in: subMenu)
+                installOrUpdateSelectionShortcuts(in: subMenu)
             } else
 
             if menuRole == .file, let subMenu = menuItem.submenu {
@@ -797,6 +842,7 @@ extension AppController {
             if item.tag == CommandWrapper.IDC_SAVE_PAGE.rawValue {
                 item.keyEquivalent = ""
                 item.keyEquivalentModifierMask = .init(rawValue: 0)
+                Shortcuts.updateShortcut(for: item)
             }
         }
 
@@ -1161,6 +1207,24 @@ extension AppController {
         return BookmarkHTMLExporter.hasExportableContent(
             bookmarks: state.bookmarkManager.rootFolder.children,
             pinnedTabs: state.pinnedTabs)
+    }
+
+    private func installOrUpdateSelectionShortcuts(in menu: NSMenu) {
+        for item in menu.items {
+            if let submenu = item.submenu {
+                installOrUpdateSelectionShortcuts(in: submenu)
+            }
+            // These native actions arrive without command tags. Keep their
+            // responder-chain routing while sharing configuration and inventory.
+            switch item.action {
+            case NSSelectorFromString("copyToFindPboard:"):
+                applyEffectiveShortcut(.IDS_EDIT_USE_SELECTION_MAC, to: item)
+            case NSSelectorFromString("centerSelectionInVisibleArea:"):
+                applyEffectiveShortcut(.IDS_EDIT_JUMP_TO_SELECTION_MAC, to: item)
+            default:
+                break
+            }
+        }
     }
 
     private func installOrUpdateCopyURLMenuItem(in menu: NSMenu) {

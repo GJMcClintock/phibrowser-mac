@@ -1065,6 +1065,40 @@ final class PeekPanelController {
         observedCardView = nil
     }
 
+    /// Consumes only keys owned by this visible, focused overlay. Closing the
+    /// preview must never pass the same Close Tab command to its opener.
+    func handleKeyEquivalent(_ event: NSEvent) -> Bool {
+        guard event.type == .keyDown, rootView.isPresented,
+              !isEclipsedByInWindowOverlay,
+              event.window === parentWindow, parentWindow?.isKeyWindow == true,
+              rootView.containsFirstResponder else { return false }
+        let eventKeys = ShortcutsKey.eventKeys(for: event)
+        if eventKeys?.matches(Shortcuts.key(for: .IDC_CLOSE_TAB)) == true {
+            closeHostedPeek()
+            return true
+        }
+        // DevTools retains Escape and navigation unless the user explicitly
+        // bound that key to Close Tab, which must still protect the opener.
+        guard !PageOverlayDevToolsDock.hasFocus(hostedTab) else { return false }
+        if event.keyCode == 53,
+           event.modifierFlags.intersection(ShortcutsKey.supportedModifierFlags).isEmpty {
+            closeHostedPeek()
+            return true
+        }
+        guard let eventKeys else { return false }
+        if NSApp.keyWindow === parentWindow,
+           eventKeys.matches(Shortcuts.key(for: .PHI_KIOSK_OPEN_IN_SPACE)) {
+            expandButtonClicked(nil)
+            return true
+        }
+        if eventKeys.matches(Shortcuts.key(for: .IDC_BACK))
+            || eventKeys.matches(Shortcuts.key(for: .IDC_FORWARD)) {
+            closeHostedPeek()
+            return true
+        }
+        return false
+    }
+
     private func installEventMonitorIfNeeded() {
         guard eventMonitor == nil else { return }
         eventMonitor = NSEvent.addLocalMonitorForEvents(
@@ -1074,50 +1108,7 @@ final class PeekPanelController {
                   !self.isEclipsedByInWindowOverlay else { return event }
             switch event.type {
             case .keyDown:
-                guard event.window === self.parentWindow,
-                      self.parentWindow?.isKeyWindow == true,
-                      self.rootView.containsFirstResponder else { return event }
-                // Cmd-W must be swallowed here: strip-active is the bound
-                // opener while the peek is up, so letting it reach Chromium's
-                // IDC_CLOSE_TAB would close the opener.
-                if event.modifierFlags.contains(.command),
-                   event.charactersIgnoringModifiers?.lowercased() == "w" {
-                    self.closeHostedPeek()
-                    return nil
-                }
-                // Docked DevTools owns its keys: Esc toggles its console
-                // drawer and Cmd-[ / Cmd-] switch its panels.
-                if PageOverlayDevToolsDock.hasFocus(self.hostedTab) {
-                    return event
-                }
-                // Esc closes the peek.
-                if event.keyCode == 53 {
-                    self.closeHostedPeek()
-                    return nil
-                }
-                // Back/Forward reads as "leave the preview": close the peek
-                // and swallow the key. Matched here (against the configured
-                // shortcuts) because the peek's web view holds focus — the
-                // event would otherwise walk the peek page's own history
-                // instead of reaching the menu command.
-                if let eventKeys = ShortcutsKey.eventKeys(for: event) {
-                    // Share Kiosk's configurable Open in Space binding with
-                    // Open as Tab, scoped to this Peek's window so another
-                    // visible Peek cannot consume the active window's command.
-                    if (NSApp.keyWindow === self.parentWindow),
-                       let expandKey = Shortcuts.key(for: .PHI_KIOSK_OPEN_IN_SPACE),
-                       eventKeys.matchingKeys.contains(expandKey) {
-                        self.expandButtonClicked(nil)
-                        return nil
-                    }
-                    let backForwardKeys = [Shortcuts.key(for: .IDC_BACK),
-                                           Shortcuts.key(for: .IDC_FORWARD)].compactMap { $0 }
-                    if eventKeys.matchingKeys.contains(where: backForwardKeys.contains) {
-                        self.closeHostedPeek()
-                        return nil
-                    }
-                }
-                return event
+                return self.handleKeyEquivalent(event) ? nil : event
             case .leftMouseDown, .rightMouseDown:
                 // Only clicks on the page pane around the panel close the
                 // peek (Arc behavior). Sidebar/toolbar clicks pass through so

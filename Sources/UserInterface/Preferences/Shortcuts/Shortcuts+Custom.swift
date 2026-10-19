@@ -10,27 +10,33 @@ extension Notification.Name {
     static let shortcutsDidChange = Notification.Name("PhiShortcutsDidChangeNotification")
 }
 
-extension ShortcutsKey: Codable {
-    enum CodingKeys: String, CodingKey {
-        case characters
-        case modifiersRaw
-    }
-    
-    public func encode(to encoder: Encoder) throws {
-        var container = encoder.container(keyedBy: CodingKeys.self)
-        try container.encode(characters, forKey: .characters)
-        try container.encode(modifiersRaw, forKey: .modifiersRaw)
-    }
-    
-    public init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        let characters = try container.decode(String.self, forKey: .characters)
-        let modifiersRaw = try container.decode(UInt.self, forKey: .modifiersRaw)
-        self.init(characters: characters, modifiers: NSEvent.ModifierFlags(rawValue: modifiersRaw))
-    }
-}
-
 extension Shortcuts {
+    /// These commands always use product defaults, including with legacy overrides.
+    static let fixedShortcutCommands: Set<CommandWrapper> = [.IDC_EXIT]
+
+    /// Product policy: add commands here to release all their keyboard bindings.
+    /// This takes precedence over defaults and saved overrides. It does not
+    /// disable the key combinations themselves or non-keyboard command entry points.
+    static let disabledShortcutCommands: Set<CommandWrapper> = [
+        // These actions remain available from menus without keyboard bindings.
+        .IDC_IMPORT_SETTINGS,
+        .IDC_NEW_TAB_TO_RIGHT,
+        // Chromium UI commands that are not supported by Phi's native shell.
+        .IDC_FOCUS_NEXT_PANE,
+        .IDC_FOCUS_PREVIOUS_PANE,
+        .IDC_FOCUS_INACTIVE_POPUP_FOR_ACCESSIBILITY,
+        .IDC_SHOW_AVATAR_MENU,
+        .IDC_TOGGLE_FULLSCREEN_TOOLBAR,
+        .IDC_HELP_PAGE_VIA_MENU,
+        // Phi owns tab switching; Chromium must not revive its Ctrl-Tab aliases.
+        .IDC_CYCLE_TO_NEXT_TAB,
+        .IDC_CYCLE_TO_PREV_TAB,
+    ]
+
+    static func isShortcutDisabled(for commandID: Int) -> Bool {
+        CommandWrapper(rawValue: commandID).map(disabledShortcutCommands.contains) ?? false
+    }
+
     /// Shortcut groups shown in the settings view.
     /// Actual visibility is filtered by `ShortcutsViewModel.hiddenGroups`.
     enum Group: String, CaseIterable {
@@ -89,6 +95,7 @@ extension Shortcuts {
                         .PHI_NEW_KIOSK_WINDOW,
                         .PHI_NEW_INCOGNITO_SPACE,
                         .IDC_RESTORE_TAB,
+                        .IDC_OPEN_FILE,
                         .IDC_FOCUS_LOCATION,
                         .IDC_CLOSE_WINDOW,
                         .IDC_CLOSE_TAB,
@@ -104,10 +111,13 @@ extension Shortcuts {
                         .IDC_FIND,
                         .IDC_FIND_NEXT,
                         .IDC_FIND_PREVIOUS,
+                        .IDS_EDIT_USE_SELECTION_MAC,
+                        .IDS_EDIT_JUMP_TO_SELECTION_MAC,
                         .IDC_FOCUS_SEARCH]
             case .view:
                 return [.IDC_STOP,
                         .IDC_RELOAD,
+                        .IDC_RELOAD_BYPASSING_CACHE,
                         .IDC_ZOOM_NORMAL,
                         .IDC_ZOOM_PLUS,
                         .IDC_ZOOM_MINUS,
@@ -124,10 +134,8 @@ extension Shortcuts {
                         .IDC_BACK,
                         .IDC_FORWARD,
                         .IDC_SHOW_HISTORY]
-//            case .bookmarks:
-//                return [.IDC_SHOW_BOOKMARK_MANAGER,
-//                        .IDC_BOOKMARK_THIS_TAB,
-//                        .IDC_BOOKMARK_ALL_TABS]
+            case .bookmarks:
+                return [.IDC_SHOW_BOOKMARK_BAR]
             case .window:
                 return [.IDC_MANAGE_EXTENSIONS,
                         .IDC_SHOW_DOWNLOADS]
@@ -137,6 +145,8 @@ extension Shortcuts {
                         .IDC_NEW_TAB_TO_RIGHT,
                         .IDC_SELECT_NEXT_TAB,
                         .IDC_SELECT_PREVIOUS_TAB,
+                        .IDC_MOVE_TAB_PREVIOUS,
+                        .IDC_MOVE_TAB_NEXT,
                         .IDC_SELECT_TAB_0,
                         .IDC_SELECT_TAB_1,
                         .IDC_SELECT_TAB_2,
@@ -149,11 +159,6 @@ extension Shortcuts {
                         .IDC_DUPLICATE_TAB,
                         .IDC_WINDOW_MUTE_SITE,
                         .PHI_FARRINGDON_TOGGLE,
-//                        .IDC_WINDOW_PIN_TAB,
-//                        .IDC_WINDOW_GROUP_TAB,
-//                        .IDC_WINDOW_CLOSE_OTHER_TABS,
-//                        .IDC_WINDOW_CLOSE_TABS_TO_RIGHT,
-//                        .IDC_MOVE_TAB_TO_NEW_WINDOW,
                         .IDC_TAB_SEARCH]
             case .spaces:
                 return [.PHI_SELECT_NEXT_SPACE,
@@ -166,94 +171,240 @@ extension Shortcuts {
             default: return []
             }
         }
+
+        /// Presentation order for additional commands, shown only when discovered
+        /// in available menus, live bindings, or saved overrides. These do not register defaults.
+        var discoveredCommands: [CommandWrapper] {
+            switch self {
+            case .app:
+                return [.IDC_IMPORT_SETTINGS]
+            case .file:
+                return [.IDC_SAVE_PAGE, .IDC_BASIC_PRINT]
+            case .view:
+                return [.IDC_FULLSCREEN]
+            case .history:
+                return [.IDC_CLEAR_BROWSING_DATA]
+            case .bookmarks:
+                return [.IDC_BOOKMARK_THIS_TAB, .IDC_BOOKMARK_ALL_TABS, .IDC_SHOW_BOOKMARK_MANAGER]
+            case .window:
+                return [.IDC_TASK_MANAGER]
+            case .tab:
+                return [.IDC_NEW_SPLIT_TAB,
+                        .IDC_WINDOW_PIN_TAB,
+                        .IDC_WINDOW_CLOSE_OTHER_TABS,
+                        .IDC_WINDOW_CLOSE_TABS_TO_RIGHT,
+                        .IDC_MOVE_TAB_TO_NEW_WINDOW,
+                        .IDC_CREATE_NEW_TAB_GROUP,
+                        .IDC_ADD_NEW_TAB_TO_GROUP,
+                        .IDC_WINDOW_GROUP_TAB,
+                        .IDC_FOCUS_PREV_TAB_GROUP,
+                        .IDC_FOCUS_NEXT_TAB_GROUP,
+                        .IDC_CLOSE_TAB_GROUP]
+            default:
+                return []
+            }
+        }
     }
     
-    // `nil` means the user explicitly removed the shortcut.
-    // Missing entries fall back to the default shortcut.
-    static var overridedShortcuts: [CommandWrapper: ShortcutsKey?] = load()
+    static var configuration: ShortcutConfiguration = {
+        var configuration = ShortcutConfiguration()
+        do {
+            try configuration.reload(from: customShortcutsFileURL)
+        } catch {
+            AppLogError("[Shortcuts] Failed to load configuration: \(error)")
+        }
+        return configuration
+    }()
     
     static func key(for command: CommandWrapper) -> ShortcutsKey? {
-        // Check overrides first, including explicit `nil`.
-        if let override = overridedShortcuts[command] {
-            return override
+        guard !disabledShortcutCommands.contains(command) else { return nil }
+        if let override = overrideState(for: command.rawValue) {
+            if !override.inheritsDefaults { return override.key }
+            return DefaultShortcuts[command].flatMap { override.excludes($0) ? nil : $0 }
         }
-        // Fall back to the default shortcut.
         return DefaultShortcuts[command]
     }
     
-    // Return semantics:
-    // `.none` means no override.
-    // `.some(.none)` means the shortcut was explicitly disabled.
-    // `.some(.some(key))` means a custom shortcut was saved.
-    static func overrideState(for commandId: Int) -> ShortcutsKey?? {
-        guard let wrapper = CommandWrapper(rawValue: commandId) else {
-            return .none
-        }
-        
-        // Absence from the dictionary means "use the default".
-        if !overridedShortcuts.keys.contains(wrapper) {
-            return .none
-        }
-        
-        // The dictionary stores `ShortcutsKey?`, so this returns `ShortcutsKey??`.
-        return overridedShortcuts[wrapper]
-    }
-    
-    // ObjC bridge that exposes only the currently effective override value.
-    static func key(for commandId: Int) -> ShortcutsKey? {
-        guard let wrapper = CommandWrapper(rawValue: commandId) else {
+    static func overrideState(for commandId: Int) -> ShortcutOverride? {
+        if let command = CommandWrapper(rawValue: commandId), fixedShortcutCommands.contains(command) {
             return nil
         }
-        if let override = overridedShortcuts[wrapper] {
-            return override
+        return configuration.overrides[commandId]
+    }
+
+    static func chromiumOverrideState(for commandID: Int) -> ShortcutOverride? {
+        if let command = CommandWrapper(rawValue: commandID), fixedShortcutCommands.contains(command) {
+            return DefaultShortcuts[command].map(ShortcutOverride.custom)
         }
-        return nil
-    }
-    
-    /// Overrides a shortcut or removes the override when `remove` is true.
-    static func override(_ key: ShortcutsKey?, for command: CommandWrapper, remove: Bool = false) {
-        if remove {
-            overridedShortcuts.removeValue(forKey: command)
-        } else if key != DefaultShortcuts[command] {
-            overridedShortcuts[command] = Optional(key)
-        } else if key == DefaultShortcuts[command] {
-            overridedShortcuts.removeValue(forKey: command)
+        if isShortcutDisabled(for: commandID) {
+            return .disabled
         }
-        
-        save()
-        CommandDispatcher.reloadPhiShortcutMap()
-        notifyShortcutsChanged()
+        return overrideState(for: commandID)
     }
     
-    static func reloadOverrides() {
-        overridedShortcuts = load()
-        CommandDispatcher.reloadPhiShortcutMap()
-        notifyShortcutsChanged()
+    /// A missing override restores the default; `.disabled` explicitly clears it.
+    @discardableResult
+    static func setOverride(
+        _ state: ShortcutOverride?, for command: CommandWrapper,
+        updating conflicts: [Int: ShortcutOverride] = [:]
+    ) -> Result<Void, Error> {
+        guard !fixedShortcutCommands.contains(command) else { return .success(()) }
+        var override = state
+        if case .custom(let key) = state, key == DefaultShortcuts[command] {
+            override = nil
+        }
+        return changeConfiguration {
+            try $0.set(override, for: command.rawValue, updating: conflicts, at: customShortcutsFileURL)
+        }
     }
     
-    static func restoreOverrides() {
-        overridedShortcuts.removeAll()
-        save()
-        CommandDispatcher.reloadPhiShortcutMap()
-        notifyShortcutsChanged()
+    @discardableResult
+    static func reloadOverrides() -> Result<Void, Error> {
+        changeConfiguration {
+            try $0.reload(from: customShortcutsFileURL)
+        }
     }
     
-    private static func notifyShortcutsChanged() {
+    @discardableResult
+    static func restoreOverrides() -> Result<Void, Error> {
+        changeConfiguration {
+            try $0.restoreDefaults(at: customShortcutsFileURL)
+        }
+    }
+
+    private static func changeConfiguration(
+        _ change: (inout ShortcutConfiguration) throws -> Void
+    ) -> Result<Void, Error> {
+        let previous = configuration.overrides
+        let result: Result<Void, Error>
+        do {
+            try change(&configuration)
+            result = .success(())
+        } catch {
+            AppLogError("[Shortcuts] Configuration change failed: \(error)")
+            result = .failure(error)
+        }
+        if configuration.overrides != previous {
+            CommandDispatcher.reloadPhiShortcutMap()
+            ChromiumLauncher.sharedInstance().bridge?.requestRebuildMainMenu()
+        }
         NotificationCenter.default.post(name: .shortcutsDidChange, object: nil)
-        ChromiumLauncher.sharedInstance().bridge?.requestRebuildMainMenu()
+        return result
     }
     
     static func isOverridden(_ command: CommandWrapper) -> Bool {
-        // Presence in the dictionary means "overridden", even when the value is `nil`.
-        overridedShortcuts.keys.contains(command)
+        overrideState(for: command.rawValue) != nil
+    }
+
+    static var configurableCommands: [CommandWrapper] {
+        Array(Set(Group.allCases.flatMap(\.commands)))
+            .filter { !disabledShortcutCommands.contains($0) }
+            .sorted { $0.rawValue < $1.rawValue }
+    }
+
+    static func bindingInventory(additionalBindings: [ShortcutBinding]) -> ShortcutInventory {
+        let commands = Set(configurableCommands)
+            .union(fixedShortcutCommands)
+            .union(configuration.overrides.keys.compactMap(CommandWrapper.init(rawValue:)))
+        let configured = commands.compactMap { command -> ShortcutBinding? in
+            guard let key = key(for: command) else { return nil }
+            return ShortcutBinding(commandID: command.rawValue, key: key,
+                                   scope: command.shortcutScope, source: .configured)
+        }
+        // Retain native/system owners, but never reserve keys for a product-
+        // disabled command, including stale menu or Framework snapshots.
+        let activeAdditional = additionalBindings.filter {
+            !($0.commandID.map { isShortcutDisabled(for: $0) } ?? false)
+        }
+        return ShortcutInventory(bindings: configured + activeAdditional)
+    }
+
+    /// Available menu actions can be configured before their first binding.
+    /// Hidden menu branches are excluded because Phi replaces or suppresses them.
+    static func availableMenuCommands(in menu: NSMenu? = NSApp.mainMenu) -> [CommandWrapper] {
+        guard let menu else { return [] }
+        return menu.items.filter { !$0.isHidden }.flatMap { item -> [CommandWrapper] in
+            if let submenu = item.submenu { return availableMenuCommands(in: submenu) }
+            guard item.action != nil, let command = CommandWrapper(rawValue: item.tag) else { return [] }
+            return [command]
+        }
+    }
+
+    static func menuBindings(
+        in menu: NSMenu? = NSApp.mainMenu,
+        servicesMenu: NSMenu? = NSApp.servicesMenu
+    ) -> [ShortcutBinding] {
+        func visit(_ menu: NSMenu, inServices: Bool = false) -> [ShortcutBinding] {
+            let inServices = inServices || menu === servicesMenu
+            return menu.items.flatMap { item -> [ShortcutBinding] in
+                // Chromium's menu matcher examines hidden entries too.
+                if let submenu = item.submenu { return visit(submenu, inServices: inServices) }
+                // AppKit retains unavailable Services in the menu tree. Their
+                // detached copies can expose keys despite being hidden and disabled.
+                if inServices && item.isHidden && !item.isEnabled { return [] }
+                // AppKit can report an empty key for a live menu item when
+                // another item claims the same equivalent (for example, Undo
+                // after assigning Cmd-Z to Settings). A detached copy retains
+                // the declared binding, including explicit empty overrides.
+                // Keep it in the inventory so suppression cannot hide conflicts.
+                let keyItem = item.keyEquivalent.isEmpty
+                    ? (item.copy() as? NSMenuItem ?? item) : item
+                guard !keyItem.keyEquivalent.isEmpty,
+                      let action = item.action else { return [] }
+                let command = CommandWrapper(rawValue: item.tag)
+                let owner: ShortcutBinding.Owner
+                if command != nil || (action == NSSelectorFromString("commandDispatch:") && item.tag > 0) {
+                    owner = .command(item.tag)
+                } else {
+                    owner = .nativeAction(NSStringFromSelector(action))
+                }
+                let scope: ShortcutBinding.Scope
+                if item.identifier?.rawValue == "phi.closeTab", command == .IDC_CLOSE_WINDOW {
+                    // Chromium temporarily makes the stable Close Tab row the
+                    // non-browser window's default Close Window action. Keep
+                    // its actual owner, but do not invent a browser conflict.
+                    scope = .nonBrowser
+                } else {
+                    scope = command?.shortcutScope ?? .all
+                }
+                return [ShortcutBinding(
+                    owner: owner,
+                    key: ShortcutsKey(menuKeyEquivalent: keyItem.keyEquivalent,
+                                      modifiers: keyItem.keyEquivalentModifierMask),
+                    scope: scope, source: .menu,
+                    title: item.title
+                )]
+            }
+        }
+        return menu.map { visit($0) } ?? []
+    }
+
+    static func additionalBindings() -> [ShortcutBinding] {
+        let menu = menuBindings()
+        let browser = chromiumBindings()
+        let additional = menu + browser
+        let effective = bindingInventory(additionalBindings: additional)
+        return additional + SystemShortcutBindings.current(conflictingWith: effective.bindings)
+    }
+
+    private static func chromiumBindings() -> [ShortcutBinding] {
+        guard let bridge = ChromiumLauncher.sharedInstance().bridge,
+              bridge.responds(to: NSSelectorFromString("shortcutBindings")) else { return [] }
+        return bridge.shortcutBindings().compactMap { record in
+            guard let commandID = record["commandId"] as? Int,
+                  let characters = record["keyEquivalent"] as? String, !characters.isEmpty,
+                  let modifiers = record["modifierFlags"] as? UInt,
+                  let source = record["source"] as? String,
+                  source == "hidden" || source == "webContents" else { return nil }
+            return ShortcutBinding(commandID: commandID,
+                                   key: ShortcutsKey(menuKeyEquivalent: characters,
+                                                     modifiers: .init(rawValue: modifiers)),
+                                   scope: CommandWrapper(rawValue: commandID)?.shortcutScope ?? .browser,
+                                   source: source == "hidden" ? .hidden : .webContents)
+        }
     }
     
     // MARK: - Persistence
-    private struct PersistedShortcut: Codable {
-        let commandId: Int
-        let key: ShortcutsKey?
-    }
-    
     private static var customShortcutsFileURL: URL {
         if let account = AccountController.shared.account {
             let path = account.userDataStorage.path
@@ -266,53 +417,21 @@ extension Shortcuts {
         }
     }
     
-    static func save() {
-        // Persist the optional shortcut value as-is.
-        let items = overridedShortcuts.map { PersistedShortcut(commandId: $0.key.rawValue, key: $0.value) }
-        do {
-            let data = try JSONEncoder().encode(items)
-            let url = customShortcutsFileURL
-            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true, attributes: nil)
-            try data.write(to: url)
-        } catch {
-            AppLogError("Failed to save shortcuts: \(error)")
-        }
-    }
-    
-    private static func load() -> [CommandWrapper: ShortcutsKey?] {
-        let url = customShortcutsFileURL
-        guard let data = try? Data(contentsOf: url),
-              let items = try? JSONDecoder().decode([PersistedShortcut].self, from: data) else {
-            return [:]
-        }
-        
-        var result: [CommandWrapper: ShortcutsKey?] = [:]
-        for item in items {
-            if let command = CommandWrapper(rawValue: item.commandId) {
-                // `item.key` is already a `ShortcutsKey?`.
-                result[command] = item.key
-            }
-        }
-        return result
-    }
 }
 extension ShortcutsKey {
-    var modifiers: NSEvent.ModifierFlags {
-        NSEvent.ModifierFlags(rawValue: modifiersRaw)
+    private var displayModifiers: NSEvent.ModifierFlags {
+        // Menu equivalents encode Shift in uppercase letters instead of flags.
+        characters != characters.lowercased() ? modifiers.union(.shift) : modifiers
     }
-    
-    var displayString: String {
-        var prefix = ""
-        if modifiers.contains(.command) { prefix += "⌘" }
-        if modifiers.contains(.option) { prefix += "⌥" }
-        if modifiers.contains(.shift) { prefix += "⇧" }
-        if modifiers.contains(.control) { prefix += "⌃" }
 
-        return prefix + characterSymbol
+    var displayString: String {
+        keycapTokens.joined()
     }
 
     var keycapTokens: [String] {
+        let modifiers = displayModifiers
         var tokens: [String] = []
+        if modifiers.contains(.function) { tokens.append("fn") }
         if modifiers.contains(.control) { tokens.append("⌃") }
         if modifiers.contains(.option) { tokens.append("⌥") }
         if modifiers.contains(.shift) { tokens.append("⇧") }
@@ -322,6 +441,10 @@ extension ShortcutsKey {
     }
 
     private var characterSymbol: String {
+        if let scalar = characters.unicodeScalars.first, characters.unicodeScalars.count == 1,
+           (0xF704...0xF726).contains(scalar.value) {
+            return "F\(scalar.value - 0xF704 + 1)"
+        }
         switch characters {
         case String(format: "%c", NSBackspaceCharacter):
             return "⌫"
@@ -339,6 +462,18 @@ extension ShortcutsKey {
             return "←"
         case "\u{F703}":
             return "→"
+        case "\u{7F}", "\u{F728}":
+            return "⌦"
+        case "\u{F729}":
+            return "↖"
+        case "\u{F72B}":
+            return "↘"
+        case "\u{F72C}":
+            return "⇞"
+        case "\u{F72D}":
+            return "⇟"
+        case " ":
+            return "␣"
         default:
             return characters.uppercased()
         }
@@ -346,16 +481,41 @@ extension ShortcutsKey {
 }
 
 extension CommandWrapper {
+    /// Standard macOS menu services reserve keys without appearing in settings.
+    var isSystemShortcut: Bool {
+        switch self {
+        case .IDC_EXIT, .IDC_HIDE_APP, .IDC_MINIMIZE_WINDOW,
+             .IDC_CONTENT_CONTEXT_UNDO, .IDC_CONTENT_CONTEXT_REDO,
+             .IDC_CONTENT_CONTEXT_CUT, .IDC_CONTENT_CONTEXT_COPY,
+             .IDC_CONTENT_CONTEXT_PASTE, .IDC_CONTENT_CONTEXT_PASTE_AND_MATCH_STYLE,
+             .IDC_CONTENT_CONTEXT_SELECTALL,
+             .IDS_HIDE_OTHERS_MAC, .IDS_CLOSE_ALL_WINDOWS_MAC,
+             .IDS_PASTE_MATCH_STYLE_MAC, .IDS_EDIT_SHOW_SPELLING_GRAMMAR_MAC,
+             .IDS_EDIT_CHECK_DOCUMENT_MAC:
+            return true
+        default:
+            return false
+        }
+    }
+
+    var shortcutScope: ShortcutBinding.Scope {
+        if Shortcuts.Group.kiosk.commands.contains(self) { return .kiosk }
+        if self == .IDC_CLOSE_TAB { return [.browser, .kiosk] }
+        return isUnavailableInKiosk ? .browser : .all
+    }
+
     /// Commands without an action in a Kiosk window. Shared by dispatch and
     /// shortcut conflict detection so inactive commands do not reserve keys.
     var isUnavailableInKiosk: Bool {
         if spaceSelectionIndex != nil { return true }
         switch self {
-        case .IDC_OPEN_FILE, .PHI_TOGGLE_SIDEBAR,
+        case .IDC_OPEN_FILE, .IDC_SHOW_BOOKMARK_BAR, .PHI_TOGGLE_SIDEBAR,
+             .PHI_FARRINGDON_TOGGLE,
              .IDC_TAB_SEARCH, .IDC_DUPLICATE_TAB, .IDC_WINDOW_PIN_TAB,
              .IDC_DEV_TOOLS, .IDC_DEV_TOOLS_INSPECT, .IDC_DEV_TOOLS_CONSOLE,
              .PHI_TOGGLE_CHATBAR, .PHI_NEW_CONVERSATION,
              .IDC_SELECT_PREVIOUS_TAB, .IDC_SELECT_NEXT_TAB,
+             .IDC_CYCLE_TO_NEXT_TAB, .IDC_CYCLE_TO_PREV_TAB,
              .IDC_SELECT_LAST_TAB, .PHI_TAB_SWITCHER_FORWARD,
              .PHI_TAB_SWITCHER_BACKWARD, .PHI_SELECT_NEXT_SPACE,
              .PHI_SELECT_PREVIOUS_SPACE,
@@ -527,16 +687,17 @@ extension CommandWrapper {
 extension Shortcuts {
     static func updateShortcut(for item: NSMenuItem) {
         let effectiveKey: ShortcutsKey?
-        if let override = overrideState(for: item.tag) {
-            // The outer optional distinguishes an explicit disable from no override.
-            effectiveKey = override
+        if isShortcutDisabled(for: item.tag) {
+            effectiveKey = nil
+        } else if let override = overrideState(for: item.tag), !override.inheritsDefaults {
+            effectiveKey = override.key
         } else {
             guard let command = CommandWrapper(rawValue: item.tag),
                   let defaultKey = DefaultShortcuts[command] else {
                 // Preserve menu items that do not participate in shortcut settings.
                 return
             }
-            effectiveKey = defaultKey
+            effectiveKey = overrideState(for: item.tag)?.excludes(defaultKey) == true ? nil : defaultKey
         }
 
         if let key = effectiveKey {

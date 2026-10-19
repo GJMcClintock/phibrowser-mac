@@ -1,0 +1,9 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Shortcut Reader Article</title></head>
+<body><main><article><h1>Shortcut Reader Article</h1>
+<p>A browser keyboard shortcut should continue to work when focus moves from the original article into its reading surface. This local article provides enough readable content for the installed Reader extension to extract a real document. It contains no remote assets, scripts, account data, or tracking requests.</p>
+<p>The original page remains open underneath the reading surface. Closing the surface must reveal the same article without closing its source tab. A rebound close command should act on the current overlay, while the old command should follow the user's new configuration. An explicitly disabled command must remain disabled throughout this transition.</p>
+<p>Legacy shortcut files can represent shifted punctuation differently from a newly recorded shortcut. For example, the plus sign may be stored with only the Command modifier, although a United States keyboard produces it with Shift and the equals key. Both representations share the same menu execution identity, and overlay matching should preserve that identity.</p>
+<p>Extra modifiers still distinguish different commands. Testing the new shortcut together with an additional Shift or Option modifier ensures that a broad character comparison does not accidentally close the reading surface. The underlying article is retained after a matching close or navigation action.</p>
+<p>This article is deliberately stable and served only from the local loopback interface for UI tests. Its title identifies the source tab, and the link below identifies the original web document after the Reader overlay has been dismissed. Repeated test runs create disposable browser profiles and do not depend on public websites.</p>
+<a href="#origin">Reader origin marker</a></article></main></body></html>

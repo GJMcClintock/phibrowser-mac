@@ -6,283 +6,105 @@
 import SwiftUI
 import AppKit
 import Combine
+
 struct ShortcutsSettingsView: View {
     @StateObject private var viewModel = ShortcutsViewModel()
-    @State private var searchText: String = ""
     @FocusState private var isSearchFieldFocused: Bool
-    
-    private var filteredSections: [(category: String, subtitle: String?, items: [ShortcutItem])] {
-        guard !searchText.isEmpty else {
-            return viewModel.sections
-        }
-        
-        let query = searchText.lowercased()
-        return viewModel.sections.compactMap { section in
-            let filteredItems = section.items.filter { item in
-                item.name.lowercased().contains(query) ||
-                item.shortcutDisplay.lowercased().contains(query) ||
-                item.searchKeywords.contains(where: { $0.contains(query) })
-            }
-            
-            return filteredItems.isEmpty ? nil : (category: section.category, subtitle: section.subtitle, items: filteredItems)
-        }
-    }
-    
-    var body: some View {
-        let sections = filteredSections
-        
-        return VStack(spacing: 0) {
-            VStack {
-                HStack {
-                    Text(NSLocalizedString("settings.shortcuts.sectionTitle", value: "Shortcuts", comment: "Shortcuts settings - Section title for keyboard shortcuts"))
-                        .font(.system(size: 12))
-                        .foregroundStyle(Color.secondary)
-                    
-                    Spacer()
-                    
-                    Button {
-                        viewModel.restoreAllShortcuts()
-                    } label: {
-                        HStack(spacing: 4) {
-                            Image(systemName: "arrow.clockwise")
-                                .font(.system(size: 11, weight: .medium))
-                            Text(NSLocalizedString("settings.shortcuts.restoreDefaultsButton", value: "Restore all shortcuts", comment: "Shortcuts settings - Button to reset all shortcuts to default"))
-                                .font(.system(size: 13))
-                        }
-                    }
-                    .buttonStyle(.bordered)
-                }
-                
-                // Container with search bar and list
-                VStack(spacing: 0) {
-                    // Search bar
-                    HStack(spacing: 8) {
-                        HStack {
-                            Image(systemName: "magnifyingglass")
-                                .foregroundColor(.secondary)
-                                .frame(width: 16, height: 16)
-                                .padding(.leading, 12)
-                                .padding(.top, 12)
-                                .padding(.bottom, 12)
-                            
-                            TextField(NSLocalizedString("settings.shortcuts.searchField.placeholder", value: "Find shortcut keys", comment: "Shortcuts settings - Search field placeholder to find shortcuts"), text: $searchText)
-                                .textFieldStyle(.plain)
-                                .padding(.vertical, 6)
-                                .focused($isSearchFieldFocused)
-                        }
-                    }
-                    // separator between searchbar and list
-                    Rectangle()
-                        .fill(Color(.separatorColor))
-                        .frame(height: 1)
-                        .padding(.leading, 0)
-                        .padding(.trailing, 0)
-                    
-                    // Shortcuts list with empty state
-                    ZStack {
-                        List {
-                            ForEach(sections, id: \.category) { section in
-                                VStack(alignment: .leading, spacing: 0) {
-                                    VStack(alignment: .leading, spacing: 4) {
-                                        Text(section.category)
-                                            .font(.system(size: 12, weight: .semibold))
-                                        if let subtitle = section.subtitle {
-                                            Text(subtitle)
-                                                .font(.system(size: 11))
-                                                .fixedSize(horizontal: false, vertical: true)
-                                        }
-                                    }
-                                    .foregroundColor(.secondary)
-                                    .frame(minHeight: 35)
-                                    .padding(.vertical, 8)
-                                    
-                                    Rectangle()
-                                        .fill(Color(.separatorColor))
-                                        .frame(height: 1)
-                                    
-                                    ForEach(section.items) { item in
-                                        ShortcutRowView(
-                                            item: item,
-                                            isEditing: viewModel.editingCommand == item.command,
-                                            handler: { action in
-                                                handleAction(for: item, action: action)
-                                            }
-                                        )
-                                        .overlay(alignment: .bottom) {
-                                            Rectangle()
-                                                .fill(Color(.separatorColor))
-                                                .frame(height: 1)
-                                        }
-                                        .overlay {
-                                            if viewModel.editingCommand == item.command {
-                                                KeyCaptureView { event in
-                                                    handleKeyCapture(event, for: item.command)
-                                                }
-                                                .allowsHitTesting(false)
-                                            }
-                                        }
-                                    }
-                                }
-                                // macOS list rows add 4pt padding by default, so use 4pt
-                                // here to land on the designed 12pt visual spacing.
-                                .listRowInsets(EdgeInsets(top: 0, leading: 4, bottom: 4, trailing: 4))
-                                .listRowSeparator(.hidden)
-                            }
-                        }
-                        .listStyle(.plain)
-                        .listSectionSeparator(.hidden)
-                        .scrollContentBackground(.hidden)
-                        .opacity(sections.isEmpty ? 0 : 1)
-                        
-                        if sections.isEmpty {
-                            Text(NSLocalizedString("settings.shortcuts.searchResults.emptyMessage", value: "No Results", comment: "Shortcuts settings - Empty state text when no shortcuts match search"))
-                                .font(.system(size: 13, weight: .medium))
-                                .foregroundColor(.secondary)
-                        }
-                    }
-                }
-                .themedBackground(ThemedColor(light: .white,
-                                              dark: NSColor(hex: 0xFFFFFF, alpha: 0.02)))
-                .cornerRadius(8)
-                .overlay {
-                    RoundedRectangle(cornerRadius: 8)
-                        .stroke(Color(.commonBorder), lineWidth: 1)
-                }
-            }
-            .padding(.vertical, 36)
-            .padding(.horizontal, 36)
-        }
-        .background(
-            CommandShortcutCaptureView { event in
-                handleGlobalShortcut(event)
-            }
-            .allowsHitTesting(false)
-        )
-    }
-    
-    private func handleAction(for item: ShortcutItem, action: ShortcutRowView.Action) {
-        switch action {
-        case .restoreTapped:
-            viewModel.restoreDefaultShortcut(for: item.command)
-            cancelEditing()
-        case .editTapped:
-            if viewModel.editingCommand == item.command {
-                cancelEditing()
-            } else {
-                viewModel.editingCommand = item.command
-            }
-        }
-    }
-    
-    private func handleKeyCapture(_ event: NSEvent, for command: CommandWrapper) {
-        // ESC cancels recording
-        if event.keyCode == 53 {
-            cancelEditing()
-            return
-        }
-        
-        // Backspace (51) removes/disables the shortcut
-        if event.keyCode == 51 {
-            viewModel.disableShortcut(for: command)
-            cancelEditing()
-            return
-        }
-        
-        if let key = ShortcutsKey.recordingKey(for: event) {
-            viewModel.setCustomShortcut(for: command, key: key)
-            cancelEditing()
-        }
-    }
-    
-    private func cancelEditing() {
-        viewModel.editingCommand = nil
-        if isSearchFieldFocused {
-            isSearchFieldFocused = false
-        }
-    }
-    
-    private func handleGlobalShortcut(_ event: NSEvent) {
-        guard viewModel.editingCommand == nil else { return }
-        let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        if  modifiers.contains(.command),
-            event.charactersIgnoringModifiers?.lowercased() == "f" {
-            isSearchFieldFocused = true
-        } else if event.keyCode == 53 {
-            // esc
-            isSearchFieldFocused = false
-        }
-    }
-}
 
-// MARK: - Row View
-struct ShortcutRowView: View {
-    enum Action {
-        case restoreTapped
-        case editTapped
-    }
-    
-    let item: ShortcutItem
-    let isEditing: Bool
-    let handler: (Action) -> Void
-    
     var body: some View {
-        HStack(spacing: 16) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(item.name)
-                    .font(.system(size: 13, weight: .regular))
-                    .foregroundColor(.primary)
-                    .frame(height: 16)
-                
-                if item.hasConflict {
-                    Text(String(format: NSLocalizedString("settings.shortcuts.conflictMessage", value: "Conflicts with: %@", comment: "Shortcuts settings - Warning text showing conflicting shortcuts"), item.conflictingCommandNames.joined(separator: ", ")))
-                        .font(.system(size: 11))
-                        .foregroundColor(.yellow)
-                }
+        VStack(spacing: 12) {
+            HStack(spacing: 8) {
+                ShortcutsSearchSection(
+                    searchText: $viewModel.searchText,
+                    isFocused: $isSearchFieldFocused
+                )
+                ShortcutsFilterMenu(
+                    selection: $viewModel.filter,
+                    sections: viewModel.sections.map(\.category),
+                    hasReservedShortcuts: !viewModel.reservedShortcuts.isEmpty
+                )
             }
-            .frame(maxHeight: .infinity, alignment: .center)
-            .padding(.vertical, 10)
-            
-            Spacer()
-            
-            if item.isOverridden {
-                Button(NSLocalizedString("settings.shortcuts.restoreShortcutButton", value: "Restore", comment: "Shortcuts settings - Button to restore single shortcut to default")) {
-                    handler(.restoreTapped)
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-            }
-            
-            Button(action: { handler(.editTapped) }) {
-                Text(isEditing ? NSLocalizedString("settings.shortcuts.recordingPrompt", value: "Press shortcut…", comment: "Shortcuts settings - Prompt text when recording new shortcut") : item.shortcutDisplay)
-                    .font(.system(size: 13, weight: .regular))
-                    .foregroundColor(isEditing ? .primary : .secondary)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 3)
-                    .frame(minWidth: 80)
-                    .background(
-                        ZStack {
-                            RoundedRectangle(cornerRadius: 6)
-                                .fill(isEditing ?
-                                      Color.accentColor.opacity(0.1) :
-                                        Color(NSColor.controlBackgroundColor)
-                                )
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 6)
-                                        .stroke(
-                                            isEditing ?
-                                            Color.accentColor :
-                                                Color(NSColor.separatorColor),
-                                            lineWidth: isEditing ? 1.5 : 0.5
-                                        )
-                                )
-                        }
+            ShortcutsStatusSection(viewModel: viewModel)
+            HStack(alignment: .top, spacing: 16) {
+                ShortcutsListSection(
+                    sections: viewModel.filteredSections,
+                    reserved: viewModel.filteredReservedShortcuts,
+                    selection: Binding(get: { viewModel.selectedCommand }, set: selectCommand),
+                    canRecord: viewModel.canEdit,
+                    record: startRecording
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+                if let item = viewModel.selectedItem {
+                    ShortcutDetailSection(
+                        item: item,
+                        conflicts: viewModel.conflicts(for: item.command),
+                        isRecording: viewModel.editingCommand == item.command,
+                        recordingModifiers: viewModel.recordingModifiers,
+                        canAnimateRelease: viewModel.persistenceFailure == nil,
+                        canRecord: viewModel.canEdit,
+                        record: { toggleRecording(for: item.command) },
+                        restore: { viewModel.restoreDefaultShortcut(for: item.command) },
+                        selectConflict: selectConflict
                     )
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    Text(NSLocalizedString("settings.shortcuts.detail.empty", value: "Select a shortcut to view its details.", comment: "Shortcuts settings - Detail pane when no editable command is selected"))
+                        .font(.system(size: 13))
+                        .themedForeground(.textSecondary)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
             }
-            .buttonStyle(.plain)
-            .scaleEffect(isEditing ? 1.02 : 1.0)
-            .animation(.easeInOut(duration: 0.1), value: isEditing)
         }
-        .frame(minHeight: 42)
+        .padding(36)
+        .background {
+            if viewModel.capture != nil {
+                let sessionID = viewModel.captureSessionID
+                KeyCaptureView(onKeyEvent: viewModel.handleCaptureEvent,
+                               onCancel: { viewModel.cancelCapture(sessionID: sessionID) },
+                               onModifiersChanged: viewModel.handleCaptureModifiers)
+                    .id(sessionID)
+                    .allowsHitTesting(false)
+            } else {
+                CommandShortcutCaptureView(onKeyEvent: handleGlobalShortcut)
+                    .allowsHitTesting(false)
+            }
+        }
+        .onAppear { viewModel.rebuildSections() }
+        .onDisappear { viewModel.capture = nil }
+    }
+
+    private func toggleRecording(for command: CommandWrapper) {
+        if viewModel.editingCommand == command {
+            viewModel.capture = nil
+        } else {
+            startRecording(for: command)
+        }
+    }
+
+    private func startRecording(for command: CommandWrapper) {
+        isSearchFieldFocused = false
+        viewModel.startRecording(for: command)
+    }
+
+    private func selectCommand(_ command: CommandWrapper?) {
+        isSearchFieldFocused = false
+        viewModel.selectedCommand = command
+    }
+
+    private func selectConflict(_ command: CommandWrapper) {
+        isSearchFieldFocused = false
+        viewModel.selectConflict(command)
+    }
+
+    private func handleGlobalShortcut(_ event: NSEvent) {
+        guard viewModel.capture == nil else { return }
+        let modifiers = event.modifierFlags.intersection([.command, .control, .option, .shift])
+        if modifiers == .command, event.charactersIgnoringModifiers?.lowercased() == "f" {
+            isSearchFieldFocused = true
+        } else if event.keyCode == 53 && modifiers.isEmpty {
+            isSearchFieldFocused = false
+        }
     }
 }
 
@@ -290,37 +112,77 @@ struct ShortcutRowView: View {
 
 struct KeyCaptureView: NSViewRepresentable {
     let onKeyEvent: (NSEvent) -> Void
+    let onCancel: () -> Void
+    var onModifiersChanged: ((NSEvent.ModifierFlags) -> Void)? = nil
     
     func makeNSView(context: Context) -> KeyCaptureNSView {
         let view = KeyCaptureNSView()
         view.onKeyEvent = onKeyEvent
+        view.onCancel = onCancel
+        view.onModifiersChanged = onModifiersChanged
         return view
     }
     
     func updateNSView(_ nsView: KeyCaptureNSView, context: Context) {
         nsView.onKeyEvent = onKeyEvent
+        nsView.onCancel = onCancel
+        nsView.onModifiersChanged = onModifiersChanged
     }
 }
 
-class KeyCaptureNSView: NSView {
+final class KeyCaptureNSView: NSView {
     var onKeyEvent: ((NSEvent) -> Void)?
+    var onCancel: (() -> Void)?
+    var onModifiersChanged: ((NSEvent.ModifierFlags) -> Void)?
     private var eventMonitor: Any?
+    private var resignObserver: NSObjectProtocol?
+    private var resumeGlobalShortcut: (() -> Void)?
+
+    override var acceptsFirstResponder: Bool { true }
     
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         
-        if window != nil {
-            startMonitoring()
-        } else {
-            stopMonitoring()
+        stopMonitoring()
+        guard let window else { return }
+        guard window.isKeyWindow, window.makeFirstResponder(self) else {
+            DispatchQueue.main.async { [weak self] in self?.onCancel?() }
+            return
         }
+        startMonitoring()
+        resignObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didResignKeyNotification, object: window, queue: .main
+        ) { [weak self] _ in
+            self?.stopMonitoring()
+            self?.onCancel?()
+        }
+    }
+
+    override func resignFirstResponder() -> Bool {
+        stopMonitoring()
+        DispatchQueue.main.async { [weak self] in self?.onCancel?() }
+        return super.resignFirstResponder()
+    }
+
+    func process(_ event: NSEvent) -> NSEvent? {
+        guard eventMonitor != nil, let window, window.isKeyWindow, NSApp.isActive,
+              event.window === window, window.firstResponder === self,
+              let onKeyEvent else { return event }
+        if event.type == .flagsChanged {
+            onModifiersChanged?(event.modifierFlags)
+            return event
+        }
+        guard event.type == .keyDown else { return event }
+        onKeyEvent(event)
+        return nil
     }
     
     private func startMonitoring() {
         stopMonitoring()
-        eventMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            self?.onKeyEvent?(event)
-            return nil // Consume the event
+        resumeGlobalShortcut = AppController.shared?.suspendKioskGlobalShortcutForRecording()
+        eventMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .flagsChanged]) { [weak self] event in
+            guard let self else { return event }
+            return self.process(event)
         }
     }
     
@@ -329,6 +191,13 @@ class KeyCaptureNSView: NSView {
             NSEvent.removeMonitor(monitor)
             eventMonitor = nil
         }
+        if let resignObserver {
+            NotificationCenter.default.removeObserver(resignObserver)
+            self.resignObserver = nil
+        }
+        let resume = resumeGlobalShortcut
+        resumeGlobalShortcut = nil
+        resume?()
     }
     
     deinit {
@@ -364,12 +233,19 @@ final class CommandShortcutCaptureNSView: NSView {
             stopMonitoring()
         }
     }
+
+    func process(_ event: NSEvent) -> NSEvent {
+        if event.type == .keyDown, let window, window.isKeyWindow,
+           NSApp.isActive, event.window === window {
+            onKeyEvent?(event)
+        }
+        return event
+    }
     
     private func startMonitoring() {
         stopMonitoring()
         eventMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            self?.onKeyEvent?(event)
-            return event
+            self?.process(event) ?? event
         }
     }
     
