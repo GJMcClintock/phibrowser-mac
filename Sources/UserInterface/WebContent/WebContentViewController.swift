@@ -43,7 +43,7 @@
  Layout constraints:
  - splitViewContainer: trailing/bottom inset 8pt from view edges, top is 0
  - leading inset is 0 when the sidebar is expanded, 8pt when collapsed or in traditional layout
- - leftContainerView: 4pt inset + border when AI Chat is expanded; no inset/border when collapsed
+ - leftContainerView: 4pt inset + border when AI Chat is expanded (kept until a collapse animation ends); no inset/border when collapsed
  - embeddedChatViewController: min width 300, max width 600, collapsible
  
  AI Chat state management:
@@ -170,6 +170,13 @@ class WebContentViewController: NSViewController {
     /// Frame-change processing is skipped during this window to avoid interfering
     /// with the animation (e.g. persisting intermediate widths).
     private var isAnimatingAIChatExpansion = false
+    /// True while the AI Chat split item is animating its collapse transition.
+    /// The page card keeps its separated style meanwhile (see
+    /// `updateLeftContainerStyle`).
+    private var isAnimatingAIChatCollapse = false
+    /// Counts AI Chat expand/collapse transitions, so a completion handler
+    /// can tell whether its transition is still the latest.
+    private var aiChatTransitionCount = 0
     
     /// Chromium's `restoreFocus` / `focus` silently fails on pages that haven't
     /// loaded yet (url=nil).  When set, the `$url` observer will re-trigger
@@ -2916,8 +2923,13 @@ class WebContentViewController: NSViewController {
         // fill track the slide animations. The two answers may differ for
         // the animation window only.
         let panelDocked = browserState?.extensionSidePanel != nil
+        // A collapsing chat keeps the card separated until its animation
+        // ends: the page's frame sync is paused for the animation, and
+        // dropping the inset now would grow the page area around the frozen
+        // web view, uncovering a strip above it (the area is not flipped).
+        let chatHoldsCard = isAIChatExpanded || isAnimatingAIChatCollapse
         let shouldSeparatePageCard =
-            (isAIChatExpanded || panelDocked) && !isPerformanceSplitContent
+            (chatHoldsCard || panelDocked) && !isPerformanceSplitContent
 
         guard shouldSeparatePageCard != appliedPageCardSeparated
             || panelDocked != appliedPanelDockedCorners else { return }
@@ -2992,6 +3004,9 @@ class WebContentViewController: NSViewController {
     ) {
         let expanding = !collapsed
         isAnimatingAIChatExpansion = expanding
+        isAnimatingAIChatCollapse = collapsed
+        aiChatTransitionCount += 1
+        let transition = aiChatTransitionCount
 
         // For expand: temporarily raise minimumThickness so the uncollapse
         // animation targets the cached width instead of the default minimum.
@@ -3015,6 +3030,16 @@ class WebContentViewController: NSViewController {
             if let savedMinThickness, let splitViewItem {
                 splitViewItem.minimumThickness = savedMinThickness
                 AppLogDebug("[AIChatSidebarCache] restored minimumThickness=\(savedMinThickness)")
+            }
+
+            // Drop the card style held for the collapse, and lay it out
+            // before the frame sync below reads the page area's size. Only
+            // the latest transition may: AppKit also runs the completion of
+            // an animation that a newer one replaced.
+            if collapsed, transition == self.aiChatTransitionCount {
+                self.isAnimatingAIChatCollapse = false
+                self.updateLeftContainerStyleForCurrentAIChatState()
+                self.view.layoutSubtreeIfNeeded()
             }
 
             // If DevTools is docked, it owns hostView.isFrameSyncPaused (keeps it

@@ -147,7 +147,103 @@ final class WebContentMountGeometryTests: XCTestCase {
         XCTAssertNotNil(fixture.webViews[1].window)
     }
 
+    /// While AI Chat collapses, the page's web view keeps its pre-animation
+    /// frame (frame sync is paused for the animation). If the page card
+    /// dropped its inset at the start, the page area would grow around the
+    /// frozen web view and uncover a strip above it, under the header, where
+    /// the window's backdrop shows.
+    func testCollapsingAIChatLeavesNoStripAboveThePausedWebView() throws {
+        let restorePreferences = pinAIChatPreferences()
+        defer { restorePreferences() }
+        let fixture = try makeFixture()
+        fixture.state.aiChatTabCreationGateOverrideForTesting = false
+        let tab = fixture.tabs[0]
+        let webView = fixture.webViews[0]
+        let pageArea = try XCTUnwrap(webView.superview as? WebContentHostView)
+        fixture.state.setAIChatCollapsed(for: tab, collapsed: false)
+        waitForFrameSync(of: pageArea, paused: true)
+        waitForFrameSync(of: pageArea, paused: false)
+
+        fixture.state.setAIChatCollapsed(for: tab, collapsed: true)
+        waitForFrameSync(of: pageArea, paused: true)
+        var tallestStrip: CGFloat = 0
+        let deadline = Date().addingTimeInterval(2)
+        while pageArea.isFrameSyncPaused, Date() < deadline {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.01))
+            fixture.window.contentView?.layoutSubtreeIfNeeded()
+            // The page area is not flipped: a web view frozen at its old
+            // height keeps its bottom edge and loses the top.
+            tallestStrip = max(tallestStrip, pageArea.bounds.maxY - webView.frame.maxY)
+        }
+
+        XCTAssertFalse(pageArea.isFrameSyncPaused, "the collapse never finished")
+        XCTAssertEqual(tallestStrip, 0, "uncovered strip above the paused web view")
+        XCTAssertEqual(webView.frame, pageArea.bounds)
+    }
+
+    /// A collapse that replaces an expand still in flight keeps the page card
+    /// separated until the collapse itself ends. AppKit also runs the
+    /// completion of the replaced expand, which must not end the newer
+    /// collapse's hold.
+    func testCollapseReplacingAnExpandKeepsTheCardUntilItEnds() throws {
+        let restorePreferences = pinAIChatPreferences()
+        defer { restorePreferences() }
+        let fixture = try makeFixture()
+        fixture.state.aiChatTabCreationGateOverrideForTesting = false
+        let tab = fixture.tabs[0]
+        let webView = fixture.webViews[0]
+        let pageArea = try XCTUnwrap(webView.superview as? WebContentHostView)
+        let card = try XCTUnwrap(pageArea.superview)
+        let split = try XCTUnwrap(sequence(first: card, next: \.superview)
+            .lazy.compactMap { $0 as? NSSplitView }.first)
+        let chatPane = try XCTUnwrap(split.arrangedSubviews.last)
+        fixture.state.setAIChatCollapsed(for: tab, collapsed: false)
+        waitForFrameSync(of: pageArea, paused: true)
+        waitForFrameSync(of: pageArea, paused: false)
+
+        // Collapse, expand and collapse again, each before the last ends.
+        for collapsed in [true, false] {
+            fixture.state.setAIChatCollapsed(for: tab, collapsed: collapsed)
+            RunLoop.main.run(until: Date().addingTimeInterval(0.08))
+        }
+        fixture.state.setAIChatCollapsed(for: tab, collapsed: true)
+        var droppedWhileChatShows = false
+        var tallestStrip: CGFloat = 0
+        let deadline = Date().addingTimeInterval(2)
+        while !chatPane.isHidden, chatPane.frame.width > 0, Date() < deadline {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.01))
+            fixture.window.contentView?.layoutSubtreeIfNeeded()
+            if !chatPane.isHidden, chatPane.frame.width > 0, card.layer?.borderWidth == 0 {
+                droppedWhileChatShows = true
+            }
+            tallestStrip = max(tallestStrip, pageArea.bounds.maxY - webView.frame.maxY)
+        }
+
+        XCTAssertTrue(chatPane.isHidden || chatPane.frame.width == 0, "the collapse never finished")
+        XCTAssertFalse(droppedWhileChatShows, "the card dropped its inset mid-collapse")
+        XCTAssertEqual(tallestStrip, 0, "uncovered strip above the paused web view")
+    }
+
     // MARK: - Helpers
+
+    /// Pins the comfortable layout and the AI switch on (expanding the chat
+    /// is gated on it). The returned closure gives the user's values back;
+    /// setting nil removes a key that was absent.
+    private func pinAIChatPreferences() -> () -> Void {
+        let pins: [(key: String, value: Any)] = [
+            (PhiPreferences.GeneralSettings.layoutModeKey, LayoutMode.comfortable.rawValue),
+            (PhiPreferences.AISettings.phiAIEnabled.rawValue, true),
+        ]
+        let originals = pins.map { UserDefaults.standard.object(forKey: $0.key) }
+        for pin in pins {
+            UserDefaults.standard.set(pin.value, forKey: pin.key)
+        }
+        return {
+            for (pin, original) in zip(pins, originals) {
+                UserDefaults.standard.set(original, forKey: pin.key)
+            }
+        }
+    }
 
     private struct Fixture {
         let state: BrowserState
@@ -213,6 +309,19 @@ final class WebContentMountGeometryTests: XCTestCase {
         }
         _ = try XCTUnwrap(webView.window, "the tab was never mounted", file: file, line: line)
         RunLoop.main.run(until: Date().addingTimeInterval(0.25))
+    }
+
+    private func waitForFrameSync(of pageArea: WebContentHostView,
+                                  paused: Bool,
+                                  file: StaticString = #filePath,
+                                  line: UInt = #line) {
+        let deadline = Date().addingTimeInterval(2)
+        while pageArea.isFrameSyncPaused != paused, Date() < deadline {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.01))
+        }
+        XCTAssertEqual(pageArea.isFrameSyncPaused, paused,
+                       "frame sync never became \(paused ? "paused" : "live")",
+                       file: file, line: line)
     }
 
     private func assertJoinedAtFinalSize(_ webView: MountGeometryProbeView,
