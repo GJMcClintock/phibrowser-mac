@@ -314,13 +314,13 @@
       }
     },
     "settings.shortcuts.description.bookmarkBar" : {
-      "comment" : "Shortcuts settings - Description of the bookmarkBar command",
+      "comment" : "Shortcuts settings - Bookmark bar command description; Comfortable is the layout option name",
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Show or hide the bookmarks bar."
+            "value" : "Show or hide the bookmarks bar. Only available in Comfortable layout."
           }
         }
       }

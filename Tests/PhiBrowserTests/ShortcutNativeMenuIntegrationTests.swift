@@ -113,4 +113,42 @@ final class ShortcutNativeMenuIntegrationTests: XCTestCase {
         try assertNativeOwnership(characters: "\u{F702}", modifiers: .command, keyCode: 123,
                                   enabled: true, extensionPriority: 0)
     }
+
+    func testBookmarkBarShortcutReachesNativeActionWithoutOpeningViewMenu() throws {
+        let bridge = try XCTUnwrap(ChromiumLauncher.sharedInstance().bridge)
+        let defaults = UserDefaults.standard
+        let layoutKey = PhiPreferences.GeneralSettings.layoutModeKey
+        let visibilityKey = PhiPreferences.GeneralSettings.alwaysShowBookmarkBar.rawValue
+        let previousLayout = defaults.object(forKey: layoutKey)
+        let previousVisibility = defaults.object(forKey: visibilityKey)
+        defer {
+            defaults.set(previousLayout, forKey: layoutKey)
+            defaults.set(previousVisibility, forKey: visibilityKey)
+            bridge.requestRebuildMainMenu()
+        }
+        PhiPreferences.GeneralSettings.saveLayoutMode(.comfortable)
+        defaults.set(false, forKey: visibilityKey)
+        bridge.requestRebuildMainMenu()
+        let menu = try XCTUnwrap(NSApp.mainMenu)
+        let viewMenu = try XCTUnwrap(ChromiumMainMenuRole.view.item(in: menu)?.submenu)
+        let item = try XCTUnwrap(viewMenu.items.first {
+            $0.tag == CommandWrapper.IDC_SHOW_BOOKMARK_BAR.rawValue
+        })
+        XCTAssertEqual(item.action, NSSelectorFromString("toggleBookmarkBar:"))
+
+        let window = NSWindow(contentRect: .zero, styleMask: .titled, backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let event = try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero,
+            modifierFlags: [.command, .shift], timestamp: 0, windowNumber: window.windowNumber,
+            context: nil, characters: "B", charactersIgnoringModifiers: "B", isARepeat: false, keyCode: 11))
+        let dispatcher = try dispatcher(handlingPriority: nil)
+        for redispatch in [false, true] {
+            XCTAssertEqual(try postResult(dispatcher, event: event, window: window, redispatch: redispatch), 2)
+        }
+        XCTAssertTrue(menu.performKeyEquivalent(with: event))
+        XCTAssertTrue(PhiPreferences.GeneralSettings.alwaysShowBookmarkBar.loadValue())
+        XCTAssertTrue(menu.performKeyEquivalent(with: event))
+        XCTAssertFalse(PhiPreferences.GeneralSettings.alwaysShowBookmarkBar.loadValue())
+    }
 }

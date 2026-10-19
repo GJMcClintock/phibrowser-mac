@@ -65,7 +65,7 @@ extension CommandWrapper {
         case .IDC_FOCUS_SEARCH:
             return NSLocalizedString("settings.shortcuts.description.focusSearch", value: "Focus the address bar to search the web.", comment: "Shortcuts settings - Description of the focusSearch command")
         case .IDC_SHOW_BOOKMARK_BAR:
-            return NSLocalizedString("settings.shortcuts.description.bookmarkBar", value: "Show or hide the bookmarks bar.", comment: "Shortcuts settings - Description of the bookmarkBar command")
+            return NSLocalizedString("settings.shortcuts.description.bookmarkBar", value: "Show or hide the bookmarks bar. Only available in Comfortable layout.", comment: "Shortcuts settings - Bookmark bar command description; Comfortable is the layout option name")
         case .IDC_TOGGLE_FULLSCREEN_TOOLBAR:
             return NSLocalizedString("settings.shortcuts.description.fullscreenToolbar", value: "Show or hide the toolbar in full screen.", comment: "Shortcuts settings - Description of the fullscreenToolbar command")
         case .IDC_STOP:

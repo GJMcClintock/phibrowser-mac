@@ -281,7 +281,6 @@ extension AppController {
     static let manageUserDataHelpSeparatorTag = 500012
     static let manageUserDataParentItemTag = 500013
     static let timeMachineBackupsParentItemTag = 500014
-    static let toggleBookmarkBarItemTag = 500003
     static let toggleBookmarkBarOnNewTabItemTag = 500004
     static let layoutModeDefaultItemTag = 500005
     static let layoutModeNavigationAtTopItemTag = 500006
@@ -390,7 +389,7 @@ extension AppController {
                     item.tag == CommandWrapper.PHI_TOGGLE_READER.rawValue ||
                     item.tag == AppController.viewLibraryItemTag ||
                     item.tag == AppController.viewMenuPhiSectionSeparatorTag ||
-                    item.tag == AppController.toggleBookmarkBarItemTag ||
+                    item.tag == CommandWrapper.IDC_SHOW_BOOKMARK_BAR.rawValue ||
                     item.tag == AppController.toggleBookmarkBarOnNewTabItemTag ||
                     item.tag == AppController.layoutModeDefaultItemTag ||
                     item.tag == AppController.layoutModeNavigationAtTopItemTag ||
@@ -456,9 +455,8 @@ extension AppController {
                 submenu.addItem(bookmarkBarSeparator)
                 let toggleBookmarkBarItem = NSMenuItem(title: NSLocalizedString("app.viewMenu.alwaysShowBookmarkBar", value: "Always Show Bookmark Bar", comment: "View menu - Menu item to always show the bookmark bar"),
                                                    action: #selector(toggleBookmarkBar(_:)),
-                                                   keyEquivalent: "b")
-                toggleBookmarkBarItem.keyEquivalentModifierMask = [.command, .shift]
-                toggleBookmarkBarItem.tag = AppController.toggleBookmarkBarItemTag
+                                                   keyEquivalent: "")
+                applyEffectiveShortcut(.IDC_SHOW_BOOKMARK_BAR, to: toggleBookmarkBarItem)
                 toggleBookmarkBarItem.target = self
                 submenu.addItem(toggleBookmarkBarItem)
                 let toggleBookmarkBarOnNewTabItem = NSMenuItem(title: NSLocalizedString("app.viewMenu.showBookmarkBarOnNewTab", value: "Show Bookmark Bar on New Tab", comment: "View menu - Menu item to show the bookmark bar on new tab pages"),

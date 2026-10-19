@@ -134,6 +134,12 @@ struct CommandDispatcher {
         }
 
         switch command {
+        case .IDC_SHOW_BOOKMARK_BAR:
+            // Keep the Chromium command identity while Phi owns its presentation.
+            if PhiPreferences.GeneralSettings.loadLayoutMode().isTraditional {
+                AppController.shared?.toggleBookmarkBar(nil)
+            }
+            return true
         case .IDC_HOME:
             guard !AgentAnimationManager.shared.isActive(for: windowController.browserState.focusingTab?.guid ?? 0) else {
                 // disable home command when the current tab is excuting agent job

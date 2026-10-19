@@ -117,6 +117,7 @@ extension Shortcuts {
                         .IDC_DEV_TOOLS,
                         .IDC_DEV_TOOLS_INSPECT,
                         .IDC_DEV_TOOLS_CONSOLE,
+                        .IDC_SHOW_BOOKMARK_BAR,
                         .PHI_TOGGLE_SIDEBAR,
                         .PHI_TOGGLE_CHATBAR,
                         .PHI_TOGGLE_READER,
@@ -465,7 +466,7 @@ extension CommandWrapper {
     var isUnavailableInKiosk: Bool {
         if spaceSelectionIndex != nil { return true }
         switch self {
-        case .IDC_OPEN_FILE, .PHI_TOGGLE_SIDEBAR,
+        case .IDC_OPEN_FILE, .IDC_SHOW_BOOKMARK_BAR, .PHI_TOGGLE_SIDEBAR,
              .PHI_FARRINGDON_TOGGLE,
              .IDC_TAB_SEARCH, .IDC_DUPLICATE_TAB, .IDC_WINDOW_PIN_TAB,
              .IDC_DEV_TOOLS, .IDC_DEV_TOOLS_INSPECT, .IDC_DEV_TOOLS_CONSOLE,

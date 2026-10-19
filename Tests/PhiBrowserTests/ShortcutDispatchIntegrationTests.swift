@@ -68,6 +68,31 @@ final class ShortcutDispatchIntegrationTests: XCTestCase {
         }
     }
 
+    func testBookmarkBarCommandUsesPhiVisibilityAndDoesNotFallBackInKiosk() throws {
+        let defaults = UserDefaults.standard
+        let layoutKey = PhiPreferences.GeneralSettings.layoutModeKey
+        let visibilityKey = PhiPreferences.GeneralSettings.alwaysShowBookmarkBar.rawValue
+        let layout = defaults.object(forKey: layoutKey)
+        let visibility = defaults.object(forKey: visibilityKey)
+        defer {
+            defaults.set(layout, forKey: layoutKey)
+            defaults.set(visibility, forKey: visibilityKey)
+        }
+        PhiPreferences.GeneralSettings.saveLayoutMode(.comfortable)
+        defaults.set(false, forKey: visibilityKey)
+        let command = Int32(CommandWrapper.IDC_SHOW_BOOKMARK_BAR.rawValue)
+        try withController { _, window in
+            XCTAssertTrue(CommandDispatcher.dispatchCommand(command, window: window))
+            XCTAssertTrue(PhiPreferences.GeneralSettings.alwaysShowBookmarkBar.loadValue())
+            XCTAssertTrue(CommandDispatcher.dispatchCommand(command, window: window))
+            XCTAssertFalse(PhiPreferences.GeneralSettings.alwaysShowBookmarkBar.loadValue())
+        }
+        try withController(kiosk: true) { _, window in
+            XCTAssertTrue(CommandDispatcher.dispatchCommand(command, window: window))
+            XCTAssertFalse(PhiPreferences.GeneralSettings.alwaysShowBookmarkBar.loadValue())
+        }
+    }
+
     func testDisabledAndReboundCommandsDoNotConsumeTheirOldKey() throws {
         try withController { _, window in
             configure([.PHI_COPY_URL: .disabled])

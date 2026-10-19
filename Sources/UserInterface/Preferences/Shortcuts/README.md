@@ -620,3 +620,12 @@ input-source-switching behavior for every keyboard layout.
   and hidden rows used by `updateMenuItemKeyEquivalents`.
 - To let Cmd-W on non-browser windows fall back to system `performClose:`, return
   unhandled for those windows or remove the Close Tab binding.
+
+### Bookmark bar command ownership
+
+`IDC_SHOW_BOOKMARK_BAR` retains its Chromium command identity and participates in
+View shortcut settings. Phi replaces the View menu entry with its native action,
+using the command's effective binding (default Cmd-Shift-B, custom, or disabled).
+Direct browser command dispatch also uses Phi's bookmark bar visibility setting;
+Kiosk consumes the command without falling back to Chromium. The native menu's
+existing traditional-layout visibility rule is unchanged.

@@ -54,6 +54,40 @@ final class ShortcutSettingsPersistenceTests: XCTestCase {
         try XCTUnwrap(model.sections.flatMap(\.items).first { $0.command == command })
     }
 
+    func testBookmarkBarCommandKeepsNativeActionAcrossShortcutChanges() throws {
+        let bridge = try XCTUnwrap(ChromiumLauncher.sharedInstance().bridge)
+        let layoutKey = PhiPreferences.GeneralSettings.layoutModeKey
+        let previousLayout = UserDefaults.standard.object(forKey: layoutKey)
+        defer { UserDefaults.standard.set(previousLayout, forKey: layoutKey) }
+        PhiPreferences.GeneralSettings.saveLayoutMode(.comfortable)
+        let command = CommandWrapper.IDC_SHOW_BOOKMARK_BAR
+        let model = ShortcutsViewModel()
+        XCTAssertNotNil(try item(command, in: model))
+
+        func assertMenu(_ key: ShortcutsKey?) throws {
+            bridge.requestRebuildMainMenu()
+            let menu = try XCTUnwrap(NSApp.mainMenu)
+            let view = try XCTUnwrap(ChromiumMainMenuRole.view.item(in: menu)?.submenu)
+            let items = view.items.filter { $0.tag == command.rawValue }
+            XCTAssertEqual(items.count, 1)
+            let bookmark = try XCTUnwrap(items.first)
+            XCTAssertEqual(bookmark.action, NSSelectorFromString("toggleBookmarkBar:"))
+            XCTAssertEqual(bookmark.keyEquivalent, key?.menuKeyEquivalent.characters ?? "")
+            XCTAssertEqual(bookmark.keyEquivalentModifierMask, key?.menuKeyEquivalent.modifiers ?? [])
+            XCTAssertEqual(Shortcuts.key(for: command), key)
+        }
+
+        try assertMenu(Shortcuts.DefaultShortcuts[command])
+        model.setCustomShortcut(for: command, key: customKey)
+        try assertMenu(customKey)
+        try Shortcuts.reloadOverrides().get()
+        try assertMenu(customKey)
+        model.disableShortcut(for: command)
+        try assertMenu(nil)
+        model.restoreDefaultShortcut(for: command)
+        try assertMenu(Shortcuts.DefaultShortcuts[command])
+    }
+
     func testSystemConflictIsInformationalAndIncludedInConflictFilter() throws {
         let defaultKey = try XCTUnwrap(Shortcuts.key(for: .IDC_NEW_WINDOW))
         let system = ShortcutBinding(owner: .system, key: defaultKey, scope: .all, source: .system)
