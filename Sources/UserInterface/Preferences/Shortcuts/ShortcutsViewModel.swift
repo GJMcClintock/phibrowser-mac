@@ -77,7 +77,7 @@ class ShortcutsViewModel: ObservableObject {
     }
     @Published var recordingMessage: String?
     @Published private(set) var reservedShortcuts: [ReservedShortcutItem] = []
-    @Published var hiddenGroups: Set<Shortcuts.Group> = [.help, .bookmarks]
+    @Published var hiddenGroups: Set<Shortcuts.Group> = [.help]
     @Published private(set) var persistenceFailure: PersistenceFailure?
     private var cancellables = Set<AnyCancellable>()
     private let additionalBindings: () -> [ShortcutBinding]
@@ -235,16 +235,6 @@ class ShortcutsViewModel: ObservableObject {
         })
         var newSections: [(category: String, subtitle: String?, items: [ShortcutItem])] = []
         
-        Shortcuts.Group.allCases
-            .filter { !hiddenGroups.contains($0) }
-            .forEach { group in
-                let items = group.commands.filter(shouldShow).map(makeItem)
-                
-                if !items.isEmpty {
-                    newSections.append((category: group.title, subtitle: group.subtitle, items: items))
-                }
-            }
-        
         // Discover remaining browser commands from the live tables. Keep saved
         // commands available after disabling them removes their runtime binding.
         let grouped = Set(Shortcuts.configurableCommands)
@@ -254,11 +244,24 @@ class ShortcutsViewModel: ObservableObject {
             .filter { !grouped.contains($0) && !$0.isSystemShortcut && shouldShow($0)
                 && $0 != .IDC_SHOW_READING_MODE_KEYBOARD }
             .sorted { $0.rawValue < $1.rawValue }
-        if !discovered.isEmpty {
+        let discoveredSet = Set(discovered)
+        let categorized = Set(Shortcuts.Group.allCases.flatMap(\.discoveredCommands))
+        Shortcuts.Group.allCases
+            .filter { !hiddenGroups.contains($0) }
+            .forEach { group in
+                let commands = group.commands.filter(shouldShow)
+                    + group.discoveredCommands.filter { discoveredSet.contains($0) }
+                if !commands.isEmpty {
+                    newSections.append((category: group.title, subtitle: group.subtitle, items: commands.map(makeItem)))
+                }
+            }
+
+        let uncategorized = discovered.filter { !categorized.contains($0) }
+        if !uncategorized.isEmpty {
             newSections.append((category: NSLocalizedString(
                 "settings.shortcuts.group.otherBrowser", value: "Other Browser Commands",
                 comment: "Shortcuts settings - Additional customizable browser commands"),
-                subtitle: nil, items: discovered.map(makeItem)))
+                subtitle: nil, items: uncategorized.map(makeItem)))
         }
         sections = newSections
         let editable = Set(sections.flatMap(\.items).map { ShortcutBinding.Owner.command($0.command.rawValue) })

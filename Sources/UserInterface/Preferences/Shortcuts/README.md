@@ -262,7 +262,11 @@ Non-keyboard command entry points and menu item visibility are unchanged.
   stays in effect when Tab Search is customized or disabled.
 - Force Reload and Move Tab Left/Right are editable in their normal groups.
   Other recognized browser commands are discovered from the runtime inventory
-  and saved overrides, including disabled overrides. Their default labels come
+  and saved overrides, including disabled overrides. `Group.discoveredCommands`
+  assigns these rows to functional sections without making absent commands visible
+  or adding defaults. Tab-group actions belong to Tab; bookmark actions and the
+  bookmark-bar toggle belong to Bookmarks. Unclassified commands remain in Other
+  Browser Commands. Their default labels come
   from the runtime bindings when Phi has no default; no Chromium key table is
   duplicated. Unknown command IDs remain named read-only owners.
   Assigning a conflicting key preserves all other commands and their aliases.

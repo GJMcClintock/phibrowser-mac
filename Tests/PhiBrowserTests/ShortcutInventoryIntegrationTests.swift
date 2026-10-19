@@ -199,6 +199,81 @@ final class ShortcutInventoryIntegrationTests: XCTestCase {
                        [.command(CommandWrapper.IDC_RELOAD.rawValue)])
     }
 
+    func testDiscoveredCommandsJoinTheirFunctionalSectionsWithoutDuplicates() throws {
+        let expected: [(Shortcuts.Group, [CommandWrapper])] = [
+            (.app, [.IDC_IMPORT_SETTINGS]),
+            (.file, [.IDC_SAVE_PAGE, .IDC_BASIC_PRINT]),
+            (.view, [.IDC_FULLSCREEN]),
+            (.history, [.IDC_CLEAR_BROWSING_DATA]),
+            (.bookmarks, [.IDC_BOOKMARK_THIS_TAB, .IDC_BOOKMARK_ALL_TABS, .IDC_SHOW_BOOKMARK_MANAGER]),
+            (.window, [.IDC_TASK_MANAGER]),
+            (.tab, [.IDC_NEW_SPLIT_TAB, .IDC_WINDOW_PIN_TAB, .IDC_WINDOW_CLOSE_OTHER_TABS,
+                    .IDC_WINDOW_CLOSE_TABS_TO_RIGHT, .IDC_MOVE_TAB_TO_NEW_WINDOW,
+                    .IDC_CREATE_NEW_TAB_GROUP, .IDC_ADD_NEW_TAB_TO_GROUP, .IDC_WINDOW_GROUP_TAB,
+                    .IDC_FOCUS_PREV_TAB_GROUP, .IDC_FOCUS_NEXT_TAB_GROUP, .IDC_CLOSE_TAB_GROUP])
+        ]
+        let key = ShortcutsKey(characters: "g", modifiers: [.control, .option])
+        let commands = expected.flatMap { $0.1 }
+        let model = ShortcutsViewModel(additionalBindings: {
+            (commands + [.IDC_DEBUG_PRINT_VIEW_TREE]).map {
+                ShortcutBinding(commandID: $0.rawValue, key: key, scope: .browser, source: .hidden)
+            }
+        })
+        for (group, expectedCommands) in expected {
+            let section = try XCTUnwrap(model.sections.first { $0.category == group.title })
+            XCTAssertEqual(section.items.filter { commands.contains($0.command) }.map(\.command), expectedCommands)
+            for command in expectedCommands {
+                let row = try item(command, in: model)
+                XCTAssertEqual(row.shortcutKey, Shortcuts.DefaultShortcuts[command] ?? key)
+                XCTAssertTrue(row.aliases.contains(key))
+            }
+        }
+        let allCommands = model.sections.flatMap(\.items).map(\.command)
+        XCTAssertEqual(allCommands.count, Set(allCommands).count)
+        let other = try XCTUnwrap(model.sections.first { $0.items.contains { $0.command == .IDC_DEBUG_PRINT_VIEW_TREE } })
+        XCTAssertEqual(other.items.map(\.command), [.IDC_DEBUG_PRINT_VIEW_TREE])
+        XCTAssertTrue(Shortcuts.configuration.overrides.isEmpty)
+    }
+
+    func testCategoriesDoNotExposeUndiscoveredCommandsAndBookmarkBarMovesFromView() throws {
+        let model = ShortcutsViewModel(additionalBindings: { [] })
+        let commands = Set(model.sections.flatMap(\.items).map(\.command))
+        XCTAssertTrue(commands.isDisjoint(with: Shortcuts.Group.allCases.flatMap(\.discoveredCommands)))
+        let bookmarks = try XCTUnwrap(model.sections.first { $0.category == Shortcuts.Group.bookmarks.title })
+        XCTAssertEqual(bookmarks.items.map(\.command), [.IDC_SHOW_BOOKMARK_BAR])
+        let view = try XCTUnwrap(model.sections.first { $0.category == Shortcuts.Group.view.title })
+        XCTAssertFalse(view.items.contains { $0.command == .IDC_SHOW_BOOKMARK_BAR })
+        model.filter = .section(Shortcuts.Group.bookmarks.title)
+        XCTAssertEqual(model.filteredSections.flatMap(\.items).map(\.command), [.IDC_SHOW_BOOKMARK_BAR])
+    }
+
+    func testCategorizedSavedCommandsKeepDisabledStateAndConflictNavigation() throws {
+        let key = try XCTUnwrap(Shortcuts.DefaultShortcuts[.IDC_NEW_TAB])
+        install([.IDC_CREATE_NEW_TAB_GROUP: .disabled, .IDC_BOOKMARK_THIS_TAB: .custom(key)])
+        let saved = Shortcuts.configuration.overrides
+        let model = ShortcutsViewModel(additionalBindings: { [] })
+        let tab = try XCTUnwrap(model.sections.first { $0.category == Shortcuts.Group.tab.title })
+        XCTAssertTrue(tab.items.contains { $0.command == .IDC_CREATE_NEW_TAB_GROUP })
+        XCTAssertNil(try item(.IDC_CREATE_NEW_TAB_GROUP, in: model).shortcutKey)
+        XCTAssertTrue(try item(.IDC_CREATE_NEW_TAB_GROUP, in: model).isOverridden)
+        let bookmarks = try XCTUnwrap(model.sections.first { $0.category == Shortcuts.Group.bookmarks.title })
+        XCTAssertTrue(bookmarks.items.contains { $0.command == .IDC_BOOKMARK_THIS_TAB })
+        XCTAssertEqual(try item(.IDC_BOOKMARK_THIS_TAB, in: model).shortcutKey, key)
+        XCTAssertTrue(model.conflicts(for: .IDC_NEW_TAB).contains { $0.command == .IDC_BOOKMARK_THIS_TAB })
+
+        model.filter = .section(Shortcuts.Group.tab.title)
+        model.selectConflict(.IDC_BOOKMARK_THIS_TAB)
+        XCTAssertEqual(model.filter, .all)
+        XCTAssertEqual(model.selectedItem?.command, .IDC_BOOKMARK_THIS_TAB)
+        XCTAssertTrue(model.filteredSections.flatMap(\.items).contains { $0.command == .IDC_BOOKMARK_THIS_TAB })
+        XCTAssertEqual(Shortcuts.configuration.overrides, saved)
+
+        install([:])
+        model.rebuildSections()
+        XCTAssertFalse(model.sections.flatMap(\.items).contains { $0.command == .IDC_CREATE_NEW_TAB_GROUP })
+        XCTAssertFalse(model.sections.flatMap(\.items).contains { $0.command == .IDC_BOOKMARK_THIS_TAB })
+    }
+
     func testUnavailableServicesDoNotConflictButOtherServiceStatesStillDo() throws {
         install([.IDC_TAB_SEARCH: .custom(.init(characters: "m", modifiers: [.command, .shift]))])
         let menu = NSMenu()

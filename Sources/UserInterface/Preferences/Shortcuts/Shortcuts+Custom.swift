@@ -120,7 +120,6 @@ extension Shortcuts {
                         .IDC_DEV_TOOLS,
                         .IDC_DEV_TOOLS_INSPECT,
                         .IDC_DEV_TOOLS_CONSOLE,
-                        .IDC_SHOW_BOOKMARK_BAR,
                         .PHI_TOGGLE_SIDEBAR,
                         .PHI_TOGGLE_CHATBAR,
                         .PHI_TOGGLE_READER,
@@ -130,10 +129,8 @@ extension Shortcuts {
                         .IDC_BACK,
                         .IDC_FORWARD,
                         .IDC_SHOW_HISTORY]
-//            case .bookmarks:
-//                return [.IDC_SHOW_BOOKMARK_MANAGER,
-//                        .IDC_BOOKMARK_THIS_TAB,
-//                        .IDC_BOOKMARK_ALL_TABS]
+            case .bookmarks:
+                return [.IDC_SHOW_BOOKMARK_BAR]
             case .window:
                 return [.IDC_MANAGE_EXTENSIONS,
                         .IDC_SHOW_DOWNLOADS]
@@ -157,11 +154,6 @@ extension Shortcuts {
                         .IDC_DUPLICATE_TAB,
                         .IDC_WINDOW_MUTE_SITE,
                         .PHI_FARRINGDON_TOGGLE,
-//                        .IDC_WINDOW_PIN_TAB,
-//                        .IDC_WINDOW_GROUP_TAB,
-//                        .IDC_WINDOW_CLOSE_OTHER_TABS,
-//                        .IDC_WINDOW_CLOSE_TABS_TO_RIGHT,
-//                        .IDC_MOVE_TAB_TO_NEW_WINDOW,
                         .IDC_TAB_SEARCH]
             case .spaces:
                 return [.PHI_SELECT_NEXT_SPACE,
@@ -172,6 +164,39 @@ extension Shortcuts {
 //                return [.IDC_FEEDBACK,
 //                        .IDC_HELP_PAGE_VIA_MENU]
             default: return []
+            }
+        }
+
+        /// Presentation order for additional commands, shown only when discovered
+        /// in the live inventory or saved overrides. These do not register defaults.
+        var discoveredCommands: [CommandWrapper] {
+            switch self {
+            case .app:
+                return [.IDC_IMPORT_SETTINGS]
+            case .file:
+                return [.IDC_SAVE_PAGE, .IDC_BASIC_PRINT]
+            case .view:
+                return [.IDC_FULLSCREEN]
+            case .history:
+                return [.IDC_CLEAR_BROWSING_DATA]
+            case .bookmarks:
+                return [.IDC_BOOKMARK_THIS_TAB, .IDC_BOOKMARK_ALL_TABS, .IDC_SHOW_BOOKMARK_MANAGER]
+            case .window:
+                return [.IDC_TASK_MANAGER]
+            case .tab:
+                return [.IDC_NEW_SPLIT_TAB,
+                        .IDC_WINDOW_PIN_TAB,
+                        .IDC_WINDOW_CLOSE_OTHER_TABS,
+                        .IDC_WINDOW_CLOSE_TABS_TO_RIGHT,
+                        .IDC_MOVE_TAB_TO_NEW_WINDOW,
+                        .IDC_CREATE_NEW_TAB_GROUP,
+                        .IDC_ADD_NEW_TAB_TO_GROUP,
+                        .IDC_WINDOW_GROUP_TAB,
+                        .IDC_FOCUS_PREV_TAB_GROUP,
+                        .IDC_FOCUS_NEXT_TAB_GROUP,
+                        .IDC_CLOSE_TAB_GROUP]
+            default:
+                return []
             }
         }
     }
