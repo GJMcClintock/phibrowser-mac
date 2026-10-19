@@ -224,7 +224,128 @@ final class WebContentMountGeometryTests: XCTestCase {
         XCTAssertEqual(tallestStrip, 0, "uncovered strip above the paused web view")
     }
 
+    /// Closing the extension side panel slides it out with the page's frame
+    /// sync paused, as an AI Chat collapse does. If the page card dropped
+    /// its inset at the start, the page area would grow around the frozen
+    /// web view and uncover a strip above it.
+    func testClosingExtensionSidePanelLeavesNoStripAboveThePausedWebView() throws {
+        let restorePreferences = pinAIChatPreferences()
+        defer { restorePreferences() }
+        let fixture = try makeFixture()
+        let controller = try showPageColor(in: fixture)
+        let webView = fixture.webViews[0]
+        let pageArea = try XCTUnwrap(webView.superview as? WebContentHostView)
+        let panel = makePanel()
+        defer { withExtendedLifetime(panel) {} }
+        fixture.state.updateExtensionSidePanel(panel.state)
+        waitForFrameSync(of: pageArea, paused: false)
+
+        fixture.state.updateExtensionSidePanel(nil)
+        waitForFrameSync(of: pageArea, paused: true)
+        var tallestStrip: CGFloat = 0
+        let deadline = Date().addingTimeInterval(2)
+        while pageArea.isFrameSyncPaused, Date() < deadline {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.01))
+            fixture.window.contentView?.layoutSubtreeIfNeeded()
+            tallestStrip = max(tallestStrip, pageArea.bounds.maxY - webView.frame.maxY)
+        }
+
+        XCTAssertFalse(pageArea.isFrameSyncPaused, "the slide-out never finished")
+        XCTAssertEqual(tallestStrip, 0, "uncovered strip above the paused web view")
+        XCTAssertEqual(webView.frame, pageArea.bounds)
+        // The card rejoined the header, and the tab strip with it.
+        XCTAssertEqual(controller.tabStripPageColorPresentation.appearance, .dark)
+    }
+
+    /// The AI Chat ↔ extension side panel mutex closes the panel before the
+    /// chat expands. The tab strip stays on the browser color through the
+    /// handoff instead of flashing the page color.
+    func testAIChatReplacingExtensionSidePanelKeepsTheTabStripInherited() throws {
+        let restorePreferences = pinAIChatPreferences()
+        defer { restorePreferences() }
+        let fixture = try makeFixture()
+        fixture.state.aiChatTabCreationGateOverrideForTesting = false
+        let controller = try showPageColor(in: fixture)
+        let panel = makePanel()
+        defer { withExtendedLifetime(panel) {} }
+        fixture.state.updateExtensionSidePanel(panel.state)
+        RunLoop.main.run(until: Date().addingTimeInterval(0.5))
+        fixture.state.extensionSidePanelCloseRequestOverrideForTesting = { [weak state = fixture.state] in
+            state?.updateExtensionSidePanel(nil)
+        }
+        var presentations: [WebContentHeaderPageColorPresentation] = []
+        let subscription = controller.tabStripPageColorPresentationPublisher
+            .sink { presentations.append($0) }
+        defer { subscription.cancel() }
+
+        fixture.state.toggleAIChat(false)
+        RunLoop.main.run(until: Date().addingTimeInterval(0.5))
+
+        // Precondition: the chat took over from the panel.
+        XCTAssertNil(fixture.state.extensionSidePanel)
+        XCTAssertFalse(try chatItem(of: controller).isCollapsed)
+        XCTAssertEqual(presentations, [.inherited])
+    }
+
+    /// Opening the panel over an expanded chat collapses the chat's split
+    /// item synchronously in the container's panel sink. Combine may run
+    /// that sink before the tab strip sees the panel; the tab strip stays on
+    /// the browser color in between.
+    func testExtensionSidePanelReplacingAIChatKeepsTheTabStripInherited() throws {
+        let restorePreferences = pinAIChatPreferences()
+        defer { restorePreferences() }
+        let fixture = try makeFixture()
+        fixture.state.aiChatTabCreationGateOverrideForTesting = false
+        let controller = try showPageColor(in: fixture)
+        fixture.state.toggleAIChat(false)
+        RunLoop.main.run(until: Date().addingTimeInterval(0.5))
+        XCTAssertFalse(try chatItem(of: controller).isCollapsed)
+        let panel = makePanel()
+        defer { withExtendedLifetime(panel) {} }
+        var presentations: [WebContentHeaderPageColorPresentation] = []
+        let subscription = controller.tabStripPageColorPresentationPublisher
+            .sink { presentations.append($0) }
+        defer { subscription.cancel() }
+
+        // The container's sink, run first.
+        _ = controller.collapseAIChatForPanelTransition(ghostIn: fixture.container.view)
+        fixture.state.updateExtensionSidePanel(panel.state)
+        RunLoop.main.run(until: Date().addingTimeInterval(0.5))
+
+        // Precondition: the panel took over from the chat.
+        XCTAssertTrue(fixture.tabs[0].aiChatCollapsed)
+        XCTAssertEqual(presentations, [.inherited])
+    }
+
     // MARK: - Helpers
+
+    /// An extension side panel and the page view it shows, which the caller
+    /// holds: a wrapper's `nativeView` is weak.
+    private func makePanel() -> (state: BrowserState.ExtensionSidePanelState, view: NSView) {
+        let wrapper = PageColorTestWebContentWrapper(urlString: "chrome-extension://test/panel.html")
+        let view = NSView()
+        wrapper.nativeView = view
+        return (BrowserState.ExtensionSidePanelState(extensionId: "test-extension",
+                                                     displayName: "Test Extension",
+                                                     iconPNG: nil, wrapper: wrapper), view)
+    }
+
+    /// Gives the focused page a black page color and returns its controller,
+    /// whose tab strip presentation now carries that color.
+    private func showPageColor(in fixture: Fixture) throws -> WebContentViewController {
+        try XCTUnwrap(fixture.tabs[0].webContentWrapper as? PageColorTestWebContentWrapper)
+            .pageColor = .black
+        RunLoop.main.run(until: Date().addingTimeInterval(0.25))
+        let controller = try XCTUnwrap(fixture.container.children
+            .compactMap { $0 as? WebContentViewController }.first)
+        XCTAssertEqual(controller.tabStripPageColorPresentation.appearance, .dark)
+        return controller
+    }
+
+    private func chatItem(of controller: WebContentViewController) throws -> NSSplitViewItem {
+        let split = try XCTUnwrap(controller.children.compactMap { $0 as? NSSplitViewController }.first)
+        return try XCTUnwrap(split.splitViewItems.last)
+    }
 
     /// Pins the comfortable layout and the AI switch on (expanding the chat
     /// is gated on it). The returned closure gives the user's values back;

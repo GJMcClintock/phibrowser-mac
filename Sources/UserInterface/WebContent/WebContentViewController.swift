@@ -43,7 +43,7 @@
  Layout constraints:
  - splitViewContainer: trailing/bottom inset 8pt from view edges, top is 0
  - leading inset is 0 when the sidebar is expanded, 8pt when collapsed or in traditional layout
- - leftContainerView: 4pt inset + border when AI Chat is expanded (kept until a collapse animation ends); no inset/border when collapsed
+ - leftContainerView: 4pt inset + border when AI Chat is expanded or the extension side panel is docked (kept until a collapse animation or panel slide ends); no inset/border otherwise. The tab strip's active tab follows it: browser color while separated, page color otherwise
  - embeddedChatViewController: min width 300, max width 600, collapsible
  
  AI Chat state management:
@@ -182,7 +182,11 @@ class WebContentViewController: NSViewController {
     /// page's latest. Per page: another tab's slide never moves this split,
     /// so it must not cancel the alignment this page's own slide owes it.
     private var panelTransitionCount = 0
-    
+    /// True from the start of the container's latest extension side panel
+    /// slide over this page until it ends. A closing panel keeps the page
+    /// card separated meanwhile (see `updateLeftContainerStyle`).
+    private var isAnimatingPanelSlide = false
+
     /// Chromium's `restoreFocus` / `focus` silently fails on pages that haven't
     /// loaded yet (url=nil).  When set, the `$url` observer will re-trigger
     /// `restoreFocusForCurrentTab` once the URL arrives and the page is ready.
@@ -208,33 +212,30 @@ class WebContentViewController: NSViewController {
     private var splitLoginRequiredViews: [Int: LoginRequiredOverlayView] = [:]
 
     var addressBarAnchorView: NSView? { headerView.addressBarAnchorView }
+    /// The active tab sits on the window frame while the page card is
+    /// separated, and on the header otherwise, so it takes the header's
+    /// page color only then. Following the card rather than its causes keeps
+    /// the AI Chat ↔ extension side panel handoff free of a page-colored
+    /// frame: the panel closes a turn before the chat expands, but the card
+    /// stays separated across that turn.
     var tabStripPageColorPresentation: WebContentHeaderPageColorPresentation {
-        // A docked extension side panel separates the page card the same way
-        // an expanded chat does (see updateLeftContainerStyle).
-        if browserState?.extensionSidePanel != nil {
-            return .inherited
-        }
         if let state = browserState, let tab = state.focusingTab,
            state.readerOverlayState.reader(forOrigin: tab.guid) != nil {
             return .inherited
         }
-        return aiChatSplitViewItem?.isCollapsed == false ? .inherited : headerView.pageColorPresentation
+        return isPageCardSeparated ? .inherited : headerView.pageColorPresentation
     }
     var tabStripPageColorPresentationPublisher: AnyPublisher<WebContentHeaderPageColorPresentation, Never> {
-        var presentation = headerView.pageColorPresentationPublisher
-        if let aiChatSplitViewItem {
-            presentation = presentation
-                .combineLatest(aiChatSplitViewItem.publisher(for: \.isCollapsed))
-                .map { presentation, isCollapsed in isCollapsed ? presentation : .inherited }
-                .eraseToAnyPublisher()
-        }
+        let presentation = headerView.pageColorPresentationPublisher
+            .combineLatest($isPageCardSeparated)
+            .map { presentation, isSeparated in isSeparated ? .inherited : presentation }
+            .eraseToAnyPublisher()
         guard let state = browserState else { return presentation }
         // Match the Reader panel's focused-origin selection, including tab switches.
         return presentation
-            .combineLatest(state.readerOverlayState.$readersByOrigin, state.$focusingTab,
-                           state.$extensionSidePanel.map { $0 != nil })
-            .map { presentation, readers, tab, panelDocked in
-                !panelDocked && tab.flatMap { readers[$0.guid] } == nil ? presentation : .inherited
+            .combineLatest(state.readerOverlayState.$readersByOrigin, state.$focusingTab)
+            .map { presentation, readers, tab in
+                tab.flatMap { readers[$0.guid] } == nil ? presentation : .inherited
             }
             .removeDuplicates()
             .eraseToAnyPublisher()
@@ -2912,6 +2913,9 @@ class WebContentViewController: NSViewController {
     /// the state actually flips.
     private var appliedPageCardSeparated: Bool?
     private var appliedPanelDockedCorners: Bool?
+    /// Whether the page card is separated, as last applied. The tab strip's
+    /// page color follows it (see `tabStripPageColorPresentation`).
+    @Published private(set) var isPageCardSeparated = false
 
     /// Layout mode last seen by the defaults-change restyle sink; the sink
     /// only re-runs the styling when this actually changes.
@@ -2942,13 +2946,16 @@ class WebContentViewController: NSViewController {
         // dropping the inset now would grow the page area around the frozen
         // web view, uncovering a strip above it (the area is not flipped).
         let chatHoldsCard = isAIChatExpanded || isAnimatingAIChatCollapse
+        // A closing panel holds it until its slide ends, for the same reason.
+        let panelHoldsCard = panelDocked || isAnimatingPanelSlide
         let shouldSeparatePageCard =
-            (chatHoldsCard || panelDocked) && !isPerformanceSplitContent
+            (chatHoldsCard || panelHoldsCard) && !isPerformanceSplitContent
 
         guard shouldSeparatePageCard != appliedPageCardSeparated
             || panelDocked != appliedPanelDockedCorners else { return }
         appliedPageCardSeparated = shouldSeparatePageCard
         appliedPanelDockedCorners = panelDocked
+        isPageCardSeparated = shouldSeparatePageCard
 
         if shouldSeparatePageCard {
             leftContainerView.layer?.borderWidth = 1
@@ -3097,6 +3104,7 @@ class WebContentViewController: NSViewController {
     /// `finishPanelTransition(_:)`.
     func beginPanelTransition() -> Int {
         panelTransitionCount += 1
+        isAnimatingPanelSlide = true
         return panelTransitionCount
     }
 
@@ -3116,16 +3124,21 @@ class WebContentViewController: NSViewController {
         splitView.animator().frame = superview.bounds
     }
 
-    /// From a side panel slide's completion handler: puts the split on its
-    /// superview's bounds at once, which catches a resize made outside the
-    /// slide's group (the window resized mid-slide), but only after this
-    /// page's latest slide. AppKit also runs the completion of a slide that
-    /// a newer one replaced, partway through the newer one.
+    /// From a side panel slide's completion handler: drops the card style a
+    /// closing panel held, and puts the split on its superview's bounds at
+    /// once, which catches a resize made outside the slide's group (the
+    /// window resized mid-slide), then lays both out before the caller
+    /// resumes the frame sync. Only after this page's latest slide: AppKit
+    /// also runs the completion of a slide that a newer one replaced,
+    /// partway through the newer one.
     func finishPanelTransition(_ transition: Int) {
+        guard transition == panelTransitionCount else { return }
+        isAnimatingPanelSlide = false
+        updateLeftContainerStyleForCurrentAIChatState()
         let splitView = contentSplitViewController.splitView
-        guard transition == panelTransitionCount, let superview = splitView.superview,
-              splitView.frame != superview.bounds else { return }
-        splitView.frame = superview.bounds
+        if let superview = splitView.superview, splitView.frame != superview.bounds {
+            splitView.frame = superview.bounds
+        }
         view.layoutSubtreeIfNeeded()
     }
 
