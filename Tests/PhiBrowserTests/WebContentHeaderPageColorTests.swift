@@ -146,6 +146,50 @@ final class WebContentHeaderPageColorTests: XCTestCase {
         XCTAssertEqual(controller.tabStripPageColorPresentation, presentation)
     }
 
+    func testTabStripInheritsWhileExtensionSidePanelIsOpenAndRestoresLatestPageColor() throws {
+        let key = PhiPreferences.GeneralSettings.layoutModeKey
+        let originalMode = UserDefaults.standard.object(forKey: key)
+        UserDefaults.standard.set(LayoutMode.comfortable.rawValue, forKey: key)
+        defer { UserDefaults.standard.set(originalMode, forKey: key) }
+
+        let state = try makeState()
+        let (tab, wrapper) = makeTab(color: .black)
+        let controller = WebContentViewController(state: state, tab: tab)
+        controller.view.frame = NSRect(x: 0, y: 0, width: 1000, height: 700)
+        let header = try XCTUnwrap(controller.leftContainerViewForTesting.subviews
+            .compactMap { $0 as? WebContentHeader }.first)
+        header.currentTab = tab
+
+        var presentation = WebContentHeaderPageColorPresentation.inherited
+        let subscription = controller.tabStripPageColorPresentationPublisher.sink { presentation = $0 }
+        defer { subscription.cancel() }
+        XCTAssertEqual(presentation, header.pageColorPresentation)
+        XCTAssertEqual(presentation.appearance, .dark)
+
+        state.updateExtensionSidePanel(BrowserState.ExtensionSidePanelState(
+            extensionId: "test-extension", displayName: "Test Extension", iconPNG: nil,
+            wrapper: PageColorTestWebContentWrapper(urlString: "chrome-extension://test/panel.html")
+        ))
+        XCTAssertEqual(presentation, .inherited)
+        XCTAssertEqual(controller.tabStripPageColorPresentation, .inherited)
+        assertBackground(header, .black)
+
+        wrapper.pageColor = .white
+        drainPageColorUpdates()
+        XCTAssertEqual(presentation, .inherited)
+        assertBackground(header, .white)
+        var openPresentation: WebContentHeaderPageColorPresentation?
+        let openSubscription = controller.tabStripPageColorPresentationPublisher
+            .sink { openPresentation = $0 }
+        defer { openSubscription.cancel() }
+        XCTAssertEqual(openPresentation, .inherited)
+
+        state.updateExtensionSidePanel(nil)
+        XCTAssertEqual(presentation, header.pageColorPresentation)
+        XCTAssertEqual(controller.tabStripPageColorPresentation, presentation)
+        XCTAssertEqual(presentation.appearance, .light)
+    }
+
     func testSharedBookmarkBarSwitchesPageSubscriptionAndRestoresThemeFallback() throws {
         let layoutKey = PhiPreferences.GeneralSettings.layoutModeKey
         let bookmarkKey = PhiPreferences.GeneralSettings.alwaysShowBookmarkBar.rawValue

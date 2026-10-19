@@ -530,8 +530,8 @@ class WebContentContainerViewController: NSViewController {
 
     /// The visible address bar owns page-color eligibility, compositing,
     /// contrast, and fallback. The horizontal tab strip mirrors that resolved
-    /// presentation unless AI Chat separates the page into its own card or
-    /// Reader View covers the focused page.
+    /// presentation unless AI Chat or the extension side panel separates the
+    /// page into its own card, or Reader View covers the focused page.
     private func bindCurrentHeaderPageColorPresentation() {
         currentHeaderPageColorCancellable = nil
         guard let controller = currentWebContentController else {

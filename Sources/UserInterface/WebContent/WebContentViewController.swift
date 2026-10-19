@@ -209,6 +209,11 @@ class WebContentViewController: NSViewController {
 
     var addressBarAnchorView: NSView? { headerView.addressBarAnchorView }
     var tabStripPageColorPresentation: WebContentHeaderPageColorPresentation {
+        // A docked extension side panel separates the page card the same way
+        // an expanded chat does (see updateLeftContainerStyle).
+        if browserState?.extensionSidePanel != nil {
+            return .inherited
+        }
         if let state = browserState, let tab = state.focusingTab,
            state.readerOverlayState.reader(forOrigin: tab.guid) != nil {
             return .inherited
@@ -226,9 +231,10 @@ class WebContentViewController: NSViewController {
         guard let state = browserState else { return presentation }
         // Match the Reader panel's focused-origin selection, including tab switches.
         return presentation
-            .combineLatest(state.readerOverlayState.$readersByOrigin, state.$focusingTab)
-            .map { presentation, readers, tab in
-                tab.flatMap { readers[$0.guid] } == nil ? presentation : .inherited
+            .combineLatest(state.readerOverlayState.$readersByOrigin, state.$focusingTab,
+                           state.$extensionSidePanel.map { $0 != nil })
+            .map { presentation, readers, tab, panelDocked in
+                !panelDocked && tab.flatMap { readers[$0.guid] } == nil ? presentation : .inherited
             }
             .removeDuplicates()
             .eraseToAnyPublisher()
