@@ -5,7 +5,7 @@ Folio is the product name; native identifiers retain `SaveForLater` and
 extraction, document construction, file requests and completion presentation.
 The native client owns preferences, eligibility and authorization gates, jailed
 file operations and the native presentation endpoints used by the extension.
-The [native library](folio-native-library.md) reads the same saved files.
+The [library page](folio-native-library.md) shows the same saved files.
 
 ## Capture ownership
 
@@ -68,8 +68,7 @@ content; a heading inside a fenced code block is not a Highlights section.
 ## Source and verification
 
 - [Capture and folder routing](../Sources/States/SaveForLaterService.swift)
-- [Library model and file handling](../Sources/States/FolioLibrary.swift)
-- [Library presentation](../Sources/UserInterface/Folio/FolioLibraryView.swift)
+- [Library pane](../Sources/UserInterface/Library/LibraryViewModule.swift)
 - [Path-jail tests](../Tests/PhiBrowserTests/SaveForLaterPathJailTests.swift)
 
 Test Profile switches while a save is active, missing extraction, failed writes,

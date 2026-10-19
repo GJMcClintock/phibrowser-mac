@@ -280,12 +280,16 @@ enum SaveForLaterService {
     }
 
     /// The extension speaks in Chromium tab ids (`Tab.guid`); the tab can be
-    /// in any window.
+    /// in any window. The library page the Library hosts is a tab of its
+    /// window too, off the strip, and its broker calls name it.
     private static func findTab(_ tabId: Int) -> (tab: Tab, state: BrowserState)? {
         for controller in SpaceSessionControllersManager.shared.getAllWindows() {
             let state = controller.browserState
             if let tab = state.tabs.first(where: { $0.guid == tabId }) {
                 return (tab, state)
+            }
+            if let pane = state.libraryPaneTab, pane.guid == tabId {
+                return (pane, state)
             }
         }
         return nil
@@ -391,10 +395,48 @@ enum SaveForLaterService {
 
     // MARK: - Library
 
+    /// Mirage's Folio library page: the one Folio surface, reached from
+    /// File > Open Folio and from the Library sidebar alike.
+    nonisolated static var libraryPageURL: String { extensionPageURL("library.html") }
+
     /// Opens Mirage's Folio library page in the active browser Profile.
     static func openLibrary() {
+        guard let state = SpaceSessionControllersManager.shared
+                  .activeWindowController?.browserState else { return }
+        openLibrary(in: state)
+    }
+
+    /// Opens the library page as a tab of `state`'s window.
+    static func openLibrary(in state: BrowserState) {
         guard featureEnabled else { return }
-        openExtensionPage("library.html")
+        state.createTab(libraryPageURL, customGuid: nil, focusAfterCreate: true)
+    }
+
+    /// The library page as the Library's Folio pane surface: a strip tab of
+    /// the window that the Library hosts off-strip (see
+    /// `BrowserState.requestLibraryPaneTab`). `token` names the request the
+    /// tab answers, so only the arrival the Library asked for is diverted
+    /// and a session-restored copy of this URL is told apart from it. The
+    /// library page ignores its fragment.
+    nonisolated static func libraryPaneURL(token: String) -> String {
+        "\(libraryPageURL)#pane=\(token)"
+    }
+
+    /// The request token a Library pane surface carries, from the `pane`
+    /// fragment `libraryPaneURL(token:)` appends. Anything that is not
+    /// Mirage's library page with that binding returns nil, so a library
+    /// page opened as a plain tab (File > Open Folio) stays a tab.
+    nonisolated static func libraryPaneToken(fromLibraryPageURL urlString: String) -> String? {
+        guard let components = URLComponents(string: urlString),
+              components.scheme == "chrome-extension",
+              components.host == ReaderExtensionBridge.extensionId,
+              components.path == "/library.html",
+              let fragment = components.percentEncodedFragment else { return nil }
+        for pair in fragment.split(separator: "&") where pair.hasPrefix("pane=") {
+            let token = pair.dropFirst("pane=".count)
+            return token.isEmpty ? nil : String(token)
+        }
+        return nil
     }
 
     /// The per-site auto-save list. The sites ARE the extension's trigger
@@ -405,13 +447,15 @@ enum SaveForLaterService {
         openExtensionPage("triggers.html")
     }
 
+    private nonisolated static func extensionPageURL(_ page: String) -> String {
+        "chrome-extension://\(ReaderExtensionBridge.extensionId)/\(page)"
+    }
+
     private static func openExtensionPage(_ page: String) {
         guard featureEnabled,
               let state = SpaceSessionControllersManager.shared
                   .activeWindowController?.browserState else { return }
-        state.createTab(
-            "chrome-extension://\(ReaderExtensionBridge.extensionId)/\(page)",
-            customGuid: nil, focusAfterCreate: true)
+        state.createTab(extensionPageURL(page), customGuid: nil, focusAfterCreate: true)
     }
 
     /// The destination a save resolved at trigger time, by tab. A save is a

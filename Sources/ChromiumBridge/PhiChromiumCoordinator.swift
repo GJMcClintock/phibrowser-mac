@@ -3071,6 +3071,9 @@ extension PhiChromiumCoordinator: PhiChromiumBridgeDelegate {
                 // Same rule for a closing reader-overlay surface tab.
                 controller?.readerPanelControllersIfLoaded
                     .forEach { $0.detachContentIfHosting(tabId: tabId.intValue) }
+                // And for the Library's Folio pane tab: dropping it from the
+                // state detaches its native view from the pane now.
+                controller?.browserState.libraryPaneTabWillBeRemoved(tabId.intValue)
             }
         } else {
             assertionFailure("tabWillBeRemove off the main thread; skipping the synchronous detach")

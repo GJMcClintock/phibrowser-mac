@@ -1,47 +1,44 @@
-# Native Folio library
+# Folio library
 
-File > Open Folio calls `SaveForLaterService.openLibrary()` to open Mirage's
-`library.html` extension page in the active browser Profile.
+Mirage's `library.html` extension page is the only Folio UI. The native client
+has no reader, library model, or database of its own: it opens that page and
+otherwise leaves the saved Markdown/MHTML pairs to the extension, which reads
+them through the file broker in `SaveForLaterService`.
 
-`SpaceSessionController.openFolioLibrary()` opens a native window owned by the originating
-`SpaceSessionController`. Each browser session retains its own library
-controller; closing the session closes that library. Opening an original
-page or a saved webpage creates a tab in the originating browser window, not the
-currently active Profile.
+File > Open Folio calls `SaveForLaterService.openLibrary()`, which opens the
+page as a tab of the active browser Profile.
 
-The in-window Library also embeds `FolioLibraryView` in its Folio section, with a
-separate model bound to the browser window's Profile. Opening an original page or
-archive dismisses the overlay and creates a tab in that browser window. Leaving
-the Folio section clears its loaded content; refresh runs only while it is shown.
-The Folio navigation entry follows the feature flag and Guest Mode restrictions.
+The Library's Folio section is a pane that hosts `library.html` itself, in the
+attached Library panel and in the standalone Library window alike. The page is
+a live Chromium tab of the Library's browser window kept off the Mac strip
+(`BrowserState.libraryPaneTab`) — the off-strip pattern of a reader surface,
+so Chromium owns its WebContents and the extension sees an ordinary tab (its
+broker calls name it; a link from it opens a new tab), while the pane mounts
+its native view in whichever window the Library is in. A web view mounted
+outside the browser window's page container draws itself rather than through
+the content surface, as Peek's and Reader's do, so the window it is in does
+not matter.
 
-`FolioLibraryModel` owns only its library presentation state. It resolves
-the originating Profile's existing `PhiPreferences.SaveForLater` folder rules on
-refresh. A folder change clears the previous selection and document. The Folio
-feature flag and Guest Mode restrictions apply to opening, reading, and actions.
+The pane asks for the tab when it enters a window (`requestLibraryPaneTab`),
+which creates `library.html#pane=<token>`; the arrival is held like a reader
+surface and becomes the pane's tab only when its token answers the pending
+request, so a session-restored copy of the URL is closed instead of hijacking
+the pane. The tab is inserted in the background — a foreground insert would
+activate it, which in hosted mode raises the shell window and takes key status
+from the Library — and the same visibility exemption Peek and Reader use keeps
+the inactive page painting. The pane closes the tab when it leaves its window —
+a section switch, the panel's dismissal or the Library window closing — so
+the page lives exactly as long as it is on screen. A link followed inside the
+page navigates the tab away from `library.html`; it is then adopted into the
+strip as a normal, focused tab and the Library yields to its browser window
+(the standalone window stays open and asks for a fresh page). A stale `.folio`
+selection falls back to Downloads only when the feature is off. It follows the
+feature flag and Guest Mode restrictions.
 
-The library reads Mirage's existing Markdown/MHTML pairs without importing,
-migrating, or creating a database. Directory metadata is refreshed while the window
-is visible; unchanged file heads are reused. File IO and Markdown sanitization run off
-the main actor. MarkdownReader caches the sanitized text's render parse.
-Selection-driven reads discard stale or cancelled results.
+The broker's listing reads only a bounded head of each Markdown file. Every
+item's frontmatter block is served first, because the extension matches an item
+by its `source` and an item listed without one would be saved again; whatever
+budget remains extends the newest heads into the body. Basename validation and
+the path jail apply to every broker file operation.
 
-The native reader uses MarkdownView's `MarkdownText` in a single native text view
-for continuous selection across wrapped lines, paragraphs, and headings. Its
-component fonts use `NSFont` so text-size controls also work before macOS 26.
-Markdown links use a custom SwiftUI link renderer to preserve the originating
-window's navigation action instead of RichText's default AppKit link handling.
-The leading document title is shown in
-the reader header. Mirage's structural `## Highlights` section is presented in a
-separate reading mode. A heading inside a code block does not split the document.
-A swift-markdown rewriter removes HTML nodes, replaces images with their alternative
-text, and resolves and validates links before rendering. The reader does not fetch
-remote images or execute embedded HTML; the saved MHTML copy opens in a browser
-tab when requested. Only HTTP(S) links are actionable in the native document.
-
-Native file actions share the broker's basename validation and reject symlink
-entries. Removing an item requires confirmation and moves its Markdown and MHTML
-files to Trash. If only part of that operation succeeds, the error remains visible
-and the next refresh reconciles the list with disk.
-
-Validation lives in `FolioLibraryTests` and `SaveForLaterPathJailTests`.
+Validation lives in `SaveForLaterPathJailTests` and `SaveForLaterListingTests`.

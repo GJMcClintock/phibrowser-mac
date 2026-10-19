@@ -1547,6 +1547,9 @@ class SpaceSessionController: NSWindowController {
     }
 
     @objc private func myWindowWillClose(_ notification: Notification) {
+        // Before the Library leaves: its Folio pane closes the pane tab when
+        // it leaves its window, and the tab is torn down with the strip.
+        browserState.teardownLibraryPaneForWindowClose()
         libraryWindowController?.close()
         libraryWindowController = nil
         // Defensive teardown for placeholder mode. In practice Chromium's

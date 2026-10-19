@@ -678,8 +678,6 @@
 		F10920260921000000000001 /* FloatingSidebarHostViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = F10920260921000000000002 /* FloatingSidebarHostViewController.swift */; };
 		F7FD00000000000000000002 /* FullTitleDisplay.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7FD00000000000000000001 /* FullTitleDisplay.swift */; };
 		F9E478A224C44EA7BC0D85CC /* AccountDeletedEventAuthentication.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19B477B37CF44BC48335A032 /* AccountDeletedEventAuthentication.swift */; };
-		FA1100000000000000000002 /* FolioLibrary.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA1100000000000000000001 /* FolioLibrary.swift */; };
-		FA1100000000000000000004 /* FolioLibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA1100000000000000000003 /* FolioLibraryView.swift */; };
 		FB0923000000000000000001 /* FeedbackLogSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB0923000000000000000002 /* FeedbackLogSnapshot.swift */; };
 		FBD200012FD0000000000001 /* FeedbackOutbox.swift in Sources */ = {isa = PBXBuildFile; fileRef = FBD200012FD0000000000002 /* FeedbackOutbox.swift */; };
 		FBD200012FD0000000000003 /* FeedbackV2.swift in Sources */ = {isa = PBXBuildFile; fileRef = FBD200012FD0000000000004 /* FeedbackV2.swift */; };
@@ -1498,8 +1496,6 @@
 		F5D71320854F15DA33B8D7BA /* DevicesSettingView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DevicesSettingView.swift; sourceTree = "<group>"; };
 		F76D53B8FBA539CA65167C9F /* SpacePairingStepView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = SpacePairingStepView.swift; path = UI/SpacePairingStepView.swift; sourceTree = "<group>"; };
 		F7FD00000000000000000001 /* FullTitleDisplay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FullTitleDisplay.swift; sourceTree = "<group>"; };
-		FA1100000000000000000001 /* FolioLibrary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FolioLibrary.swift; sourceTree = "<group>"; };
-		FA1100000000000000000003 /* FolioLibraryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FolioLibraryView.swift; sourceTree = "<group>"; };
 		FB0923000000000000000002 /* FeedbackLogSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedbackLogSnapshot.swift; sourceTree = "<group>"; };
 		FBD200012FD0000000000002 /* FeedbackOutbox.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedbackOutbox.swift; sourceTree = "<group>"; };
 		FBD200012FD0000000000004 /* FeedbackV2.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedbackV2.swift; sourceTree = "<group>"; };
@@ -2557,7 +2553,6 @@
 				CCEF2D982E5F1A6E00FDDEB2 /* Chat */,
 				CCBF8F362E653A4200B9A99E /* Common */,
 				37C1B2802EE0394700DD4496 /* Downloads */,
-				FA1100000000000000000007 /* Folio */,
 				D10000000000000000000030 /* ExtensionDialog */,
 				CCBF8F672E65A9CB00B9A99E /* Extensions */,
 				37C1B1E22EDEA02100DD4496 /* Feedback */,
@@ -3080,7 +3075,6 @@
 				EAD000000000000000000019 /* ReaderAccessibilityExtractor.swift */,
 				EAD000000000000000000025 /* ReaderExportService.swift */,
 				EAD000000000000000000037 /* SaveForLaterService.swift */,
-				FA1100000000000000000001 /* FolioLibrary.swift */,
 				EAD000000000000000000013 /* BrowserState+Reader.swift */,
 				EAD000000000000000000031 /* ReaderExtensionBridge.swift */,
 				5C4EE0000000000000000001 /* PageScreenshotService.swift */,
@@ -3217,14 +3211,6 @@
 				EE7E00000000000000000015 /* ReaderPanelController.swift */,
 			);
 			path = Reader;
-			sourceTree = "<group>";
-		};
-		FA1100000000000000000007 /* Folio */ = {
-			isa = PBXGroup;
-			children = (
-				FA1100000000000000000003 /* FolioLibraryView.swift */,
-			);
-			path = Folio;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -3904,8 +3890,6 @@
 				EAD00000000000000000001A /* ReaderAccessibilityExtractor.swift in Sources */,
 				EAD000000000000000000026 /* ReaderExportService.swift in Sources */,
 				EAD000000000000000000038 /* SaveForLaterService.swift in Sources */,
-				FA1100000000000000000004 /* FolioLibraryView.swift in Sources */,
-				FA1100000000000000000002 /* FolioLibrary.swift in Sources */,
 				EAD000000000000000000014 /* BrowserState+Reader.swift in Sources */,
 				EAD000000000000000000032 /* ReaderExtensionBridge.swift in Sources */,
 				5C4EE0000000000000000002 /* PageScreenshotService.swift in Sources */,
