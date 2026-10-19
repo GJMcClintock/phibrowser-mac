@@ -289,7 +289,14 @@ extension Shortcuts {
                 // AppKit retains unavailable Services in the menu tree. Their
                 // detached copies can expose keys despite being hidden and disabled.
                 if inServices && item.isHidden && !item.isEnabled { return [] }
-                guard !item.keyEquivalent.isEmpty,
+                // AppKit can report an empty key for a live menu item when
+                // another item claims the same equivalent (for example, Undo
+                // after assigning Cmd-Z to Settings). A detached copy retains
+                // the declared binding, including explicit empty overrides.
+                // Keep it in the inventory so suppression cannot hide conflicts.
+                let keyItem = item.keyEquivalent.isEmpty
+                    ? (item.copy() as? NSMenuItem ?? item) : item
+                guard !keyItem.keyEquivalent.isEmpty,
                       let action = item.action else { return [] }
                 let command = CommandWrapper(rawValue: item.tag)
                 let owner: ShortcutBinding.Owner
@@ -309,8 +316,8 @@ extension Shortcuts {
                 }
                 return [ShortcutBinding(
                     owner: owner,
-                    key: ShortcutsKey(characters: item.keyEquivalent,
-                                      modifiers: item.keyEquivalentModifierMask),
+                    key: ShortcutsKey(characters: keyItem.keyEquivalent,
+                                      modifiers: keyItem.keyEquivalentModifierMask),
                     scope: scope, source: .menu,
                     title: item.title
                 )]

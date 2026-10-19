@@ -483,6 +483,64 @@ final class ShortcutSettingsPersistenceTests: XCTestCase {
         XCTAssertTrue(Shortcuts.configuration.overrides.isEmpty)
     }
 
+    func testRecordingSettingsOnUndoReportsLiveSystemConflict() throws {
+        let bridge = try XCTUnwrap(ChromiumLauncher.sharedInstance().bridge)
+        bridge.requestRebuildMainMenu()
+        let model = ShortcutsViewModel()
+        model.editingCommand = .IDC_OPTIONS
+        let event = try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero,
+            modifierFlags: .command, timestamp: 0, windowNumber: 0, context: nil,
+            characters: "z", charactersIgnoringModifiers: "z", isARepeat: false, keyCode: 6))
+
+        model.handleCaptureEvent(event)
+
+        let undo = CommandWrapper.IDC_CONTENT_CONTEXT_UNDO
+        XCTAssertEqual(Shortcuts.key(for: .IDC_OPTIONS), Shortcuts.key(for: undo))
+        XCTAssertNil(Shortcuts.overrideState(for: undo.rawValue))
+        XCTAssertTrue(try item(.IDC_OPTIONS, in: model).hasConflict)
+        let conflict = try XCTUnwrap(model.conflicts(for: .IDC_OPTIONS).first {
+            $0.id == .command(undo.rawValue)
+        })
+        XCTAssertNil(conflict.command)
+        XCTAssertFalse(conflict.name.isEmpty)
+        XCTAssertEqual(conflict.keys, ["⌘Z"])
+
+        try Shortcuts.reloadOverrides().get()
+        let reopened = ShortcutsViewModel()
+        XCTAssertTrue(reopened.conflicts(for: .IDC_OPTIONS).contains {
+            $0.id == .command(undo.rawValue)
+        })
+        reopened.restoreDefaultShortcut(for: .IDC_OPTIONS)
+        XCTAssertFalse(try item(.IDC_OPTIONS, in: reopened).hasConflict)
+        XCTAssertTrue(Shortcuts.menuBindings().contains {
+            $0.commandID == undo.rawValue && $0.key == Shortcuts.DefaultShortcuts[undo]
+        })
+    }
+
+    func testLiveSystemShortcutsRemainHiddenButReportConflictingAssignments() throws {
+        let bridge = try XCTUnwrap(ChromiumLauncher.sharedInstance().bridge)
+        bridge.requestRebuildMainMenu()
+        let model = ShortcutsViewModel()
+        let bindings: [(ShortcutsKey, ShortcutBinding.Owner)] = [
+            (.init(characters: "a", modifiers: .command), .command(CommandWrapper.IDC_CONTENT_CONTEXT_SELECTALL.rawValue)),
+            (.init(characters: "z", modifiers: [.command, .shift]), .command(CommandWrapper.IDC_CONTENT_CONTEXT_REDO.rawValue)),
+            (.init(characters: "c", modifiers: .command), .command(CommandWrapper.IDC_CONTENT_CONTEXT_COPY.rawValue)),
+            (.init(characters: "e", modifiers: .command), .nativeAction("copyToFindPboard:")),
+            (.init(characters: "j", modifiers: .command), .nativeAction("centerSelectionInVisibleArea:")),
+            (.init(characters: " ", modifiers: [.command, .control]), .nativeAction("orderFrontCharacterPalette:"))
+        ]
+        for (key, owner) in bindings {
+            model.setCustomShortcut(for: .IDC_OPTIONS, key: key)
+            XCTAssertEqual(Shortcuts.configuration.overrides, [CommandWrapper.IDC_OPTIONS.rawValue: .custom(key)])
+            XCTAssertTrue(try item(.IDC_OPTIONS, in: model).hasConflict, key.displayString)
+            let conflict = try XCTUnwrap(model.conflicts(for: .IDC_OPTIONS).first { $0.id == owner }, key.displayString)
+            XCTAssertNil(conflict.command)
+            XCTAssertFalse(model.sections.flatMap(\.items).contains { owner == .command($0.command.rawValue) })
+            XCTAssertFalse(model.reservedShortcuts.contains { $0.id == owner })
+            XCTAssertTrue(model.inventory.occupants(of: key).contains { $0.owner == owner })
+        }
+    }
+
     func testNativeActionConflictIsSavedAndReportedWithoutChangingNativeBinding() throws {
         let model = ShortcutsViewModel(additionalBindings: { [self.customNativeBinding()] })
         model.setCustomShortcut(for: .IDC_DUPLICATE_TAB, key: customKey)

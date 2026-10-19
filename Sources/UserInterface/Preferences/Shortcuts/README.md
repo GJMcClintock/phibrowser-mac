@@ -244,6 +244,10 @@ Non-keyboard command entry points and menu item visibility are unchanged.
   custom close bindings still conflict in both directions.
 - Standard macOS editing/window services and native selectors remain in the
   conflict inventory but are omitted from settings. Their bindings are never changed by recording another command.
+  AppKit can expose an empty `keyEquivalent` for a live menu item whose key is
+  also assigned elsewhere. For empty keys, inventory collection checks a
+  detached copy of the item to recover its declared binding and report the
+  conflict. Explicitly cleared bindings remain empty in the copy and stay excluded.
   Entries under `NSApp.servicesMenu` that are both hidden and disabled are excluded
   from the snapshot. This does not exclude hidden Chromium menu items or Framework
   hidden accelerators; visible or enabled Services still participate in conflicts.
