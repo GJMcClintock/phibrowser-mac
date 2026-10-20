@@ -8,18 +8,10 @@ import SnapKit
 import SwiftUI
 import PostHog
 
-class OnboardingWelcomeViewController: ConchFrameAnimationBaseViewController {
-    override var imageNamagePrefix: String { "oobe-" }
-    override var preAnimationImagePrefix: String { "oobe-pre-" }
-    
-    private let dateLabel: NSTextField = {
-        let label = NSTextField(labelWithString: "2025.1.1")
-        label.font = NSFont(name: "Impact", size: 200)
-        label.textColor = .white
-        label.alignment = .center
-        return label
-    }()
-    
+class OnboardingWelcomeViewController: NSViewController {
+    private let cardView = HolographicCardView()
+    private var profileTask: Task<Void, Never>?
+
     private let titleLabel: NSTextField = {
         let title = NSLocalizedString("oobe.welcome.title", value: "Welcome", comment: "Onboarding welcome page - Main title greeting the user")
         let label = NSTextField(labelWithString: title)
@@ -57,6 +49,17 @@ class OnboardingWelcomeViewController: ConchFrameAnimationBaseViewController {
         return imageView
     }()
     
+    private lazy var randomButton: NSButton = {
+        let button = NSButton(title: NSLocalizedString("oobe.welcome.randomizeCard", value: "Randomize",
+            comment: "Onboarding membership card - Randomly choose a theme, background texture and ornament"),
+            target: self, action: #selector(randomizeCard))
+        button.image = NSImage(systemSymbolName: "shuffle", accessibilityDescription: nil)
+        button.imagePosition = .imageLeading
+        button.bezelStyle = .rounded
+        button.controlSize = .small
+        return button
+    }()
+
     private lazy var nextButton: GradientBorderButton = {
         let button = GradientBorderButton()
         button.title = NSLocalizedString("oobe.welcome.nextButton", value: "Next", comment: "Onboarding welcome page - Next button to proceed to next step")
@@ -67,18 +70,9 @@ class OnboardingWelcomeViewController: ConchFrameAnimationBaseViewController {
         return button
     }()
     
-    private let backgroundImageView: NSImageView = {
-        let bg = NSImageView()
-        return bg
-    }()
-    
-    private let backgroundImage: NSImage = {
-        return .welcomeBg
-    }()
-    
     var nextClosure: ((Bool) -> Void)?
     private var accentColor: NSColor?
-    private var selectedThemeId: String = ThemeManager.shared.currentTheme.id
+    private var selectedThemeId: String = Theme.pure.id
     private var themeButtons: [String: OnboardingThemeSwatchButton] = [:]
     
     private var themes: [Theme] {
@@ -90,6 +84,7 @@ class OnboardingWelcomeViewController: ConchFrameAnimationBaseViewController {
     var userName: String? {
         didSet {
             let title = String(format: NSLocalizedString("oobe.welcome.personalizedTitle", value: "Welcome %@", comment: "Onboarding welcome page - Personalized welcome title with user name"), userName ?? "")
+            cardView.name = userName ?? "Phi"
             titleLabel.stringValue = title
             // The name is user-supplied and the greeting is localized, so
             // neither is guaranteed to be Latin — see NSFont.brandDisplay.
@@ -111,60 +106,40 @@ class OnboardingWelcomeViewController: ConchFrameAnimationBaseViewController {
     
     override func viewWillAppear() {
         super.viewWillAppear()
-        selectedThemeId = ThemeManager.shared.currentTheme.id
+        cardView.isPresentationActive = true
+        profileTask?.cancel()
+        profileTask = Task { [weak self] in await self?.requestProfile() }
         updateThemeSelection()
         if let theme = themes.first(where: { $0.id == selectedThemeId }) ?? themes.first {
             themeChanged(theme)
         }
     }
     
-    override func viewDidDisappear() {
-        super.viewDidDisappear()
+    override func viewWillDisappear() {
+        super.viewWillDisappear()
+        cardView.isPresentationActive = false
+        profileTask?.cancel()
+        profileTask = nil
     }
-    
-    private func requesetProfile() async {
-        let accountUserID = await MainActor.run {
-            LoginController.shared.accountForOnboarding?.userID
-        }
-        guard let accountUserID else {
-            return
-        }
-        let response = try? await APIClient.shared
-            .getOnboardingAccountProfile(accountUserID: accountUserID)
-        if let profile = response?.data {
-            await MainActor.run {
-                let dateString = formatToLocalDate(profile.created_at)
-                if !dateString.isEmpty {
-                    dateLabel.stringValue = formatToLocalDate(profile.created_at)
-                    adjustDateLabelFontSize()
-                }
-            }
-        }
+
+    private func requestProfile() async {
+        guard let accountUserID = LoginController.shared.accountForOnboarding?.userID else { return }
+        let response = try? await APIClient.shared.getOnboardingAccountProfile(accountUserID: accountUserID)
+        guard !Task.isCancelled, let profile = response?.data else { return }
+        cardView.name = userName ?? profile.name
+        cardView.memberID = String(profile.id)
+        cardView.joinedDate = HolographicCardView.formattedJoinDate(profile.created_at)
     }
-    
-    private func formatToLocalDate(_ isoString: String) -> String {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime]
 
-        guard let date = formatter.date(from: isoString) else {
-            return ""
-        }
-
-        let outputFormatter = DateFormatter()
-        outputFormatter.timeZone = .current
-        outputFormatter.dateFormat = "yyyy.M.d"
-
-        return outputFormatter.string(from: date)
-    }
-    
     // MARK: - Setup
     private func setupUI() {
-        view.addSubview(imageView)
         view.addSubview(coloredBgView)
         view.addSubview(dotBackgroundImageView)
+        view.addSubview(cardView)
         view.addSubview(titleLabel)
         view.addSubview(themeStackView)
         view.addSubview(nextButton)
+        view.addSubview(randomButton)
         
         view.snp.makeConstraints { make in
             make.width.equalTo(640)
@@ -180,11 +155,12 @@ class OnboardingWelcomeViewController: ConchFrameAnimationBaseViewController {
             make.edges.equalToSuperview()
         }
         
-        imageView.snp.makeConstraints { make in
-            make.edges.equalToSuperview()
+        cardView.snp.makeConstraints { make in
+            make.centerX.equalToSuperview()
+            make.top.equalToSuperview().offset(198)
+            make.width.equalTo(HolographicCardView.designSize.width)
+            make.height.equalTo(HolographicCardView.designSize.height)
         }
-        
-        backgroundImageView.image = backgroundImage
         
         titleLabel.snp.makeConstraints { make in
             make.top.equalToSuperview().offset(45)
@@ -200,6 +176,12 @@ class OnboardingWelcomeViewController: ConchFrameAnimationBaseViewController {
             make.height.equalTo(26)
         }
         
+        randomButton.snp.makeConstraints { make in
+            make.centerX.equalToSuperview()
+            make.top.equalTo(themeStackView.snp.bottom).offset(12)
+            make.height.equalTo(24)
+        }
+
         nextButton.snp.makeConstraints { make in
             make.bottom.equalToSuperview().offset(-96)
             make.centerX.equalToSuperview()
@@ -214,6 +196,13 @@ class OnboardingWelcomeViewController: ConchFrameAnimationBaseViewController {
         themeChanged(button.theme)
     }
     
+    @objc private func randomizeCard() {
+        cardView.style = .random()
+        if let theme = themes.first(where: { $0.id == cardView.style.palette.themeID }) {
+            themeChanged(theme)
+        }
+    }
+
     private func themeChanged(_ theme: Theme) {
         selectedThemeId = theme.id
         ThemeManager.shared.switchTheme(to: theme.id)
@@ -248,30 +237,17 @@ class OnboardingWelcomeViewController: ConchFrameAnimationBaseViewController {
                                                        saturation: overridedSaturation ?? 0.85,
                                                        brightness: overridedBrightness ?? 0.75,
                                                        alpha: 1).cgColor
-        themChanged(h: hue, s: overridedSaturation, b: overridedBrightness)
-    }
-    
-    private func drawConch(with color: NSColor) {
-        let color0 = NSColor.white
-        let color57 = color
-        let colors = [color0, color57]
-        let positions: [CGFloat] = [0.0, 0.1]
-        guard let gradient = GradientMapper.makeGradient(colors: colors,
-                                                         positions: positions) else {
-            return
-        }
-        guard let strip = GradientMapper.makeStrip(from: gradient) else {
-    
-            return
-        }
-        
-        guard let mapped = GradientMapper.apply(to: backgroundImage, using: strip) else {
-            return
-        }
-        backgroundImageView.image = mapped
+        cardView.style.palette = .init(themeID: theme.id)
     }
     
     private func nextButtonTapped() {
+        if let defaults = LoginController.shared.accountForOnboarding?.userDefaults,
+           !defaults.set(cardView.style, forCodableKey: AccountUserDefaults.DefaultsKey.profileCardStyle.rawValue) {
+            let message = NSLocalizedString("oobe.welcome.cardSaveFailed", value: "Your card could not be saved. Please try again.",
+                comment: "Onboarding membership card - Error when the selected card style cannot be saved")
+            NSApp.presentError(NSError(domain: "Phi.ProfileCard", code: 1, userInfo: [NSLocalizedDescriptionKey: message]))
+            return
+        }
         PostHogSDK.shared.capture("onboarding_completed", properties: [
             "theme_id": selectedThemeId,
             "accent_color": accentColor.map(colorToHex) ?? "",
@@ -318,20 +294,7 @@ class OnboardingWelcomeViewController: ConchFrameAnimationBaseViewController {
         return String(format: "#%02X%02X%02X", red, green, blue)
     }
 
-    private func adjustDateLabelFontSize() {
-        let maxWidth = view.bounds.width
-        var fontSize: CGFloat = 200
-        
-        dateLabel.font = NSFont(name: "Impact", size: fontSize)
-        var textWidth = dateLabel.intrinsicContentSize.width
-        
-        while textWidth > maxWidth && fontSize > 20 {
-            fontSize -= 1
-            dateLabel.font = NSFont(name: "Impact", size: fontSize)
-            textWidth = dateLabel.intrinsicContentSize.width
-        }
-    }
-    
+
 }
 
 private final class OnboardingThemeSwatchButton: NSButton {

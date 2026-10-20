@@ -310,6 +310,7 @@ extension AccountUserDefaults {
         case loginPhase
         case cachedUserName
         case cachedProfile
+        case profileCardStyle
         case cachedUserConnectors
         /// Controls whether notification cards auto-popup. Default is popup enabled.
         case notificationPopupMode
