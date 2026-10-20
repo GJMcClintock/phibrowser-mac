@@ -42,6 +42,10 @@ import XCTest
 ///     reopen, the external-link restore and the reopen loading windows,
 ///     which counted SLOTS until one empty shell latched it shut for the
 ///     rest of the run;
+///   * whether an external open may forward without a window
+///     (`mayForwardExternalOpenWithoutWindow`) — with session restore off
+///     nothing brought a window back, so the link waited out ~4s of retries
+///     for a window only its own forward creates;
 ///   * which snapshot windows a by-profile claim may take over
 ///     (`fallbackClaimIndex`) — restore's own stand-in window claims by
 ///     profile with no grace period, and consuming a parked window's entry
@@ -950,6 +954,58 @@ final class LazySpaceRestoreWiringTests: XCTestCase {
         // this count (`liveNonShadowWindowCount`), which is what lets an agent
         // Space's hidden host reach the windowless paths at all.
         XCTAssertFalse(Self.windowless(liveNonShadowWindowCount: 1))
+    }
+
+    // MARK: - Whether an external open may forward without a window
+
+    /// An external open waits for a registered window so it lands in a
+    /// restored or spawned one. With session restore off and every window
+    /// closed nothing brings one back, and the link waited out the forward
+    /// retries (~4s) for a window only its own forward creates.
+    ///
+    /// The defaults describe that state; each test flips one input.
+    private static func forwardsWithoutWindow(
+        isWindowlessWithHostedSlots: Bool = true,
+        isSessionRestoreInFlight: Bool = false,
+        isTerminating: Bool = false,
+        isGuestTransitionInProgress: Bool = false
+    ) -> Bool {
+        SpaceManager.mayForwardExternalOpenWithoutWindow(
+            isWindowlessWithHostedSlots: isWindowlessWithHostedSlots,
+            isSessionRestoreInFlight: isSessionRestoreInFlight,
+            isTerminating: isTerminating,
+            isGuestTransitionInProgress: isGuestTransitionInProgress)
+    }
+
+    func testAWindowlessAppWithNothingComingForwardsAtOnce() {
+        // The defect: this state used to wait out the retries.
+        XCTAssertTrue(Self.forwardsWithoutWindow())
+    }
+
+    func testARestoreInFlightIsWaitedFor() {
+        // Session restore on: the link belongs in the restored active window,
+        // and a bare window created first would race the restore.
+        XCTAssertFalse(Self.forwardsWithoutWindow(isSessionRestoreInFlight: true))
+    }
+
+    func testAnAppThatIsNotWindowlessKeepsTheOrdinaryGate() {
+        // Covers cold launch (`hasEverHostedSlotWindow` false) and a slot
+        // still owed a spawned window, both folded into this input.
+        XCTAssertFalse(Self.forwardsWithoutWindow(isWindowlessWithHostedSlots: false))
+    }
+
+    func testAQuitInProgressForwardsNothingEarly() {
+        // A window created mid-quit could be saved into the next session.
+        XCTAssertFalse(Self.forwardsWithoutWindow(isTerminating: true))
+    }
+
+    func testAGuestTransitionKeepsTheWait() {
+        // A window built for the open mid-transition would carry Guest
+        // identifiers the migration receipt cannot rebind. This pins the rule
+        // only: the instance property feeds the input from app-wide state
+        // (`SpaceSessionControllersManager.shared`, `ApplicationState.shared`)
+        // that no test can stage.
+        XCTAssertFalse(Self.forwardsWithoutWindow(isGuestTransitionInProgress: true))
     }
 
     // MARK: - Which snapshot windows a by-profile claim may take over

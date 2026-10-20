@@ -2438,12 +2438,65 @@ final class SpaceManager: ObservableObject {
     /// If the app is windowless with a restorable history and the switch is on,
     /// begins a session restore so a subsequently-forwarded external link lands
     /// in the restored active window instead of a bare new one. A no-op when
-    /// not eligible or a restore is already in flight; the caller queues its
-    /// URLs to forward once a window exists either way.
+    /// not eligible or a restore is already in flight; the caller then queues
+    /// its URLs to forward once a window exists, unless nothing is bringing
+    /// one (`mayForwardExternalOpenWithoutWindow`).
     func beginSessionRestoreForExternalOpenIfEligible() {
         guard isWindowlessWithHostedSlots, SessionRestorePreference.isEnabled,
               !isSessionRestoreInFlight else { return }
         beginWindowlessSessionRestore()
+    }
+
+    /// True when an external open has no window to wait for: the app is
+    /// windowless and nothing is bringing a window back — no session restore
+    /// in flight, no slot owed a spawned window — and it is neither quitting
+    /// nor in a Guest-to-account transition. Forwarding the open is then what
+    /// creates its window, so `AppController` forwards one that arrived with
+    /// browser access at once instead of running out its retries. Until a
+    /// process first hosts a slot window this never reads true
+    /// (`hasEverHostedSlotWindow`): cold launch still waits for Chromium's
+    /// startup window, and a process an app shim started, which has no
+    /// startup window coming, waits out the retries.
+    ///
+    /// Logs its inputs when false, so a log bundle says why an open waited.
+    var mayForwardExternalOpenWithoutWindow: Bool {
+        let windowless = isWindowlessWithHostedSlots
+        // The promotion flag lies inside the interaction block in the login
+        // flow; it stays as a backstop for any path that sets it alone.
+        let guestTransition = SpaceSessionControllersManager.shared
+            .isGuestTransitionInteractionBlocked
+            || ApplicationState.shared.isGuestAccountPromotionInProgress
+        let mayForward = Self.mayForwardExternalOpenWithoutWindow(
+            isWindowlessWithHostedSlots: windowless,
+            isSessionRestoreInFlight: isSessionRestoreInFlight,
+            isTerminating: isTerminating,
+            isGuestTransitionInProgress: guestTransition)
+        if !mayForward {
+            AppLogDebug("[SpaceManager] external open waits for a window: windowless=\(windowless), hasEverHostedSlotWindow=\(hasEverHostedSlotWindow), restoreInFlight=\(isSessionRestoreInFlight), terminating=\(isTerminating), guestTransition=\(guestTransition)")
+        }
+        return mayForward
+    }
+
+    /// The rule behind the property above. Pure and static so it is pinned by
+    /// table.
+    ///
+    /// `isTerminating`: a window Chromium created for the open mid-quit could
+    /// be saved into the session the next launch restores. The open is held
+    /// as it was before the fix, and is usually dropped when the process exits
+    /// before the retries run out. `isGuestTransitionInProgress`: the
+    /// transition rebinds windows against its migration receipt, and a window
+    /// built for the open meanwhile would carry Guest identifiers the receipt
+    /// does not know. The open is deferred as it was before the fix: it lands
+    /// in the window the transition reopens, or goes out on the retry timeout
+    /// if the transition outlasts it.
+    static func mayForwardExternalOpenWithoutWindow(
+        isWindowlessWithHostedSlots: Bool,
+        isSessionRestoreInFlight: Bool,
+        isTerminating: Bool,
+        isGuestTransitionInProgress: Bool
+    ) -> Bool {
+        isWindowlessWithHostedSlots && !isSessionRestoreInFlight && !isTerminating
+            && !isGuestTransitionInProgress
     }
 
     /// Walks every slot looking for one that recorded a pending spawn

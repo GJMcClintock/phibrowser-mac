@@ -524,7 +524,8 @@ import PostHog
                 application: application,
                 requests: requests,
                 requiresRegularWindowBeforeKiosk:
-                    requiresRegularWindowBeforeKiosk
+                    requiresRegularWindowBeforeKiosk,
+                arrivedWithBrowserAccess: true
             )
         }
     }
@@ -539,10 +540,21 @@ import PostHog
     /// `coldOpenURLForwardMaxAttempts`. Standard opens then forward as a
     /// last-resort; a cold Kiosk open asks Chromium to surface a regular window
     /// and keeps waiting so the Kiosk activates last.
+    ///
+    /// One open skips the registered-window half: one that arrived with
+    /// browser access while the app is windowless with no window on its way
+    /// (`SpaceManager.mayForwardExternalOpenWithoutWindow`, which also rules
+    /// out a restore in flight). Its own forward creates the window.
+    ///
+    /// `arrivedWithBrowserAccess` is false for URLs held while browser access
+    /// was unavailable. They are flushed from several access-change paths,
+    /// some right before or after a post-login Chromium reopen that
+    /// SpaceManager does not track, so held URLs always take the ordinary wait.
     private func scheduleForwardOpenURLsToChromium(
         application: NSApplication,
         requests: [ExternalOpenURL],
-        requiresRegularWindowBeforeKiosk: Bool
+        requiresRegularWindowBeforeKiosk: Bool,
+        arrivedWithBrowserAccess: Bool
     ) {
         let opensInKiosk =
             PhiPreferences.GeneralSettings.openExternalLinksInKiosk.loadValue()
@@ -603,6 +615,29 @@ import PostHog
             )
             return
         }
+
+        // No window is coming for this open to wait for (nothing to restore,
+        // nothing spawning, not quitting, no Guest transition): forwarding it
+        // is what creates one, and waiting would only run the retries out.
+        // Order-dependent: it must stay below the restore begun above, which
+        // has already marked itself in flight, and below the queue, whose URLs
+        // (a login flush among them) keep their place.
+        let rulesLoaded = SpaceManager.shared.hasLoadedURLRules
+        let noWindowComing = SpaceManager.shared.mayForwardExternalOpenWithoutWindow
+        if arrivedWithBrowserAccess, rulesLoaded, noWindowComing {
+            forwardOpenURLsToChromium(
+                application: application,
+                requests: requests,
+                label: "windowless"
+            )
+            return
+        }
+        AppLogDebug(
+            "[coldopen] urls wait for a window: "
+                + "arrivedWithBrowserAccess=\(arrivedWithBrowserAccess) "
+                + "rulesLoaded=\(rulesLoaded) "
+                + "windowlessWithNothingComing=\(noWindowComing)"
+        )
 
         pendingColdOpenForwardURLs.append(contentsOf: requests)
         pendingColdOpenRequiresSpaceReadiness =
@@ -1240,7 +1275,8 @@ import PostHog
             application: NSApp,
             requests: requests,
             requiresRegularWindowBeforeKiosk:
-                requiresRegularWindowBeforeKiosk
+                requiresRegularWindowBeforeKiosk,
+            arrivedWithBrowserAccess: false
         )
     }
 
