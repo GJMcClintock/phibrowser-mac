@@ -205,9 +205,8 @@ of the execution paths cannot reproduce.
   `phi_command_dispatcher_delegate.mm` -> `PhiChromiumCoordinator` ->
   `CommandDispatcher.handleKeyEquivalent` -> `ShortcutsKey.eventKeys` ->
   canonical lookup -> legacy lookup -> native dispatch.
-  New Kiosk Window uses this path so its effective shortcut takes precedence
-  over Chromium's `IDC_NEW_SPLIT_TAB` accelerator only while both are bound to
-  the same key.
+  New Kiosk Window uses this path. `IDC_NEW_SPLIT_TAB` has no keyboard binding
+  under Phi's product-disabled shortcut policy.
 - Ordinary Chromium commands:
   `keyEquivalentOverrideForCommand:` returns the override's projected
   `menuKeyEquivalent`, after which Chromium performs its normal menu and command
@@ -253,7 +252,7 @@ rebinding or disablement, as described below.
 
 ### Product-Disabled Shortcut Commands
 
-Import from Another Browser and New Tab to the Right remain menu actions only.
+Import from Another Browser, New Tab to the Right, and New Split Tab remain menu actions only.
 Their shortcuts are omitted from settings, and existing saved bindings are ignored.
 
 `Shortcuts.disabledShortcutCommands` in `Shortcuts+Custom.swift` is the single
@@ -630,7 +629,8 @@ are applied. The Phi Framework omits these entries from its default tables:
 | Reader View | Command-Option-R | Chromium Reading Mode keyboard binding |
 | Toggle Sidebar | Command-S | Save Page |
 
-The commands and their other bindings remain available. This is a product
+The commands and their other bindings remain available, except New Split Tab,
+whose keyboard bindings are also disabled by Phi's native product policy. This is a product
 baseline, not a user disable stored in `CustomShortcuts.json`, and it does not
 change when the corresponding Phi action is rebound or disabled. Restoring
 defaults therefore never revives an inherited Chromium action on these keys.

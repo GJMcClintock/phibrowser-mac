@@ -171,6 +171,22 @@ final class ShortcutCloseMenuIntegrationTests: XCTestCase {
         }
     }
 
+    func testPairedMainMenuSnapshotKeepsDefaultCloseCommandsSeparate() throws {
+        let menu = try buildMenu([:])
+        let bindings = Shortcuts.menuBindings(in: menu)
+        let closeBindings = bindings.filter {
+            $0.commandID == CommandWrapper.IDC_CLOSE_TAB.rawValue
+                || $0.commandID == CommandWrapper.IDC_CLOSE_WINDOW.rawValue
+        }
+        XCTAssertFalse(closeBindings.isEmpty)
+        let model = ShortcutsViewModel(additionalBindings: { bindings })
+        for (command, other) in [(CommandWrapper.IDC_CLOSE_TAB, CommandWrapper.IDC_CLOSE_WINDOW),
+                                 (.IDC_CLOSE_WINDOW, .IDC_CLOSE_TAB)] {
+            XCTAssertFalse(model.conflicts(for: command).contains { $0.id == .command(other.rawValue) },
+                           "Paired Framework close bindings: \(closeBindings)")
+        }
+    }
+
     func testExplicitCloseCommandConflictRemainsVisibleInBothDirections() throws {
         let commandW = ShortcutsKey(characters: "w", modifiers: .command)
         let menu = try buildMenu([.IDC_CLOSE_WINDOW: .custom(commandW)])

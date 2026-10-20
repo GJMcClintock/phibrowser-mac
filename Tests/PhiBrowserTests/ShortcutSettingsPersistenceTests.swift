@@ -843,6 +843,53 @@ final class ShortcutSettingsPersistenceTests: XCTestCase {
         XCTAssertEqual(writeCount, 0)
     }
 
+    func testRestoreAllRefreshesNonBrowserCloseAliasWithoutInventingConflict() throws {
+        for hasCustomization in [false, true] {
+            let menu = NSMenu()
+            let tab = NSMenuItem(title: "Close Tab", action: NSSelectorFromString("commandDispatch:"),
+                                 keyEquivalent: "w")
+            tab.tag = CommandWrapper.IDC_CLOSE_TAB.rawValue
+            let window = NSMenuItem(title: "Close Window", action: NSSelectorFromString("performClose:"),
+                                    keyEquivalent: "W")
+            window.tag = CommandWrapper.IDC_CLOSE_WINDOW.rawValue
+            menu.addItem(tab)
+            menu.addItem(window)
+            let model = ShortcutsViewModel(additionalBindings: { Shortcuts.menuBindings(in: menu) },
+                                           availableCommands: { [] })
+            if hasCustomization {
+                model.setCustomShortcut(for: .PHI_COPY_URL, key: customKey)
+            }
+            XCTAssertNil(model.persistenceFailure)
+            XCTAssertFalse(model.conflicts(for: .IDC_CLOSE_TAB).contains {
+                $0.id == .command(CommandWrapper.IDC_CLOSE_WINDOW.rawValue)
+            })
+
+            // Moving to Settings changes the native menu role without refreshing
+            // the cached inventory. Restore All must handle that role on rescan,
+            // including a reset when the configuration is already at defaults.
+            tab.title = "Close Window"
+            tab.action = NSSelectorFromString("performClose:")
+            tab.tag = CommandWrapper.IDC_CLOSE_WINDOW.rawValue
+            window.isHidden = true
+            window.action = nil
+            window.tag = 0
+
+            model.restoreAllShortcuts()
+
+            XCTAssertNil(model.persistenceFailure)
+            XCTAssertTrue(Shortcuts.configuration.overrides.isEmpty)
+            XCTAssertEqual(contents, Data("[]".utf8))
+            for (command, other) in [(CommandWrapper.IDC_CLOSE_TAB, CommandWrapper.IDC_CLOSE_WINDOW),
+                                     (.IDC_CLOSE_WINDOW, .IDC_CLOSE_TAB)] {
+                XCTAssertFalse(model.conflicts(for: command).contains { $0.id == .command(other.rawValue) },
+                               "Restore All must not introduce a close conflict: customized=\(hasCustomization)")
+                XCTAssertEqual(try item(command, in: model).shortcutKey, Shortcuts.DefaultShortcuts[command])
+            }
+            let alias = try XCTUnwrap(model.inventory.bindings.first { $0.source == .menu })
+            XCTAssertEqual(alias.scope, .nonBrowser)
+        }
+    }
+
     func testFailedResetKeepsExistingBindingAndReportsFailure() throws {
         let model = ShortcutsViewModel()
         model.setCustomShortcut(for: .PHI_COPY_URL, key: customKey)
@@ -1299,6 +1346,50 @@ final class ShortcutSettingsPersistenceTests: XCTestCase {
         XCTAssertTrue(aliases().isEmpty)
         model.restoreDefaultShortcut(for: command)
         XCTAssertTrue(aliases().contains { $0.key.menuKeyEquivalent == pageDown.menuKeyEquivalent })
+    }
+
+    func testSplitTabStaysMenuOnlyAcrossKioskChangesAndRestoreAll() throws {
+        let bridge = try XCTUnwrap(ChromiumLauncher.sharedInstance().bridge)
+        let model = ShortcutsViewModel()
+        func findSplit(in menu: NSMenu) -> NSMenuItem? {
+            for entry in menu.items {
+                if entry.tag == CommandWrapper.IDC_NEW_SPLIT_TAB.rawValue,
+                   entry.action != nil { return entry }
+                if let submenu = entry.submenu, let found = findSplit(in: submenu) { return found }
+            }
+            return nil
+        }
+        func assertMenuOnly() throws {
+            bridge.requestRebuildMainMenu()
+            model.rebuildSections()
+            let entry = try XCTUnwrap(findSplit(in: XCTUnwrap(NSApp.mainMenu)))
+            XCTAssertEqual(entry.action, NSSelectorFromString("commandDispatch:"))
+            XCTAssertTrue(entry.keyEquivalent.isEmpty)
+            XCTAssertNil(Shortcuts.key(for: .IDC_NEW_SPLIT_TAB))
+            XCTAssertTrue(model.inventory.bindings(for: CommandWrapper.IDC_NEW_SPLIT_TAB.rawValue).isEmpty)
+            XCTAssertFalse(model.conflicts(for: .PHI_NEW_KIOSK_WINDOW).contains {
+                $0.id == .command(CommandWrapper.IDC_NEW_SPLIT_TAB.rawValue)
+            })
+            let override = try XCTUnwrap(PhiChromiumCoordinator.shared.keyEquivalentOverride(
+                forCommand: Int32(CommandWrapper.IDC_NEW_SPLIT_TAB.rawValue)))
+            XCTAssertEqual(override["keyEquivalent"] as? String, "")
+        }
+        try assertMenuOnly()
+        // Legacy saved bindings must not bypass the menu-only product policy.
+        contents = try JSONSerialization.data(withJSONObject: [
+            ["commandId": CommandWrapper.IDC_NEW_SPLIT_TAB.rawValue,
+             "key": ["characters": customKey.characters, "modifiersRaw": customKey.modifiersRaw]] as [String: Any]
+        ])
+        try Shortcuts.reloadOverrides().get()
+        try assertMenuOnly()
+        model.setCustomShortcut(for: .PHI_NEW_KIOSK_WINDOW, key: customKey)
+        try assertMenuOnly()
+        model.disableShortcut(for: .PHI_NEW_KIOSK_WINDOW)
+        try assertMenuOnly()
+        model.restoreAllShortcuts()
+        XCTAssertNil(model.persistenceFailure)
+        XCTAssertEqual(Shortcuts.key(for: .PHI_NEW_KIOSK_WINDOW), Shortcuts.DefaultShortcuts[.PHI_NEW_KIOSK_WINDOW])
+        try assertMenuOnly()
     }
 
     private var productOwnedCommands: [CommandWrapper] {

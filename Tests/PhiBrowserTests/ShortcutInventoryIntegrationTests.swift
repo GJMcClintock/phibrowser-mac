@@ -55,6 +55,59 @@ final class ShortcutInventoryIntegrationTests: XCTestCase {
         try XCTUnwrap(model.sections.flatMap(\.items).first { $0.command == command })
     }
 
+    func testDefaultCloseMenuRolesDoNotConflictWithoutStableIdentifiers() throws {
+        let commandW = try XCTUnwrap(Shortcuts.DefaultShortcuts[.IDC_CLOSE_TAB])
+        let shiftedCommandW = try XCTUnwrap(Shortcuts.DefaultShortcuts[.IDC_CLOSE_WINDOW])
+        XCTAssertNotEqual(commandW.menuKeyEquivalent, shiftedCommandW.menuKeyEquivalent)
+        for hasIdentifiers in [false, true] {
+            for hasTabs in [true, false] {
+                let menu = NSMenu()
+                let tab = NSMenuItem(title: "Close", action: NSSelectorFromString(
+                    hasTabs ? "commandDispatch:" : "performClose:"), keyEquivalent: "w")
+                tab.tag = (hasTabs ? CommandWrapper.IDC_CLOSE_TAB : .IDC_CLOSE_WINDOW).rawValue
+                let window = NSMenuItem(title: "Window", action: hasTabs ? NSSelectorFromString("performClose:") : nil,
+                                        keyEquivalent: "W")
+                window.tag = hasTabs ? CommandWrapper.IDC_CLOSE_WINDOW.rawValue : 0
+                window.isHidden = !hasTabs
+                if hasIdentifiers {
+                    tab.identifier = NSUserInterfaceItemIdentifier("phi.closeTab")
+                    window.identifier = NSUserInterfaceItemIdentifier("phi.closeWindow")
+                }
+                menu.addItem(tab)
+                menu.addItem(window)
+                let model = ShortcutsViewModel(additionalBindings: { Shortcuts.menuBindings(in: menu) },
+                                               availableCommands: { [] })
+                for (command, other) in [(CommandWrapper.IDC_CLOSE_TAB, CommandWrapper.IDC_CLOSE_WINDOW),
+                                         (.IDC_CLOSE_WINDOW, .IDC_CLOSE_TAB)] {
+                    XCTAssertFalse(model.conflicts(for: command).contains { $0.id == .command(other.rawValue) },
+                                   "Close roles must remain distinct: identifiers=\(hasIdentifiers), tabs=\(hasTabs)")
+                }
+                if !hasTabs {
+                    let alias = try XCTUnwrap(Shortcuts.menuBindings(in: menu).first)
+                    XCTAssertEqual(alias.scope, .nonBrowser)
+                    XCTAssertTrue(model.inventory.conflicts(for: CommandWrapper.IDC_OPTIONS.rawValue,
+                        key: commandW, in: .all).contains(alias))
+                }
+            }
+        }
+    }
+
+    func testExplicitCloseCommandConflictRemainsVisibleWithoutStableIdentifiers() throws {
+        let commandW = ShortcutsKey(characters: "w", modifiers: .command)
+        install([.IDC_CLOSE_WINDOW: .custom(commandW)])
+        let menu = NSMenu()
+        let close = NSMenuItem(title: "Close", action: NSSelectorFromString("performClose:"), keyEquivalent: "w")
+        close.tag = CommandWrapper.IDC_CLOSE_WINDOW.rawValue
+        menu.addItem(close)
+        let model = ShortcutsViewModel(additionalBindings: { Shortcuts.menuBindings(in: menu) },
+                                       availableCommands: { [] })
+        for (command, other) in [(CommandWrapper.IDC_CLOSE_TAB, CommandWrapper.IDC_CLOSE_WINDOW),
+                                 (.IDC_CLOSE_WINDOW, .IDC_CLOSE_TAB)] {
+            XCTAssertTrue(model.conflicts(for: command).contains { $0.id == .command(other.rawValue) })
+        }
+        XCTAssertEqual(Shortcuts.menuBindings(in: menu).first?.scope, CommandWrapper.IDC_CLOSE_WINDOW.shortcutScope)
+    }
+
     func testAdditionalBindingFilterPreservesOwnersAndExcludesDisabledCommands() {
         let key = ShortcutsKey(characters: "d", modifiers: [.control, .option])
         let disabled = ShortcutBinding(commandID: CommandWrapper.IDC_FOCUS_NEXT_PANE.rawValue,
@@ -236,7 +289,7 @@ final class ShortcutInventoryIntegrationTests: XCTestCase {
         let releasedKey = ShortcutsKey(characters: "m", modifiers: [.command, .shift])
         let commands: [CommandWrapper] = [.IDC_FOCUS_NEXT_PANE, .IDC_FOCUS_PREVIOUS_PANE,
             .IDC_FOCUS_INACTIVE_POPUP_FOR_ACCESSIBILITY, .IDC_SHOW_AVATAR_MENU,
-            .IDC_TOGGLE_FULLSCREEN_TOOLBAR, .IDC_HELP_PAGE_VIA_MENU]
+            .IDC_TOGGLE_FULLSCREEN_TOOLBAR, .IDC_HELP_PAGE_VIA_MENU, .IDC_NEW_SPLIT_TAB]
         install(Dictionary(uniqueKeysWithValues: commands.map { ($0, .custom(releasedKey)) }))
         let saved = Shortcuts.configuration.overrides
         let stale = commands.flatMap { command in
@@ -276,7 +329,7 @@ final class ShortcutInventoryIntegrationTests: XCTestCase {
             (.history, [.IDC_CLEAR_BROWSING_DATA]),
             (.bookmarks, [.IDC_BOOKMARK_THIS_TAB, .IDC_BOOKMARK_ALL_TABS, .IDC_SHOW_BOOKMARK_MANAGER]),
             (.window, [.IDC_TASK_MANAGER]),
-            (.tab, [.IDC_NEW_SPLIT_TAB, .IDC_WINDOW_PIN_TAB, .IDC_WINDOW_CLOSE_OTHER_TABS,
+            (.tab, [.IDC_WINDOW_PIN_TAB, .IDC_WINDOW_CLOSE_OTHER_TABS,
                     .IDC_WINDOW_CLOSE_TABS_TO_RIGHT, .IDC_MOVE_TAB_TO_NEW_WINDOW,
                     .IDC_CREATE_NEW_TAB_GROUP, .IDC_ADD_NEW_TAB_TO_GROUP, .IDC_WINDOW_GROUP_TAB,
                     .IDC_FOCUS_PREV_TAB_GROUP, .IDC_FOCUS_NEXT_TAB_GROUP, .IDC_CLOSE_TAB_GROUP])
@@ -318,14 +371,13 @@ final class ShortcutInventoryIntegrationTests: XCTestCase {
         let model = ShortcutsViewModel(additionalBindings: { [] }, availableCommands: {
             Shortcuts.availableMenuCommands(in: menu)
         })
-        for command in [CommandWrapper.IDC_SAVE_PAGE, .IDC_NEW_SPLIT_TAB] {
-            let row = try item(command, in: model)
-            XCTAssertNil(row.shortcutKey)
-            XCTAssertTrue(model.inventory.bindings(for: command.rawValue).isEmpty)
-            model.startRecording(for: command)
-            XCTAssertEqual(model.editingCommand, command)
-        }
-        for command in [CommandWrapper.IDC_WINDOW_PIN_TAB, .IDC_IMPORT_SETTINGS, .IDC_NEW_TAB_TO_RIGHT] {
+        let row = try item(.IDC_SAVE_PAGE, in: model)
+        XCTAssertNil(row.shortcutKey)
+        XCTAssertTrue(model.inventory.bindings(for: CommandWrapper.IDC_SAVE_PAGE.rawValue).isEmpty)
+        model.startRecording(for: .IDC_SAVE_PAGE)
+        XCTAssertEqual(model.editingCommand, .IDC_SAVE_PAGE)
+        for command in [CommandWrapper.IDC_WINDOW_PIN_TAB, .IDC_IMPORT_SETTINGS, .IDC_NEW_TAB_TO_RIGHT,
+                        .IDC_NEW_SPLIT_TAB] {
             XCTAssertFalse(model.sections.flatMap(\.items).contains { $0.command == command })
         }
         XCTAssertTrue(Shortcuts.configuration.overrides.isEmpty)

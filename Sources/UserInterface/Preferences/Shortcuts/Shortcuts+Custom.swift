@@ -159,6 +159,7 @@ extension Shortcuts {
         // These actions remain available from menus without keyboard bindings.
         .IDC_IMPORT_SETTINGS,
         .IDC_NEW_TAB_TO_RIGHT,
+        .IDC_NEW_SPLIT_TAB,
         // Chromium UI commands that are not supported by Phi's native shell.
         .IDC_FOCUS_NEXT_PANE,
         .IDC_FOCUS_PREVIOUS_PANE,
@@ -505,8 +506,22 @@ extension Shortcuts {
                 } else {
                     owner = .nativeAction(NSStringFromSelector(action))
                 }
+                let equivalent = ShortcutMenuPresentation.originalKey(for: item)
+                    ?? ShortcutsKey.MenuKeyEquivalent(characters: keyItem.keyEquivalent,
+                                                      modifiers: keyItem.keyEquivalentModifierMask)
+                // Older Frameworks switch the default Cmd-W row to Close Window
+                // without stable identifiers (AppKit falls back to the action
+                // name). Its non-browser role is still recognizable. Explicit
+                // close-key assignments keep their scope and real conflicts.
+                let isLegacyDefaultCloseAlias = (item.identifier == nil
+                    || item.identifier?.rawValue == "performClose:")
+                    && action == NSSelectorFromString("performClose:")
+                    && Self.key(for: .IDC_CLOSE_TAB) == DefaultShortcuts[.IDC_CLOSE_TAB]
+                    && Self.key(for: .IDC_CLOSE_WINDOW) == DefaultShortcuts[.IDC_CLOSE_WINDOW]
+                    && equivalent == DefaultShortcuts[.IDC_CLOSE_TAB]?.menuKeyEquivalent
                 let scope: ShortcutBinding.Scope
-                if item.identifier?.rawValue == "phi.closeTab", command == .IDC_CLOSE_WINDOW {
+                if command == .IDC_CLOSE_WINDOW,
+                   item.identifier?.rawValue == "phi.closeTab" || isLegacyDefaultCloseAlias {
                     // Chromium temporarily makes the stable Close Tab row the
                     // non-browser window's default Close Window action. Keep
                     // its actual owner, but do not invent a browser conflict.
@@ -514,9 +529,6 @@ extension Shortcuts {
                 } else {
                     scope = command?.shortcutScope ?? .all
                 }
-                let equivalent = ShortcutMenuPresentation.originalKey(for: item)
-                    ?? ShortcutsKey.MenuKeyEquivalent(characters: keyItem.keyEquivalent,
-                                                      modifiers: keyItem.keyEquivalentModifierMask)
                 let key = ShortcutsKey(menuKeyEquivalent: equivalent.characters,
                                        modifiers: equivalent.modifiers)
                 return [ShortcutBinding(
