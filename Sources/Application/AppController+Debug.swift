@@ -16,6 +16,10 @@ private final class DebugWindowDelegate: NSObject, NSWindowDelegate {
 }
 
 private enum DebugWindowStore {
+    #if DEBUG
+    static var cardWindow: NSWindow?
+    static var cardDelegate: DebugWindowDelegate?
+    #endif
     static var sentryWindow: NSWindow?
     static var sentryDelegate: DebugWindowDelegate?
 
@@ -102,6 +106,11 @@ extension AppController {
                                          keyEquivalent: "")
         debugSentryItem.target = self
         debugMenu.addItem(debugSentryItem)
+        #if DEBUG
+        let cardItem = NSMenuItem(title: "Holographic Card…", action: #selector(showHolographicCardDebugWindow(_:)), keyEquivalent: "")
+        cardItem.target = self
+        debugMenu.addItem(cardItem)
+        #endif
         
         let deeplinkItem = NSMenuItem(title: "Trigger Deeplink...",
                                       action: #selector(triggerDeeplink(_:)),
@@ -412,6 +421,30 @@ extension AppController {
         }
     }
     
+    #if DEBUG
+    @MainActor @objc func showHolographicCardDebugWindow(_ sender: Any?) {
+        if let window = DebugWindowStore.cardWindow {
+            window.makeKeyAndOrderFront(nil)
+            return
+        }
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 820, height: 640),
+            styleMask: [.titled, .closable, .miniaturizable], backing: .buffered, defer: false)
+        window.title = "Holographic Card Debug"
+        window.isReleasedWhenClosed = false
+        window.contentViewController = HolographicCardDebugViewController()
+        let delegate = DebugWindowDelegate()
+        delegate.onClose = {
+            DebugWindowStore.cardWindow = nil
+            DebugWindowStore.cardDelegate = nil
+        }
+        window.delegate = delegate
+        DebugWindowStore.cardWindow = window
+        DebugWindowStore.cardDelegate = delegate
+        window.center()
+        window.makeKeyAndOrderFront(nil)
+    }
+    #endif
+
     @MainActor @objc func showSentryDebugWindow(_ sender: Any?) {
         if let window = DebugWindowStore.sentryWindow {
             window.makeKeyAndOrderFront(nil)

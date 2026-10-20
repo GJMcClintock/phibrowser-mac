@@ -1,6 +1,28 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "oobe.welcome.cardSaveFailed" : {
+      "comment" : "Onboarding membership card - Error when the selected card style cannot be saved",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your card could not be saved. Please try again."
+          }
+        }
+      }
+    },
+    "oobe.welcome.randomizeCard" : {
+      "comment" : "Onboarding membership card - Randomly choose a theme, background texture and ornament",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Randomize"
+          }
+        }
+      }
+    },
     "" : {
 
     },
@@ -55728,6 +55750,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "設定檔"
+          }
+        }
+      }
+    },
+    "profile.card.dateJoined" : {
+      "comment" : "Profile membership card - Label above the account creation date",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Date Joined"
           }
         }
       }

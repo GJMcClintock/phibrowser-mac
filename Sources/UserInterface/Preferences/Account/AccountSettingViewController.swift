@@ -741,15 +741,13 @@ class ShareViewModel: ObservableObject {
 class ProfileCardView: NSView {
     private enum Metrics {
         static let cardWidth: CGFloat = 240
-        static let cardHeight: CGFloat = 380
+        static let cardHeight: CGFloat = 240 * 423 / 292
         /// Extra padding around the card so the drop shadow has room to render
         /// instead of being clipped by the surrounding layout.
         static let shadowPadding: CGFloat = 10
     }
     
-    private let cardImageView = NSImageView()
     private let cardContainerView = NSView()
-    private let shadowLayer = CALayer()
     private lazy var downloadButton = NSButton(title: "", target: self, action: #selector(downloadProfileImage))
     private let profileCardViewController = ProfileCardViewController()
     var userInfo: Profile? {
@@ -772,27 +770,12 @@ class ProfileCardView: NSView {
         wantsLayer = true
         layer?.masksToBounds = false
 
-        shadowLayer.backgroundColor = NSColor.white.cgColor
-        shadowLayer.cornerRadius = 8
-        shadowLayer.masksToBounds = false
-        shadowLayer.shadowColor = NSColor.black.cgColor
-        shadowLayer.shadowOpacity = 0.15
-        shadowLayer.shadowOffset = CGSize(width: 0, height: -3)
-        shadowLayer.shadowRadius = 6
-        layer?.addSublayer(shadowLayer)
-
         cardContainerView.wantsLayer = true
-        cardContainerView.layer?.cornerRadius = 8
-        cardContainerView.layer?.borderWidth = 1
-        cardContainerView.layer?.masksToBounds = true
-        cardContainerView.phiLayer?.setBorderColor(Mapper<CGColor>(
-            NSColor(white: 0, alpha: 0.13).cgColor,
-            NSColor(white: 1, alpha: 0.22).cgColor
-        ))
-        
+        cardContainerView.layer?.masksToBounds = false
+
         addSubview(cardContainerView)
         cardContainerView.snp.makeConstraints { make in
-            make.top.equalToSuperview()
+            make.top.equalToSuperview().offset(Metrics.shadowPadding)
             make.centerX.equalToSuperview()
             make.width.equalTo(Metrics.cardWidth)
             make.height.equalTo(Metrics.cardHeight)
@@ -816,20 +799,6 @@ class ProfileCardView: NSView {
         }
     }
 
-    override func layout() {
-        super.layout()
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        shadowLayer.frame = cardContainerView.frame
-        shadowLayer.shadowPath = CGPath(
-            roundedRect: shadowLayer.bounds,
-            cornerWidth: 8,
-            cornerHeight: 8,
-            transform: nil
-        )
-        CATransaction.commit()
-    }
-    
     @objc private func downloadProfileImage() {
         profileCardViewController.snapshotAndExport()
     }

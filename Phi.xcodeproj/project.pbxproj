@@ -8,6 +8,9 @@
 
 /* Begin PBXBuildFile section */
 		032F940519944127A19A4AD6 /* ShortcutsStatusSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02871C6C7E9D44C08F43D639 /* ShortcutsStatusSection.swift */; };
+		A197CA000000000000000006 /* HolographicCardDebugViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A197CA000000000000000004 /* HolographicCardDebugViewController.swift */; };
+		A197CA000000000000000005 /* HolographicCardMaterials.swift in Sources */ = {isa = PBXBuildFile; fileRef = A197CA000000000000000003 /* HolographicCardMaterials.swift */; };
+		A197CA000000000000000001 /* HolographicCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A197CA000000000000000002 /* HolographicCardView.swift */; };
 		04FE4637EFE3A1396687DD63 /* AISettingsConnectorViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8FCAEAE328C802016D87943 /* AISettingsConnectorViewModel.swift */; };
 		05170D58572AD0BE6C62021E /* KeyEnvelopeAPIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 254713996DC310106F1FF7A7 /* KeyEnvelopeAPIClient.swift */; };
 		0604A0F7564970C47522F57E /* AccountProfileSyncMappingStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8ED3785F123750CD029A126E /* AccountProfileSyncMappingStore.swift */; };
@@ -840,6 +843,9 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		A197CA000000000000000004 /* HolographicCardDebugViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HolographicCardDebugViewController.swift; sourceTree = "<group>"; };
+		A197CA000000000000000003 /* HolographicCardMaterials.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HolographicCardMaterials.swift; sourceTree = "<group>"; };
+		A197CA000000000000000002 /* HolographicCardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HolographicCardView.swift; sourceTree = "<group>"; };
 		01794B7EA4882E10EFB8D56C /* SelfRevokeStrings.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = SelfRevokeStrings.swift; path = UI/SelfRevokeStrings.swift; sourceTree = "<group>"; };
 		02871C6C7E9D44C08F43D639 /* ShortcutsStatusSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortcutsStatusSection.swift; sourceTree = "<group>"; };
 		06BFC6B4281D3520EA713F93 /* SyncableProfiles.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SyncableProfiles.swift; sourceTree = "<group>"; };
@@ -2901,6 +2907,9 @@
 			children = (
 				CC4351BC2EC73223009D8FC3 /* OnboardingWelcomeViewController.swift */,
 				375B2D4E2ED07C780053FECC /* ConchFrameAnimationBaseViewController.swift */,
+				A197CA000000000000000002 /* HolographicCardView.swift */,
+				A197CA000000000000000004 /* HolographicCardDebugViewController.swift */,
+				A197CA000000000000000003 /* HolographicCardMaterials.swift */,
 				CC4351BE2EC7327A009D8FC3 /* SetNameViewController.swift */,
 				CC4351C02EC73509009D8FC3 /* GradientMapper.swift */,
 				CC4351C82ECAD209009D8FC3 /* CustomSlider.swift */,
@@ -3623,6 +3632,9 @@
 				8E0A10072FEA000000000001 /* OverlayToastView.swift in Sources */,
 				CC4351C92ECAD209009D8FC3 /* CustomSlider.swift in Sources */,
 				375B2D4F2ED07C780053FECC /* ConchFrameAnimationBaseViewController.swift in Sources */,
+				A197CA000000000000000001 /* HolographicCardView.swift in Sources */,
+				A197CA000000000000000006 /* HolographicCardDebugViewController.swift in Sources */,
+				A197CA000000000000000005 /* HolographicCardMaterials.swift in Sources */,
 				8EEBD7692FAB137E008CBD9A /* TabGroupRun.swift in Sources */,
 				CC6B00322E7941C300D4F133 /* PinnedTabItem.swift in Sources */,
 				CCAA00012F00010000000001 /* PinnedSplitItem.swift in Sources */,
