@@ -56,7 +56,8 @@ final class ShortcutDispatchIntegrationTests: XCTestCase {
         try withController { controller, window in
             XCTAssertNil(controller.browserState.focusingTab)
             for command in [CommandWrapper.PHI_COPY_URL, .PHI_SHARE_PAGE, .PHI_TOGGLE_READER,
-                            .PHI_SAVE_FOR_LATER, .PHI_FARRINGDON_TOGGLE] {
+                            .PHI_SAVE_FOR_LATER, .PHI_FARRINGDON_TOGGLE,
+                            .PHI_CAPTURE_FULL_PAGE, .PHI_CAPTURE_AREA] {
                 assignInspectKey(to: command)
                 XCTAssertEqual(CommandDispatcher.interceptedPhiCommand(for: try event(inspectKey, in: window)), command)
                 let item = NSMenuItem(title: "Unavailable action", action: nil, keyEquivalent: "")
@@ -106,11 +107,39 @@ final class ShortcutDispatchIntegrationTests: XCTestCase {
         }
     }
 
+    func testScreenshotDefaultsMatchShiftedDigitsAndReleaseOldKeys() throws {
+        try withController { _, window in
+            for (command, character, digit, code) in [
+                (CommandWrapper.PHI_CAPTURE_FULL_PAGE, "!", "1", UInt16(18)),
+                (.PHI_CAPTURE_AREA, "@", "2", UInt16(19))
+            ] {
+                let original = try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero,
+                    modifierFlags: [.command, .shift], timestamp: 0,
+                    windowNumber: window.windowNumber, context: nil, characters: character,
+                    charactersIgnoringModifiers: character, isARepeat: false, keyCode: code))
+                let unshifted = try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero,
+                    modifierFlags: .command, timestamp: 0,
+                    windowNumber: window.windowNumber, context: nil, characters: digit,
+                    charactersIgnoringModifiers: digit, isARepeat: false, keyCode: code))
+                configure([:])
+                XCTAssertEqual(CommandDispatcher.interceptedPhiCommand(for: original), command)
+                XCTAssertNil(CommandDispatcher.interceptedPhiCommand(for: unshifted))
+                XCTAssertTrue(CommandDispatcher.handleKeyEquivalent(original, window: window))
+                configure([command: .disabled])
+                XCTAssertFalse(CommandDispatcher.handleKeyEquivalent(original, window: window))
+                configure([command: .custom(inspectKey)])
+                XCTAssertFalse(CommandDispatcher.handleKeyEquivalent(original, window: window))
+                XCTAssertTrue(CommandDispatcher.handleKeyEquivalent(try event(inspectKey, in: window), window: window))
+            }
+        }
+    }
+
     func testPageCommandsDoNotClaimSettingsOrOtherNonBrowserWindows() throws {
         let window = makeWindow()
         defer { window.close() }
         XCTAssertNil(SpaceSessionControllersManager.shared.findControllerWith(window: window))
-        for command in [CommandWrapper.PHI_COPY_URL, .PHI_SHARE_PAGE, .PHI_TOGGLE_READER, .PHI_SAVE_FOR_LATER] {
+        for command in [CommandWrapper.PHI_COPY_URL, .PHI_SHARE_PAGE, .PHI_TOGGLE_READER, .PHI_SAVE_FOR_LATER,
+                        .PHI_CAPTURE_FULL_PAGE, .PHI_CAPTURE_AREA] {
             assignInspectKey(to: command)
             XCTAssertFalse(CommandDispatcher.handleKeyEquivalent(try event(inspectKey, in: window), window: window))
         }
@@ -118,7 +147,8 @@ final class ShortcutDispatchIntegrationTests: XCTestCase {
 
     func testKioskSharedPageActionsOwnUnavailableBindingsWithoutClaimingBrowserOnlyActions() throws {
         try withController(kiosk: true) { _, window in
-            for command in [CommandWrapper.PHI_COPY_URL, .PHI_SHARE_PAGE, .PHI_TOGGLE_READER, .PHI_SAVE_FOR_LATER] {
+            for command in [CommandWrapper.PHI_COPY_URL, .PHI_SHARE_PAGE, .PHI_TOGGLE_READER, .PHI_SAVE_FOR_LATER,
+                            .PHI_CAPTURE_FULL_PAGE, .PHI_CAPTURE_AREA] {
                 assignInspectKey(to: command)
                 XCTAssertTrue(command.shortcutScope.contains(.kiosk))
                 XCTAssertTrue(CommandDispatcher.handleKeyEquivalent(try event(inspectKey, in: window), window: window))

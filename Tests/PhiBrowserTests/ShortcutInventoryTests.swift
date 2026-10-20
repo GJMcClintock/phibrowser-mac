@@ -97,6 +97,26 @@ final class ShortcutInventoryTests: XCTestCase {
         }
     }
 
+    func testDigitPresentationPreservesKeypadShiftAndOtherPunctuation() {
+        for character in ["!", "@", "#", "$", "%", "^", "&", "*", "(", ")"] {
+            let key = ShortcutsKey(characters: character, modifiers: .command)
+            XCTAssertEqual(key.displayKey, key)
+            XCTAssertEqual(key.keycapTokens, ["⌘", character])
+        }
+        let keypad = ShortcutsKey(characters: "*", modifiers: [.control, .shift], preservesShift: true)
+        XCTAssertEqual(keypad.keycapTokens, ["⌃", "⇧", "*"])
+        XCTAssertEqual(keypad.displayKey, keypad)
+        for character in ["+", "{", "?", "1"] {
+            let key = ShortcutsKey(characters: character, modifiers: [.command, .shift])
+            XCTAssertEqual(key.displayKey, key)
+        }
+        let symbol = ShortcutsKey(characters: "!", modifiers: [.command, .shift])
+        let digit = ShortcutsKey(characters: "1", modifiers: .command)
+        let inventory = ShortcutInventory(bindings: [binding(1, key: symbol), binding(2, key: digit)])
+        XCTAssertTrue(inventory.conflicts(for: 1, key: symbol, in: .all).isEmpty)
+        XCTAssertEqual(inventory.occupants(of: symbol).map(\.commandID), [1])
+    }
+
     func testInputOrderAndDuplicateMetadataDoNotChangeResults() {
         let records = [binding(2, source: .menu), binding(1), binding(2, source: .hidden)]
         let inventory = ShortcutInventory(bindings: records)

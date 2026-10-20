@@ -13,6 +13,8 @@ private final class ReleasedShortcutActionTarget: NSObject {
     @objc func invoke(_ sender: Any?) { invocationCount += 1 }
     @objc(copyToFindPboard:) func useSelection(_ sender: Any?) { invocationCount += 1 }
     @objc(centerSelectionInVisibleArea:) func jumpToSelection(_ sender: Any?) { invocationCount += 1 }
+    @objc(copyFullPageScreenshotFromMenu:) func captureFullPage(_ sender: Any?) { invocationCount += 1 }
+    @objc(capturePageAreaFromMenu:) func captureArea(_ sender: Any?) { invocationCount += 1 }
 }
 
 final class ShortcutSettingsPersistenceTests: XCTestCase {
@@ -54,6 +56,192 @@ final class ShortcutSettingsPersistenceTests: XCTestCase {
 
     private func item(_ command: CommandWrapper, in model: ShortcutsViewModel) throws -> ShortcutItem {
         try XCTUnwrap(model.sections.flatMap(\.items).first { $0.command == command })
+    }
+
+    func testScreenshotCommandsSurviveRebindReloadDisableAndRestore() throws {
+        let bridge = try XCTUnwrap(ChromiumLauncher.sharedInstance().bridge)
+        let model = ShortcutsViewModel()
+        let commands: [(CommandWrapper, String, String, UInt16)] = [
+            (.PHI_CAPTURE_FULL_PAGE, "copyFullPageScreenshotFromMenu:", "!", 18),
+            (.PHI_CAPTURE_AREA, "capturePageAreaFromMenu:", "@", 19)
+        ]
+
+        func assertMenu(_ command: CommandWrapper, action: String, key: ShortcutsKey?, code: UInt16) throws {
+            bridge.requestRebuildMainMenu()
+            model.rebuildSections()
+            let menu = try XCTUnwrap(NSApp.mainMenu)
+            let file = try XCTUnwrap(ChromiumMainMenuRole.file.item(in: menu)?.submenu)
+            let entries = file.items.filter { $0.action == NSSelectorFromString(action) }
+            XCTAssertEqual(entries.count, 1)
+            let entry = try XCTUnwrap(entries.first)
+            XCTAssertEqual(entry.tag, command.rawValue)
+            XCTAssertEqual(entry.keyEquivalent, key?.menuKeyEquivalent.characters ?? "")
+            XCTAssertEqual(entry.keyEquivalentModifierMask, key?.menuKeyEquivalent.modifiers ?? [])
+            NotificationCenter.default.post(name: NSMenu.didBeginTrackingNotification, object: file)
+            defer { NotificationCenter.default.post(name: NSMenu.didEndTrackingNotification, object: file) }
+            if key == Shortcuts.DefaultShortcuts[command] {
+                XCTAssertEqual(entry.keyEquivalent, command == .PHI_CAPTURE_FULL_PAGE ? "1" : "2")
+                XCTAssertEqual(entry.keyEquivalentModifierMask, [.command, .shift])
+            } else {
+                XCTAssertEqual(entry.keyEquivalent, key?.menuKeyEquivalent.characters ?? "")
+                XCTAssertEqual(entry.keyEquivalentModifierMask, key?.menuKeyEquivalent.modifiers ?? [])
+            }
+            let bindings = Shortcuts.menuBindings(in: file).filter { $0.commandID == command.rawValue }
+            XCTAssertEqual(bindings.map(\.key.menuKeyEquivalent), key.map { [$0.menuKeyEquivalent] } ?? [])
+            XCTAssertEqual(try item(command, in: model).shortcutKey, key)
+            XCTAssertTrue(Shortcuts.Group.file.commands.contains(command))
+            XCTAssertFalse(model.inventory.bindings.contains { $0.owner == .nativeAction(action) })
+            if let key {
+                let target = ReleasedShortcutActionTarget()
+                let originalTarget = entry.target
+                let autoenables = file.autoenablesItems
+                defer {
+                    entry.target = originalTarget
+                    file.autoenablesItems = autoenables
+                }
+                file.autoenablesItems = false
+                entry.target = target
+                entry.isEnabled = true
+                let event = try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero,
+                    modifierFlags: key.modifiers, timestamp: 0, windowNumber: 0, context: nil,
+                    characters: key.characters, charactersIgnoringModifiers: key.characters,
+                    isARepeat: false, keyCode: code))
+                XCTAssertEqual(CommandDispatcher.interceptedPhiCommand(for: event), command)
+                let menuEvent: NSEvent
+                if key == Shortcuts.DefaultShortcuts[command] {
+                    // Let the system translate a physical digit key. Supplying "!"
+                    // as both character fields does not model AppKit's digit matching.
+                    let keyboardEvent = try XCTUnwrap(CGEvent(
+                        keyboardEventSource: nil, virtualKey: code, keyDown: true))
+                    keyboardEvent.flags = [.maskCommand, .maskShift]
+                    menuEvent = try XCTUnwrap(NSEvent(cgEvent: keyboardEvent))
+                } else {
+                    menuEvent = event
+                }
+                XCTAssertEqual(CommandDispatcher.interceptedPhiCommand(for: menuEvent), command)
+                XCTAssertTrue(file.performKeyEquivalent(with: menuEvent))
+                XCTAssertEqual(target.invocationCount, 1)
+            }
+        }
+
+        for (command, action, character, code) in commands {
+            let original = ShortcutsKey(characters: character, modifiers: [.command, .shift])
+            XCTAssertEqual(Shortcuts.DefaultShortcuts[command], original)
+            try assertMenu(command, action: action, key: original, code: code)
+            XCTAssertEqual(try item(command, in: model).shortcutKeycapTokens,
+                           ShortcutsKey(characters: code == 18 ? "1" : "2",
+                                        modifiers: [.command, .shift]).keycapTokens)
+            model.setCustomShortcut(for: command, key: customKey)
+            try assertMenu(command, action: action, key: customKey, code: 38)
+            try Shortcuts.reloadOverrides().get()
+            try assertMenu(command, action: action, key: customKey, code: 38)
+            model.disableShortcut(for: command)
+            try assertMenu(command, action: action, key: nil, code: code)
+            try Shortcuts.reloadOverrides().get()
+            try assertMenu(command, action: action, key: nil, code: code)
+            model.restoreDefaultShortcut(for: command)
+            try assertMenu(command, action: action, key: original, code: code)
+        }
+    }
+
+    func testRecordedShiftedDigitsUseSharedDisplayWithoutChangingSavedKeys() throws {
+        let model = ShortcutsViewModel()
+        let commands: [CommandWrapper] = [.IDC_RELOAD, .PHI_COPY_URL, .IDS_EDIT_USE_SELECTION_MAC]
+        let digits: [(String, String, UInt16)] = [
+            ("1", "!", 18), ("2", "@", 19), ("3", "#", 20), ("4", "$", 21),
+            ("5", "%", 23), ("6", "^", 22), ("7", "&", 26), ("8", "*", 28),
+            ("9", "(", 25), ("0", ")", 29)
+        ]
+        for (index, (digit, symbol, code)) in digits.enumerated() {
+            let command = commands[index % commands.count]
+            let modifiers: NSEvent.ModifierFlags = [.command, .control, .shift]
+            let event = try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero,
+                modifierFlags: modifiers, timestamp: 0, windowNumber: 0, context: nil,
+                characters: symbol, charactersIgnoringModifiers: symbol, isARepeat: false, keyCode: code))
+            model.startRecording(for: command)
+            model.handleCaptureEvent(event)
+            let original = ShortcutsKey(characters: symbol, modifiers: modifiers)
+            XCTAssertEqual(Shortcuts.key(for: command), original)
+            XCTAssertEqual(try item(command, in: model).shortcutKeycapTokens, ["⌃", "⇧", "⌘", digit])
+            XCTAssertTrue(try XCTUnwrap(ShortcutsKey.eventKeys(for: event)).matches(original))
+            let bridgeKey = try XCTUnwrap(PhiChromiumCoordinator.shared.keyEquivalentOverride(
+                forCommand: Int32(command.rawValue)))
+            XCTAssertEqual(bridgeKey["keyEquivalent"] as? String, symbol)
+            XCTAssertEqual(bridgeKey["modifierFlags"] as? UInt, modifiers.subtracting(.shift).rawValue)
+            try Shortcuts.reloadOverrides().get()
+            XCTAssertEqual(Shortcuts.key(for: command), original)
+            model.searchText = "cmd control shift \(digit)"
+            XCTAssertTrue(model.filteredSections.flatMap(\.items).contains { $0.command == command })
+            model.searchText = ""
+            model.restoreDefaultShortcut(for: command)
+        }
+    }
+
+    func testMultiplyRecordingKeepsDistinctDisplaysAndExistingMenuMatches() throws {
+        try XCTUnwrap(AppController.shared).startObservingServiceShortcuts()
+        let cases: [(UInt16, NSEvent.ModifierFlags, [String], String, NSEvent.ModifierFlags)] = [
+            (67, [.command, .numericPad], ["⌘", "*"], "*", .command),
+            (67, [.command, .shift, .numericPad], ["⇧", "⌘", "*"], "*", [.command, .shift]),
+            (28, [.command, .shift], ["⇧", "⌘", "8"], "8", [.command, .shift])
+        ]
+        let menuEvents = try cases.map { code, flags, _, _, _ in
+            let event = try XCTUnwrap(CGEvent(keyboardEventSource: nil, virtualKey: code, keyDown: true))
+            event.flags = CGEventFlags(rawValue: UInt64(flags.rawValue))
+            return try XCTUnwrap(NSEvent(cgEvent: event))
+        }
+        for command in [CommandWrapper.IDC_RELOAD, .PHI_COPY_URL] {
+            let model = ShortcutsViewModel()
+            for (index, (code, flags, tokens, displayCharacter, displayModifiers)) in cases.enumerated() {
+                let event = try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero,
+                    modifierFlags: flags, timestamp: 0, windowNumber: 0, context: nil,
+                    characters: "*", charactersIgnoringModifiers: "*", isARepeat: false, keyCode: code))
+                model.startRecording(for: command)
+                model.handleCaptureEvent(event)
+                let key = try XCTUnwrap(Shortcuts.key(for: command))
+                XCTAssertEqual(key.characters, "*")
+                XCTAssertEqual(key.modifiers, flags.subtracting(.numericPad))
+                XCTAssertEqual(try item(command, in: model).shortcutKeycapTokens, tokens)
+                try Shortcuts.reloadOverrides().get()
+                XCTAssertEqual(Shortcuts.key(for: command), key)
+                XCTAssertEqual(try item(command, in: model).shortcutKeycapTokens, tokens)
+                let bridge = try XCTUnwrap(PhiChromiumCoordinator.shared.keyEquivalentOverride(
+                    forCommand: Int32(command.rawValue)))
+                XCTAssertEqual(bridge["keyEquivalent"] as? String, "*")
+                XCTAssertEqual(bridge["modifierFlags"] as? UInt, key.menuKeyEquivalent.modifiers.rawValue)
+
+                let menu = NSMenu()
+                menu.autoenablesItems = false
+                let target = ReleasedShortcutActionTarget()
+                let entry = NSMenuItem(title: "Multiply", action: #selector(ReleasedShortcutActionTarget.invoke(_:)),
+                                       keyEquivalent: "")
+                entry.tag = command.rawValue
+                entry.target = target
+                Shortcuts.updateShortcut(for: entry)
+                menu.addItem(entry)
+                let bindings = Shortcuts.menuBindings(in: menu)
+                let before = menuEvents.map { menu.performKeyEquivalent(with: $0) }
+                XCTAssertTrue(before[index])
+                // The number-row chord and unshifted keypad chord retain the
+                // existing equivalence; this change only distinguishes display.
+                if index != 1 {
+                    XCTAssertTrue(before[0])
+                    XCTAssertTrue(before[2])
+                }
+                NotificationCenter.default.post(name: NSMenu.didBeginTrackingNotification, object: menu)
+                XCTAssertEqual(entry.keyEquivalent, displayCharacter)
+                XCTAssertEqual(entry.keyEquivalentModifierMask, displayModifiers)
+                XCTAssertEqual(Shortcuts.menuBindings(in: menu), bindings)
+                let countBefore = target.invocationCount
+                XCTAssertEqual(menuEvents.map { menu.performKeyEquivalent(with: $0) }, before)
+                XCTAssertEqual(target.invocationCount - countBefore, before.filter { $0 }.count)
+                NotificationCenter.default.post(name: NSMenu.didEndTrackingNotification, object: menu)
+                XCTAssertEqual(menu.items.count, 1)
+                XCTAssertEqual(entry.keyEquivalent, key.menuKeyEquivalent.characters)
+                XCTAssertEqual(entry.keyEquivalentModifierMask, key.menuKeyEquivalent.modifiers)
+                XCTAssertEqual(menuEvents.map { menu.performKeyEquivalent(with: $0) }, before)
+            }
+            model.restoreDefaultShortcut(for: command)
+        }
     }
 
     func testBookmarkManagerBindingSurvivesNativeMenuRepopulation() throws {

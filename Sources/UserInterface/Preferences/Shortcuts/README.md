@@ -216,6 +216,17 @@ of the execution paths cannot reproduce.
   `AppController+Menu`, `Shortcuts.updateShortcut`, and tab context menus apply
   `menuKeyEquivalent` directly.
 
+`ShortcutsKey.displayKey` renders symbols recorded with Shift as Shift plus a
+digit in settings, recording results, aliases, and key search. Unshifted symbols
+and explicit shifted keypad bindings retain their original presentation.
+It never rewrites stored
+keys, event normalization, or Chromium overrides. `ShortcutMenuPresentation`
+uses the command's original binding for this projection while AppKit tracks a
+menu; unknown menu bindings are not inferred from their symbols. A hidden alias
+retains the original key equivalent during tracking, including its keypad
+matches. Tracking end removes the alias and restores the exact original fields.
+The inventory reads the original keys and excludes these temporary aliases.
+
 An intercepted Phi binding owns its event once it applies to the receiving
 window and feature context. A transiently unavailable action (for example,
 Copy URL with no copyable selection) still consumes that event, preventing a

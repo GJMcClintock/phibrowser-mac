@@ -633,6 +633,10 @@ private extension CommandWrapper {
             return NSLocalizedString("settings.shortcuts.command.printPage", value: "Print…", comment: "Shortcuts settings - Command title for printing the current page")
         case .PHI_SHARE_PAGE:
             return NSLocalizedString("settings.shortcuts.command.sharePage", value: "Share Page", comment: "Shortcuts settings - Command title for sharing the current page via the macOS share picker")
+        case .PHI_CAPTURE_FULL_PAGE:
+            return NSLocalizedString("app.fileMenu.copyFullPageScreenshot", value: "Capture Full Page", comment: "File menu - Capture the entire current webpage and copy it as an image")
+        case .PHI_CAPTURE_AREA:
+            return NSLocalizedString("app.fileMenu.capturePageArea", value: "Capture Area…", comment: "File menu - Select a visible webpage area to capture and edit")
         case .PHI_COPY_URL:
             return NSLocalizedString("settings.shortcuts.command.copyURL", value: "Copy URL", comment: "Shortcuts settings - Command title for copying the current URL")
         case .PHI_TOGGLE_READER:

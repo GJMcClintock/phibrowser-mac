@@ -350,8 +350,8 @@ extension AppController {
     /// user's Services preferences or removing the service's menu action.
     func startObservingServiceShortcuts() {
         let center = NotificationCenter.default
-        for name in [NSMenu.didAddItemNotification, NSMenu.didChangeItemNotification,
-                     NSMenu.didBeginTrackingNotification] {
+        for name in [NSMenu.didAddItemNotification, NSMenu.didChangeItemNotification, NSMenu.didRemoveItemNotification,
+                     NSMenu.didBeginTrackingNotification, NSMenu.didEndTrackingNotification] {
             center.removeObserver(self, name: name, object: nil)
             center.addObserver(self, selector: #selector(serviceMenuItemsDidChange(_:)),
                                name: name, object: nil)
@@ -368,6 +368,7 @@ extension AppController {
         } else {
             Self.suppressReservedServiceShortcut(in: menu)
         }
+        ShortcutMenuPresentation.handle(notification)
     }
 
     static func suppressReservedServiceShortcut(in menu: NSMenu) {
@@ -947,12 +948,16 @@ extension AppController {
             action: #selector(AppController.copyFullPageScreenshotFromMenu(_:)),
             keyEquivalent: ""
         )
+        screenshotItem.tag = CommandWrapper.PHI_CAPTURE_FULL_PAGE.rawValue
+        Shortcuts.updateShortcut(for: screenshotItem)
         screenshotItem.target = target
 
         let areaScreenshotItem = NSMenuItem(
             title: NSLocalizedString("app.fileMenu.capturePageArea", value: "Capture Area…",
                                      comment: "File menu - Select a visible webpage area to capture and edit"),
             action: #selector(AppController.capturePageAreaFromMenu(_:)), keyEquivalent: "")
+        areaScreenshotItem.tag = CommandWrapper.PHI_CAPTURE_AREA.rawValue
+        Shortcuts.updateShortcut(for: areaScreenshotItem)
         areaScreenshotItem.target = target
 
         // Same slot Safari uses: directly above Print.

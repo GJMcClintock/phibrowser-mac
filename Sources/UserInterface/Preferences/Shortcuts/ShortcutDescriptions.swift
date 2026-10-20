@@ -196,6 +196,10 @@ extension CommandWrapper {
             return NSLocalizedString("settings.shortcuts.description.newIncognitoSpace", value: "Create a new Incognito Space.", comment: "Shortcuts settings - Description of the newIncognitoSpace command")
         case .PHI_SHARE_PAGE:
             return NSLocalizedString("settings.shortcuts.description.sharePage", value: "Share the current page.", comment: "Shortcuts settings - Description of the sharePage command")
+        case .PHI_CAPTURE_FULL_PAGE:
+            return NSLocalizedString("settings.shortcuts.description.captureFullPage", value: "Capture the entire current webpage and copy it as an image.", comment: "Shortcuts settings - Description of the full page screenshot command")
+        case .PHI_CAPTURE_AREA:
+            return NSLocalizedString("settings.shortcuts.description.captureArea", value: "Select a visible webpage area to capture and edit.", comment: "Shortcuts settings - Description of the area screenshot command")
         case .PHI_KIOSK_OPEN_IN_SPACE:
             return NSLocalizedString("settings.shortcuts.description.kioskOpenInSpace", value: "Open the current Peek or Kiosk page in a Space.", comment: "Shortcuts settings - Description of the kioskOpenInSpace command")
         case .PHI_KIOSK_CHOOSE_SPACE:

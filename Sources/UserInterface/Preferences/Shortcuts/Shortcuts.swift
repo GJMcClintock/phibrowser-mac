@@ -154,6 +154,8 @@ enum CommandWrapper: Int, Equatable {
     case PHI_KIOSK_OPEN_IN_SPACE     = 90025
     case PHI_KIOSK_CHOOSE_SPACE      = 90026
     case PHI_SAVE_FOR_LATER          = 90027
+    case PHI_CAPTURE_FULL_PAGE       = 90028
+    case PHI_CAPTURE_AREA            = 90029
 
     // System Preserved
     case IDS_HIDE_OTHERS_MAC         = 110
@@ -324,6 +326,16 @@ struct ShortcutsKey: Hashable, Codable {
             characters: characters.uppercased(),
             modifiers: menuModifiers
         )
+    }
+
+    /// Presentation only. Keep the stored key and menu matching identity intact.
+    var displayKey: ShortcutsKey {
+        guard modifiers.contains(.shift), preservesShift != true,
+              let digit = Self.qwertyNonLetterByANSIKeyCode.values.first(where: {
+                  $0.shifted == characters && $0.unshifted.first?.isNumber == true
+              })?.unshifted else { return self }
+        return ShortcutsKey(characters: digit, modifiers: modifiers.union(.shift),
+                            preservesShift: true)
     }
 
     /// Resolves the ordered identities that shortcut recording and native
@@ -707,6 +719,9 @@ extension Shortcuts {
         .PHI_NEW_KIOSK_WINDOW: .init(characters: "n", modifiers: [.command, .option]),
         .PHI_NEW_INCOGNITO_SPACE: .init(characters: "n", modifiers: [.control, .shift]),
         .PHI_SHARE_PAGE: .init(characters: "s", modifiers: [.control, .option]),
+        // Printable shortcuts store the shifted character, as shortcut recording does.
+        .PHI_CAPTURE_FULL_PAGE: .init(characters: "!", modifiers: [.command, .shift]),
+        .PHI_CAPTURE_AREA: .init(characters: "@", modifiers: [.command, .shift]),
         .PHI_KIOSK_OPEN_IN_SPACE: .init(characters: "o", modifiers: .command),
         .PHI_KIOSK_CHOOSE_SPACE: .init(characters: "o", modifiers: [.command, .shift]),
         // Cmd-S is the sidebar and Cmd-Shift-S the chatbar; Cmd-Opt-S keeps

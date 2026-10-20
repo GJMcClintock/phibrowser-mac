@@ -16,6 +16,173 @@ private final class ShortcutMenuActionTarget: NSObject {
 
 @MainActor
 final class ShortcutNativeMenuIntegrationTests: XCTestCase {
+    func testAllShiftedDigitsUseSharedMenuPresentationAndRestoreMatchingKeys() throws {
+        let previousConfiguration = Shortcuts.configuration
+        defer { Shortcuts.configuration = previousConfiguration }
+        try XCTUnwrap(AppController.shared).startObservingServiceShortcuts()
+        let digits: [(String, String, UInt16)] = [
+            ("1", "!", 18), ("2", "@", 19), ("3", "#", 20), ("4", "$", 21),
+            ("5", "%", 23), ("6", "^", 22), ("7", "&", 26), ("8", "*", 28),
+            ("9", "(", 25), ("0", ")", 29)
+        ]
+        for modifiers in [NSEvent.ModifierFlags.command, .control, .option, [.command, .option]] {
+            for (digit, symbol, code) in digits {
+                let menu = NSMenu()
+                menu.autoenablesItems = false
+                let target = ShortcutMenuActionTarget()
+                let item = NSMenuItem(title: "Native action",
+                    action: #selector(ShortcutMenuActionTarget.invokeShortcut(_:)), keyEquivalent: symbol)
+                let key = ShortcutsKey(characters: symbol, modifiers: modifiers.union(.shift))
+                item.tag = CommandWrapper.IDC_RELOAD.rawValue
+                Shortcuts.configuration = ShortcutConfiguration(overrides: [item.tag: .custom(key)])
+                item.keyEquivalentModifierMask = modifiers
+                item.target = target
+                menu.addItem(item)
+                let before = Shortcuts.menuBindings(in: menu)
+                XCTAssertEqual(key.keycapTokens.last, digit)
+                XCTAssertTrue(key.keycapTokens.contains("⇧"))
+                XCTAssertEqual(key.menuKeyEquivalent.characters, symbol)
+                XCTAssertEqual(key.menuKeyEquivalent.modifiers, modifiers)
+
+                NotificationCenter.default.post(name: NSMenu.didBeginTrackingNotification, object: menu)
+                XCTAssertEqual(item.keyEquivalent, digit)
+                XCTAssertEqual(item.keyEquivalentModifierMask, modifiers.union(.shift))
+                XCTAssertEqual(Shortcuts.menuBindings(in: menu), before)
+                NotificationCenter.default.post(name: NSMenu.didBeginTrackingNotification, object: menu)
+                XCTAssertEqual(Shortcuts.menuBindings(in: menu), before)
+
+                let keyboardEvent = try XCTUnwrap(CGEvent(
+                    keyboardEventSource: nil, virtualKey: code, keyDown: true))
+                keyboardEvent.flags = CGEventFlags(rawValue: UInt64(modifiers.union(.shift).rawValue))
+                let event = try XCTUnwrap(NSEvent(cgEvent: keyboardEvent))
+                XCTAssertTrue(menu.performKeyEquivalent(with: event))
+                XCTAssertEqual(target.invocationCount, 1)
+
+                NotificationCenter.default.post(name: NSMenu.didEndTrackingNotification, object: menu)
+                XCTAssertEqual(item.keyEquivalent, symbol)
+                XCTAssertEqual(item.keyEquivalentModifierMask, modifiers)
+                XCTAssertEqual(Shortcuts.menuBindings(in: menu), before)
+                XCTAssertEqual(menu.items.count, 1)
+            }
+        }
+    }
+
+    func testMenuPresentationPreservesPairedFrameworkMatching() throws {
+        let selector = NSSelectorFromString("cr_matchesKeyEquivalentEvent:")
+        let item = NSMenuItem(title: "Matching", action: nil, keyEquivalent: "!")
+        guard item.responds(to: selector) else {
+            throw XCTSkip("The paired Framework does not expose cr_matchesKeyEquivalentEvent:")
+        }
+        try XCTUnwrap(AppController.shared).startObservingServiceShortcuts()
+        let previousConfiguration = Shortcuts.configuration
+        defer { Shortcuts.configuration = previousConfiguration }
+        Shortcuts.configuration = ShortcutConfiguration()
+        item.tag = CommandWrapper.PHI_CAPTURE_FULL_PAGE.rawValue
+        let menu = NSMenu()
+        menu.addItem(item)
+        let implementation = try XCTUnwrap(item.method(for: selector))
+        typealias Match = @convention(c) (AnyObject, Selector, NSEvent) -> Bool
+        let matches = unsafeBitCast(implementation, to: Match.self)
+        let event = try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero,
+            modifierFlags: [.command, .shift], timestamp: 0, windowNumber: 0, context: nil,
+            characters: "!", charactersIgnoringModifiers: "!", isARepeat: false, keyCode: 18))
+        XCTAssertTrue(matches(item, selector, event))
+        NotificationCenter.default.post(name: NSMenu.didBeginTrackingNotification, object: menu)
+        XCTAssertEqual(item.keyEquivalent, "1")
+        NotificationCenter.default.post(name: NSMenu.didEndTrackingNotification, object: menu)
+        XCTAssertTrue(matches(item, selector, event))
+    }
+
+    func testMenuPresentationHandlesNestedAndDynamicItemsWithoutRestoringStaleBindings() throws {
+        try XCTUnwrap(AppController.shared).startObservingServiceShortcuts()
+        let previousConfiguration = Shortcuts.configuration
+        defer { Shortcuts.configuration = previousConfiguration }
+        Shortcuts.configuration = ShortcutConfiguration(overrides: [
+            CommandWrapper.IDC_RELOAD.rawValue: .custom(.init(characters: "#", modifiers: [.command, .shift]))
+        ])
+        let menu = NSMenu()
+        let parent = NSMenuItem()
+        let submenu = NSMenu()
+        parent.submenu = submenu
+        menu.addItem(parent)
+        let item = NSMenuItem(title: "Visible", action: #selector(ShortcutMenuActionTarget.invokeShortcut(_:)),
+                              keyEquivalent: "!")
+        item.tag = CommandWrapper.PHI_CAPTURE_FULL_PAGE.rawValue
+        submenu.addItem(item)
+        let hidden = NSMenuItem(title: "Hidden", action: item.action, keyEquivalent: "@")
+        hidden.tag = CommandWrapper.PHI_CAPTURE_AREA.rawValue
+        hidden.isHidden = true
+        submenu.addItem(hidden)
+        NotificationCenter.default.post(name: NSMenu.didBeginTrackingNotification, object: menu)
+        XCTAssertEqual(item.keyEquivalent, "1")
+        XCTAssertEqual(hidden.keyEquivalent, "@")
+        let added = NSMenuItem(title: "Added", action: item.action, keyEquivalent: "#")
+        added.tag = CommandWrapper.IDC_RELOAD.rawValue
+        submenu.addItem(added)
+        XCTAssertEqual(added.keyEquivalent, "3")
+        item.keyEquivalent = "j"
+        item.keyEquivalentModifierMask = [.command, .control]
+        NotificationCenter.default.post(name: NSMenu.didEndTrackingNotification, object: menu)
+        XCTAssertEqual(item.keyEquivalent, "j")
+        XCTAssertEqual(item.keyEquivalentModifierMask, [.command, .control])
+        XCTAssertEqual(added.keyEquivalent, "#")
+        XCTAssertEqual(added.keyEquivalentModifierMask, .command)
+        XCTAssertEqual(hidden.keyEquivalent, "@")
+        XCTAssertEqual(submenu.items.count, 3)
+    }
+
+    func testMenuPresentationDoesNotInferShiftFromUnknownOrReassignedSymbols() throws {
+        try XCTUnwrap(AppController.shared).startObservingServiceShortcuts()
+        let previousConfiguration = Shortcuts.configuration
+        defer { Shortcuts.configuration = previousConfiguration }
+        Shortcuts.configuration = ShortcutConfiguration()
+        let menu = NSMenu()
+        for tag in [0, CommandWrapper.PHI_CAPTURE_FULL_PAGE.rawValue] {
+            let item = NSMenuItem(title: "Symbol", action: nil, keyEquivalent: "*")
+            item.tag = tag
+            menu.addItem(item)
+        }
+        NotificationCenter.default.post(name: NSMenu.didBeginTrackingNotification, object: menu)
+        XCTAssertEqual(menu.items.map(\.keyEquivalent), ["*", "*"])
+        XCTAssertEqual(menu.items.map(\.keyEquivalentModifierMask), [.command, .command])
+        NotificationCenter.default.post(name: NSMenu.didEndTrackingNotification, object: menu)
+    }
+
+    func testProjectedMenuAliasFollowsAvailabilityAndRemoval() throws {
+        try XCTUnwrap(AppController.shared).startObservingServiceShortcuts()
+        let previousConfiguration = Shortcuts.configuration
+        defer { Shortcuts.configuration = previousConfiguration }
+        let command = CommandWrapper.IDC_RELOAD
+        Shortcuts.configuration = ShortcutConfiguration(overrides: [
+            command.rawValue: .custom(.init(characters: "*", modifiers: [.command, .shift]))
+        ])
+        let menu = NSMenu()
+        menu.autoenablesItems = false
+        let target = ShortcutMenuActionTarget()
+        let item = NSMenuItem(title: "Multiply", action: #selector(ShortcutMenuActionTarget.invokeShortcut(_:)),
+                              keyEquivalent: "*")
+        item.tag = command.rawValue
+        item.target = target
+        menu.addItem(item)
+        let keyboardEvent = try XCTUnwrap(CGEvent(keyboardEventSource: nil, virtualKey: 67, keyDown: true))
+        keyboardEvent.flags = [.maskCommand, .maskNumericPad]
+        let event = try XCTUnwrap(NSEvent(cgEvent: keyboardEvent))
+        NotificationCenter.default.post(name: NSMenu.didBeginTrackingNotification, object: menu)
+        XCTAssertTrue(menu.performKeyEquivalent(with: event))
+        XCTAssertEqual(target.invocationCount, 1)
+        item.isEnabled = false
+        XCTAssertFalse(menu.performKeyEquivalent(with: event))
+        XCTAssertEqual(target.invocationCount, 1)
+        item.isEnabled = true
+        XCTAssertTrue(menu.performKeyEquivalent(with: event))
+        menu.removeItem(item)
+        XCTAssertTrue(menu.items.isEmpty)
+        XCTAssertEqual(item.keyEquivalent, "*")
+        XCTAssertEqual(item.keyEquivalentModifierMask, .command)
+        XCTAssertFalse(menu.performKeyEquivalent(with: event))
+        NotificationCenter.default.post(name: NSMenu.didEndTrackingNotification, object: menu)
+    }
+
     func testServiceShortcutIsClearedOnInsertionAndReassignment() throws {
         try XCTUnwrap(AppController.shared).startObservingServiceShortcuts()
         let menu = NSMenu()

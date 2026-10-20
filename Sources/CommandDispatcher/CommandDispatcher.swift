@@ -31,6 +31,8 @@ struct CommandDispatcher {
         .PHI_NEW_KIOSK_WINDOW,
         .PHI_NEW_INCOGNITO_SPACE,
         .PHI_SHARE_PAGE,
+        .PHI_CAPTURE_FULL_PAGE,
+        .PHI_CAPTURE_AREA,
         .PHI_SAVE_FOR_LATER,
     ] + CommandWrapper.spaceSelectionCommands
 
@@ -109,7 +111,8 @@ struct CommandDispatcher {
         }
         if let kioskWindowController = windowController as? KioskBrowserWindowController {
             switch command {
-            case .PHI_COPY_URL, .PHI_SHARE_PAGE, .PHI_TOGGLE_READER, .PHI_SAVE_FOR_LATER:
+            case .PHI_COPY_URL, .PHI_SHARE_PAGE, .PHI_TOGGLE_READER, .PHI_SAVE_FOR_LATER,
+                 .PHI_CAPTURE_FULL_PAGE, .PHI_CAPTURE_AREA:
                 // Kiosk already exposes these native page actions through its
                 // menu/toolbar. Run their common handlers below, rather than
                 // treating the Kiosk-specific switch's false as action failure.
@@ -235,6 +238,12 @@ struct CommandDispatcher {
                 return false
             }
             windowController.sharePage(nil)
+            return true
+        case .PHI_CAPTURE_FULL_PAGE, .PHI_CAPTURE_AREA:
+            let state = windowController.browserState
+            let area = command == .PHI_CAPTURE_AREA
+            guard PageScreenshotService.shared.canCapture(in: state, area: area) else { return false }
+            PageScreenshotService.shared.capture(in: state, area: area)
             return true
         case .PHI_TOGGLE_READER:
             let state = windowController.browserState

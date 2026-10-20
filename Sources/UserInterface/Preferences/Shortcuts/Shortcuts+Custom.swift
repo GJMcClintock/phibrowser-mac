@@ -5,6 +5,144 @@
 
 import Foundation
 import AppKit
+import ObjectiveC
+
+/// Menu fields are also read by Chromium's matcher. Project them only while
+/// AppKit tracks a visible menu, then restore the exact matching representation.
+final class ShortcutMenuPresentation {
+    private static var associationKey: UInt8 = 0
+    private static var aliasAssociationKey: UInt8 = 0
+    private struct Projection {
+        let original: ShortcutsKey.MenuKeyEquivalent
+        let display: ShortcutsKey.MenuKeyEquivalent
+        let alias: NSMenuItem
+    }
+    private var projections: [NSMenuItem: Projection] = [:]
+    private var isUpdating = false
+
+    private static func state(for menu: NSMenu) -> ShortcutMenuPresentation? {
+        objc_getAssociatedObject(menu, &associationKey) as? ShortcutMenuPresentation
+    }
+
+    private static func declaredKey(_ item: NSMenuItem) -> ShortcutsKey.MenuKeyEquivalent {
+        let declared = item.keyEquivalent.isEmpty ? (item.copy() as? NSMenuItem ?? item) : item
+        return .init(characters: declared.keyEquivalent, modifiers: declared.keyEquivalentModifierMask)
+    }
+
+    private static func displayedKey(_ key: ShortcutsKey.MenuKeyEquivalent,
+                                     for item: NSMenuItem) -> ShortcutsKey.MenuKeyEquivalent {
+        // A menu equivalent has already folded Shift into its character. Only
+        // the original binding can distinguish keypad "*" from number-row "8".
+        guard let command = CommandWrapper(rawValue: item.tag),
+              let original = Shortcuts.key(for: command),
+              original.menuKeyEquivalent == key else { return key }
+        let display = original.displayKey
+        return display == original ? key : display.menuKeyEquivalent
+    }
+
+    static func isMatchingAlias(_ item: NSMenuItem) -> Bool {
+        objc_getAssociatedObject(item, &aliasAssociationKey) != nil
+    }
+
+    static func originalKey(for item: NSMenuItem) -> ShortcutsKey.MenuKeyEquivalent? {
+        guard let menu = item.menu, let state = state(for: menu),
+              let projection = state.projections[item],
+              state.isUpdating || declaredKey(item) == projection.display else { return nil }
+        return projection.original
+    }
+
+    static func handle(_ notification: Notification) {
+        guard let menu = notification.object as? NSMenu else { return }
+        switch notification.name {
+        case NSMenu.didBeginTrackingNotification:
+            begin(in: menu)
+        case NSMenu.didEndTrackingNotification:
+            end(in: menu)
+        default:
+            update(in: menu)
+        }
+    }
+
+    private static func begin(in menu: NSMenu) {
+        if state(for: menu) == nil {
+            objc_setAssociatedObject(menu, &associationKey, ShortcutMenuPresentation(),
+                                     .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+        }
+        update(in: menu)
+        for item in menu.items {
+            if let submenu = item.submenu { begin(in: submenu) }
+        }
+    }
+
+    private static func update(in menu: NSMenu) {
+        guard let state = state(for: menu), !state.isUpdating else { return }
+        state.isUpdating = true
+        defer { state.isUpdating = false }
+        for (item, projection) in state.projections where item.menu !== menu {
+            state.projections.removeValue(forKey: item)
+            if declaredKey(item) == projection.display {
+                item.keyEquivalent = projection.original.characters
+                item.keyEquivalentModifierMask = projection.original.modifiers
+            }
+            if projection.alias.menu === menu { menu.removeItem(projection.alias) }
+        }
+        for item in menu.items where item.submenu == nil && !isMatchingAlias(item) {
+            let declared = declaredKey(item)
+            let previous = state.projections[item]
+            let original = previous.flatMap {
+                declared == $0.display ? $0.original : nil
+            } ?? declared
+            let display = item.isHidden ? original : displayedKey(original, for: item)
+            if display != original {
+                guard let alias = previous?.alias ?? (item.copy() as? NSMenuItem) else { continue }
+                alias.keyEquivalent = original.characters
+                alias.keyEquivalentModifierMask = original.modifiers
+                alias.action = item.action
+                alias.target = item.target
+                alias.isEnabled = item.isEnabled
+                alias.isHidden = true
+                alias.allowsKeyEquivalentWhenHidden = true
+                objc_setAssociatedObject(alias, &aliasAssociationKey, true,
+                                         .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+                state.projections[item] = Projection(original: original, display: display, alias: alias)
+                // The displayed digit does not accept every event the symbol
+                // accepted, including keypad Multiply. Retain that exact route.
+                // TODO:// Preserve conflict priority during menu tracking. An earlier
+                // Cmd-Shift-8 item loses to a later Cmd-keypad-* item when its alias
+                // is appended here; closing the menu restores the original winner.
+                // Keep aliases beside their owners and test the invoked command identity.
+                // Evaluate strict Shift-aware matching separately across Phi, Chromium,
+                // conflict detection, and legacy bindings; existing equivalence is retained.
+                if alias.menu == nil { menu.addItem(alias) }
+            } else {
+                state.projections.removeValue(forKey: item)
+                if let alias = previous?.alias, alias.menu === menu { menu.removeItem(alias) }
+            }
+            if display != declared {
+                item.keyEquivalent = display.characters
+                item.keyEquivalentModifierMask = display.modifiers
+            }
+        }
+    }
+
+    private static func end(in menu: NSMenu) {
+        if let state = state(for: menu) {
+            // Keep inventory reads canonical between the two property writes.
+            state.isUpdating = true
+            for (item, projection) in state.projections {
+                if declaredKey(item) == projection.display {
+                    item.keyEquivalent = projection.original.characters
+                    item.keyEquivalentModifierMask = projection.original.modifiers
+                }
+                if projection.alias.menu === menu { menu.removeItem(projection.alias) }
+            }
+            objc_setAssociatedObject(menu, &associationKey, nil, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+        }
+        for item in menu.items {
+            if let submenu = item.submenu { end(in: submenu) }
+        }
+    }
+}
 
 extension Notification.Name {
     static let shortcutsDidChange = Notification.Name("PhiShortcutsDidChangeNotification")
@@ -99,6 +237,8 @@ extension Shortcuts {
                         .IDC_FOCUS_LOCATION,
                         .IDC_CLOSE_WINDOW,
                         .IDC_CLOSE_TAB,
+                        .PHI_CAPTURE_FULL_PAGE,
+                        .PHI_CAPTURE_AREA,
                         .PHI_SHARE_PAGE,
                         .PHI_SAVE_FOR_LATER,
                         .IDC_PRINT]
@@ -343,6 +483,7 @@ extension Shortcuts {
         func visit(_ menu: NSMenu, inServices: Bool = false) -> [ShortcutBinding] {
             let inServices = inServices || menu === servicesMenu
             return menu.items.flatMap { item -> [ShortcutBinding] in
+                if ShortcutMenuPresentation.isMatchingAlias(item) { return [] }
                 // Chromium's menu matcher examines hidden entries too.
                 if let submenu = item.submenu { return visit(submenu, inServices: inServices) }
                 // AppKit retains unavailable Services in the menu tree. Their
@@ -373,10 +514,14 @@ extension Shortcuts {
                 } else {
                     scope = command?.shortcutScope ?? .all
                 }
+                let equivalent = ShortcutMenuPresentation.originalKey(for: item)
+                    ?? ShortcutsKey.MenuKeyEquivalent(characters: keyItem.keyEquivalent,
+                                                      modifiers: keyItem.keyEquivalentModifierMask)
+                let key = ShortcutsKey(menuKeyEquivalent: equivalent.characters,
+                                       modifiers: equivalent.modifiers)
                 return [ShortcutBinding(
                     owner: owner,
-                    key: ShortcutsKey(menuKeyEquivalent: keyItem.keyEquivalent,
-                                      modifiers: keyItem.keyEquivalentModifierMask),
+                    key: key,
                     scope: scope, source: .menu,
                     title: item.title
                 )]
@@ -435,14 +580,15 @@ extension ShortcutsKey {
     }
 
     var keycapTokens: [String] {
-        let modifiers = displayModifiers
+        let key = displayKey
+        let modifiers = key.displayModifiers
         var tokens: [String] = []
         if modifiers.contains(.function) { tokens.append("fn") }
         if modifiers.contains(.control) { tokens.append("⌃") }
         if modifiers.contains(.option) { tokens.append("⌥") }
         if modifiers.contains(.shift) { tokens.append("⇧") }
         if modifiers.contains(.command) { tokens.append("⌘") }
-        tokens.append(characterSymbol)
+        tokens.append(key.characterSymbol)
         return tokens
     }
 
@@ -588,6 +734,8 @@ extension CommandWrapper {
         .PHI_NEW_KIOSK_WINDOW: .init(title: "New Kiosk Window", keywords: ["new kiosk window", "kiosk", "window"]),
         .PHI_NEW_INCOGNITO_SPACE: .init(title: "New Incognito Space", keywords: ["new incognito space", "incognito", "private", "space"]),
         .PHI_SHARE_PAGE: .init(title: "Share Page", keywords: ["share", "share page", "share link", "airdrop", "send"]),
+        .PHI_CAPTURE_FULL_PAGE: .init(title: "Capture Full Page", keywords: ["screenshot", "capture", "full page", "image"]),
+        .PHI_CAPTURE_AREA: .init(title: "Capture Area", keywords: ["screenshot", "capture", "area", "region", "image"]),
         .PHI_KIOSK_OPEN_IN_SPACE: .init(title: "Open Kiosk or Peek in current Space", keywords: ["kiosk", "peek", "open as tab", "open in space", "current space", "move"]),
         .PHI_KIOSK_CHOOSE_SPACE: .init(title: "Show Kiosk \"Open in\" Menu", keywords: ["kiosk", "choose space", "open in", "menu"]),
         .PHI_SAVE_FOR_LATER: .init(title: "Save to Folio", keywords: ["save", "save to folio", "folio", "read later", "markdown", "archive"]),
