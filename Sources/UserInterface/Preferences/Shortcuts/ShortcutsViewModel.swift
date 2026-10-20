@@ -123,7 +123,11 @@ class ShortcutsViewModel: ObservableObject {
             )
         }
         for item in reservedShortcuts {
-            searchEntries[item.id] = ShortcutSearchEntry(keywords: [item.name], keys: item.keys)
+            var keywords = [item.name]
+            if let command = item.id.commandID.flatMap(CommandWrapper.init(rawValue:)) {
+                keywords += searchKeywords(for: command)
+            }
+            searchEntries[item.id] = ShortcutSearchEntry(keywords: keywords, keys: item.keys)
         }
     }
 
@@ -385,7 +389,7 @@ class ShortcutsViewModel: ObservableObject {
     private func displayName(for owner: ShortcutBinding.Owner) -> String {
         if owner == .system { return ShortcutConflictItem.systemMessage }
         let command = owner.commandID.flatMap(CommandWrapper.init(rawValue:))
-        if let command, Shortcuts.configurableCommands.contains(command) {
+        if let command, !command.isSystemShortcut {
             return displayName(for: command)
         }
         if let title = inventory.bindings.first(where: { $0.owner == owner && $0.title?.isEmpty == false })?.title {
@@ -501,11 +505,76 @@ class ShortcutsViewModel: ObservableObject {
 
 private extension CommandWrapper {
     var localizedShortcutTitle: String {
+        // Keep this exhaustive so new commands cannot silently display English metadata.
         switch self {
         case .IDC_OPTIONS:
             return NSLocalizedString("settings.shortcuts.command.openSettings", value: "Settings", comment: "Shortcuts settings - Command title for opening Phi settings")
+        case .IDC_HIDE_APP:
+            return NSLocalizedString("settings.shortcuts.command.hideApp", value: "Hide Phi", comment: "Shortcuts settings - Command title for hiding Phi and its windows")
         case .IDC_EXIT:
             return NSLocalizedString("settings.shortcuts.command.quitApp", value: "Quit Phi", comment: "Shortcuts settings - Command title for quitting Phi")
+        case .IDC_CLEAR_BROWSING_DATA:
+            return NSLocalizedString("settings.shortcuts.command.clearBrowsingData", value: "Clear Browsing Data", comment: "Shortcuts settings - Command title for choosing browsing data to clear")
+        case .IDC_IMPORT_SETTINGS:
+            return NSLocalizedString("settings.shortcuts.command.importSettings", value: "Import Settings", comment: "Shortcuts settings - Command title for importing bookmarks and settings from another browser")
+        case .IDC_NEW_SPLIT_TAB:
+            return NSLocalizedString("settings.shortcuts.command.newSplitTab", value: "New Split Tab", comment: "Shortcuts settings - Command title for opening a tab in Split View")
+        case .IDC_SAVE_PAGE:
+            return NSLocalizedString("settings.shortcuts.command.savePage", value: "Save Page", comment: "Shortcuts settings - Command title for saving the current page to a file")
+        case .IDC_BASIC_PRINT:
+            return NSLocalizedString("settings.shortcuts.command.basicPrint", value: "Basic Print", comment: "Shortcuts settings - Command title for printing with the system dialog")
+        case .IDC_CONTENT_CONTEXT_UNDO:
+            return NSLocalizedString("settings.shortcuts.command.undo", value: "Undo", comment: "Shortcuts settings - Command title for undoing the last edit")
+        case .IDC_CONTENT_CONTEXT_REDO:
+            return NSLocalizedString("settings.shortcuts.command.redo", value: "Redo", comment: "Shortcuts settings - Command title for redoing the last undone edit")
+        case .IDC_CONTENT_CONTEXT_CUT:
+            return NSLocalizedString("settings.shortcuts.command.cut", value: "Cut", comment: "Shortcuts settings - Command title for cutting the selection to the clipboard")
+        case .IDC_CONTENT_CONTEXT_COPY:
+            return NSLocalizedString("settings.shortcuts.command.copy", value: "Copy", comment: "Shortcuts settings - Command title for copying the selection to the clipboard")
+        case .IDC_CONTENT_CONTEXT_PASTE:
+            return NSLocalizedString("settings.shortcuts.command.paste", value: "Paste", comment: "Shortcuts settings - Command title for pasting the clipboard contents")
+        case .IDC_CONTENT_CONTEXT_PASTE_AND_MATCH_STYLE, .IDS_PASTE_MATCH_STYLE_MAC:
+            return NSLocalizedString("settings.shortcuts.command.pasteMatchStyle", value: "Paste and Match Style", comment: "Shortcuts settings - Command title for pasting text with the surrounding formatting")
+        case .IDC_CONTENT_CONTEXT_SELECTALL:
+            return NSLocalizedString("settings.shortcuts.command.selectAll", value: "Select All", comment: "Shortcuts settings - Command title for selecting all content in the focused area")
+        case .IDC_SHOW_BOOKMARK_BAR:
+            return NSLocalizedString("settings.shortcuts.command.toggleBookmarkBar", value: "Toggle Bookmark Bar", comment: "Shortcuts settings - Command title for showing or hiding the bookmarks bar")
+        case .IDC_TOGGLE_FULLSCREEN_TOOLBAR:
+            return NSLocalizedString("settings.shortcuts.command.toggleFullscreenToolbar", value: "Toggle Fullscreen Toolbar", comment: "Shortcuts settings - Command title for showing or hiding the toolbar in full screen")
+        case .IDC_FULLSCREEN:
+            return NSLocalizedString("settings.shortcuts.command.fullscreen", value: "Full Screen", comment: "Shortcuts settings - Command title for entering or leaving full screen")
+        case .IDC_SHOW_BOOKMARK_MANAGER:
+            return NSLocalizedString("settings.shortcuts.command.bookmarkManager", value: "Bookmark Manager", comment: "Shortcuts settings - Command title for opening the bookmark manager")
+        case .IDC_BOOKMARK_THIS_TAB:
+            return NSLocalizedString("settings.shortcuts.command.bookmarkTab", value: "Bookmark Tab", comment: "Shortcuts settings - Command title for bookmarking the current page")
+        case .IDC_BOOKMARK_ALL_TABS:
+            return NSLocalizedString("settings.shortcuts.command.bookmarkAllTabs", value: "Bookmark All Tabs", comment: "Shortcuts settings - Command title for bookmarking all open tabs")
+        case .IDC_MINIMIZE_WINDOW:
+            return NSLocalizedString("settings.shortcuts.command.minimizeWindow", value: "Minimize Window", comment: "Shortcuts settings - Command title for minimizing the current window")
+        case .IDC_TASK_MANAGER:
+            return NSLocalizedString("settings.shortcuts.command.taskManager", value: "Task Manager", comment: "Shortcuts settings - Command title for viewing browser tasks and their resource usage")
+        case .IDC_WINDOW_PIN_TAB:
+            return NSLocalizedString("settings.shortcuts.command.pinTab", value: "Pin Tab", comment: "Shortcuts settings - Command title for pinning or unpinning the current tab")
+        case .IDC_WINDOW_GROUP_TAB:
+            return NSLocalizedString("settings.shortcuts.command.groupTab", value: "Group Tab", comment: "Shortcuts settings - Command title for changing the current tab's group")
+        case .IDC_WINDOW_CLOSE_OTHER_TABS:
+            return NSLocalizedString("settings.shortcuts.command.closeOtherTabs", value: "Close Other Tabs", comment: "Shortcuts settings - Command title for closing other tabs in the current window")
+        case .IDC_WINDOW_CLOSE_TABS_TO_RIGHT:
+            return NSLocalizedString("settings.shortcuts.command.closeTabsToRight", value: "Close Tabs to the Right", comment: "Shortcuts settings - Command title for closing tabs to the right of the current tab")
+        case .IDC_MOVE_TAB_TO_NEW_WINDOW:
+            return NSLocalizedString("settings.shortcuts.command.moveTabToNewWindow", value: "Move Tab to New Window", comment: "Shortcuts settings - Command title for moving the current tab to a new window")
+        case .IDC_FEEDBACK:
+            return NSLocalizedString("settings.shortcuts.command.sendFeedback", value: "Send Feedback", comment: "Shortcuts settings - Command title for opening the feedback page")
+        case .IDC_HELP_PAGE_VIA_MENU:
+            return NSLocalizedString("settings.shortcuts.command.openHelp", value: "Phi Help", comment: "Shortcuts settings - Command title for opening browser help")
+        case .IDS_HIDE_OTHERS_MAC:
+            return NSLocalizedString("settings.shortcuts.command.hideOthers", value: "Hide Others", comment: "Shortcuts settings - Command title for hiding other applications")
+        case .IDS_CLOSE_ALL_WINDOWS_MAC:
+            return NSLocalizedString("settings.shortcuts.command.closeAllWindows", value: "Close All", comment: "Shortcuts settings - Command title for closing all browser windows")
+        case .IDS_EDIT_SHOW_SPELLING_GRAMMAR_MAC:
+            return NSLocalizedString("settings.shortcuts.command.showSpellingAndGrammar", value: "Show Spelling and Grammar", comment: "Shortcuts settings - Command title for opening spelling and grammar tools")
+        case .IDS_EDIT_CHECK_DOCUMENT_MAC:
+            return NSLocalizedString("settings.shortcuts.command.checkDocument", value: "Check Document Now", comment: "Shortcuts settings - Command title for checking spelling in the current document")
         case .IDC_MOVE_TAB_NEXT:
             return NSLocalizedString("settings.shortcuts.command.moveTabRight", value: "Move Tab Right", comment: "Shortcuts settings - Title of a browser shortcut")
         case .IDC_MOVE_TAB_PREVIOUS:
@@ -626,9 +695,9 @@ private extension CommandWrapper {
             return NSLocalizedString("settings.shortcuts.command.showTabSwitcherReverse", value: "Show Tab Switcher(Reverse)", comment: "Shortcuts settings - Command title for showing the tab switcher in reverse order")
         case .IDC_NEW_TAB_TO_RIGHT:
             return NSLocalizedString("settings.shortcuts.command.newTabToRight", value: "New Tab To Right", comment: "Shortcuts settings - Command title for opening a new tab to the right of the current tab")
-        case .IDC_SELECT_NEXT_TAB:
+        case .IDC_SELECT_NEXT_TAB, .IDC_CYCLE_TO_NEXT_TAB:
             return NSLocalizedString("settings.shortcuts.command.selectNextTab", value: "Select Next Tab", comment: "Shortcuts settings - Command title for selecting the next tab")
-        case .IDC_SELECT_PREVIOUS_TAB:
+        case .IDC_SELECT_PREVIOUS_TAB, .IDC_CYCLE_TO_PREV_TAB:
             return NSLocalizedString("settings.shortcuts.command.selectPreviousTab", value: "Select Previous Tab", comment: "Shortcuts settings - Command title for selecting the previous tab")
         case .IDC_SELECT_TAB_0:
             return Self.localizedTabSelectionTitle(number: 1)
@@ -660,8 +729,13 @@ private extension CommandWrapper {
             return NSLocalizedString("settings.shortcuts.command.selectNextSpace", value: "Next Space", comment: "Shortcuts settings - Command title for selecting the next Space")
         case .PHI_SELECT_PREVIOUS_SPACE:
             return NSLocalizedString("settings.shortcuts.command.selectPreviousSpace", value: "Previous Space", comment: "Shortcuts settings - Command title for selecting the previous Space")
-        default:
-            return displayName
+        case .PHI_SELECT_SPACE_0, .PHI_SELECT_SPACE_1, .PHI_SELECT_SPACE_2,
+             .PHI_SELECT_SPACE_3, .PHI_SELECT_SPACE_4, .PHI_SELECT_SPACE_5,
+             .PHI_SELECT_SPACE_6, .PHI_SELECT_SPACE_7, .PHI_SELECT_SPACE_8:
+            return String(
+                format: NSLocalizedString("settings.shortcuts.command.selectNumberedSpace", value: "Go to Space %d", comment: "Shortcuts settings - Command title when a Space name is unavailable; %d is the one-based Space position"),
+                rawValue - Self.PHI_SELECT_SPACE_0.rawValue + 1
+            )
         }
     }
 

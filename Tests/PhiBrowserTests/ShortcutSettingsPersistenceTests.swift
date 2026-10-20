@@ -315,6 +315,51 @@ final class ShortcutSettingsPersistenceTests: XCTestCase {
         XCTAssertEqual(conflicts.first { $0.command == .IDC_RELOAD }?.keys, [customKey.displayString])
     }
 
+    func testBrowserCommandTitlesStayConsistentAcrossRowsConflictsAndSearch() throws {
+        let commands: [CommandWrapper] = [.IDC_CLEAR_BROWSING_DATA, .IDC_SHOW_BOOKMARK_BAR,
+                                          .IDC_SHOW_BOOKMARK_MANAGER]
+        for source in [ShortcutBinding.Source.menu, .hidden] {
+            let bindings = (commands + [.IDC_DUPLICATE_TAB]).map { command in
+                ShortcutBinding(commandID: command.rawValue, key: customKey,
+                                scope: .browser, source: source, title: "Unlocalized inventory title")
+            }
+            let model = ShortcutsViewModel(additionalBindings: { bindings }, availableCommands: { commands })
+            let conflicts = model.conflicts(for: .IDC_DUPLICATE_TAB)
+            for command in commands {
+                let row = try item(command, in: model)
+                let conflict = try XCTUnwrap(conflicts.first { $0.command == command })
+                XCTAssertEqual(conflict.name, row.name, "\(command), \(source)")
+                XCTAssertNotEqual(row.name, "Unlocalized inventory title")
+                XCTAssertTrue(row.searchKeywords.contains(row.name.lowercased()))
+
+                // English aliases remain searchable after the title is translated.
+                for query in [command.displayName, row.name] {
+                    model.searchText = query
+                    XCTAssertTrue(model.filteredSections.flatMap(\.items).contains { $0.command == command })
+                }
+            }
+        }
+        XCTAssertEqual(writeCount, 0)
+    }
+
+    func testSystemAndUnknownCommandConflictsKeepTheirMenuTitles() throws {
+        let systemCommand = CommandWrapper.IDC_CONTENT_CONTEXT_COPY
+        let unknownID = 123456
+        let bindings = [
+            ShortcutBinding(commandID: systemCommand.rawValue, key: customKey,
+                            scope: .browser, source: .menu, title: "System menu title"),
+            ShortcutBinding(commandID: unknownID, key: customKey,
+                            scope: .browser, source: .menu, title: "External menu title"),
+            ShortcutBinding(commandID: CommandWrapper.IDC_DUPLICATE_TAB.rawValue, key: customKey,
+                            scope: .browser, source: .hidden)
+        ]
+        let model = ShortcutsViewModel(additionalBindings: { bindings }, availableCommands: { [] })
+        let conflicts = model.conflicts(for: .IDC_DUPLICATE_TAB)
+        XCTAssertEqual(conflicts.first { $0.id == .command(systemCommand.rawValue) }?.name, "System menu title")
+        XCTAssertEqual(conflicts.first { $0.id == .command(unknownID) }?.name, "External menu title")
+        XCTAssertEqual(writeCount, 0)
+    }
+
     func testConflictNavigationClearsAllFiltersWithoutRecording() throws {
         let model = ShortcutsViewModel(additionalBindings: { [] })
         model.filter = .customized

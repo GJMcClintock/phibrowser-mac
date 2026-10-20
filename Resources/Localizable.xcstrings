@@ -84683,6 +84683,102 @@
         }
       }
     },
+    "settings.shortcuts.command.basicPrint" : {
+      "comment" : "Shortcuts settings - Command title for printing with the system dialog",
+      "extractionState" : "extracted_with_value",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Basic Print"
+          }
+        }
+      }
+    },
+    "settings.shortcuts.command.bookmarkAllTabs" : {
+      "comment" : "Shortcuts settings - Command title for bookmarking all open tabs",
+      "extractionState" : "extracted_with_value",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bookmark All Tabs"
+          }
+        }
+      }
+    },
+    "settings.shortcuts.command.bookmarkManager" : {
+      "comment" : "Shortcuts settings - Command title for opening the bookmark manager",
+      "extractionState" : "extracted_with_value",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bookmark Manager"
+          }
+        }
+      }
+    },
+    "settings.shortcuts.command.bookmarkTab" : {
+      "comment" : "Shortcuts settings - Command title for bookmarking the current page",
+      "extractionState" : "extracted_with_value",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bookmark Tab"
+          }
+        }
+      }
+    },
+    "settings.shortcuts.command.checkDocument" : {
+      "comment" : "Shortcuts settings - Command title for checking spelling in the current document",
+      "extractionState" : "extracted_with_value",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Check Document Now"
+          }
+        }
+      }
+    },
+    "settings.shortcuts.command.clearBrowsingData" : {
+      "comment" : "Shortcuts settings - Command title for choosing browsing data to clear",
+      "extractionState" : "extracted_with_value",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Clear Browsing Data"
+          }
+        }
+      }
+    },
+    "settings.shortcuts.command.closeAllWindows" : {
+      "comment" : "Shortcuts settings - Command title for closing all browser windows",
+      "extractionState" : "extracted_with_value",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Close All"
+          }
+        }
+      }
+    },
+    "settings.shortcuts.command.closeOtherTabs" : {
+      "comment" : "Shortcuts settings - Command title for closing other tabs in the current window",
+      "extractionState" : "extracted_with_value",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Close Other Tabs"
+          }
+        }
+      }
+    },
     "settings.shortcuts.command.closeTab" : {
       "comment" : "Shortcuts settings - Command title for closing the current tab",
       "extractionState" : "extracted_with_value",
@@ -84803,6 +84899,18 @@
         }
       }
     },
+    "settings.shortcuts.command.closeTabsToRight" : {
+      "comment" : "Shortcuts settings - Command title for closing tabs to the right of the current tab",
+      "extractionState" : "extracted_with_value",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Close Tabs to the Right"
+          }
+        }
+      }
+    },
     "settings.shortcuts.command.closeWindow" : {
       "comment" : "Shortcuts settings - Command title for closing the current window",
       "extractionState" : "extracted_with_value",
@@ -84859,6 +84967,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "關閉視窗"
+          }
+        }
+      }
+    },
+    "settings.shortcuts.command.copy" : {
+      "comment" : "Shortcuts settings - Command title for copying the selection to the clipboard",
+      "extractionState" : "extracted_with_value",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Copy"
           }
         }
       }
@@ -84979,6 +85099,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Crear nuevo grupo de pestañas"
+          }
+        }
+      }
+    },
+    "settings.shortcuts.command.cut" : {
+      "comment" : "Shortcuts settings - Command title for cutting the selection to the clipboard",
+      "extractionState" : "extracted_with_value",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cut"
           }
         }
       }
@@ -85643,6 +85775,18 @@
         }
       }
     },
+    "settings.shortcuts.command.fullscreen" : {
+      "comment" : "Shortcuts settings - Command title for entering or leaving full screen",
+      "extractionState" : "extracted_with_value",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Full Screen"
+          }
+        }
+      }
+    },
     "settings.shortcuts.command.goBack" : {
       "comment" : "Shortcuts settings - Command title for navigating back",
       "extractionState" : "extracted_with_value",
@@ -85819,6 +85963,54 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "首頁"
+          }
+        }
+      }
+    },
+    "settings.shortcuts.command.groupTab" : {
+      "comment" : "Shortcuts settings - Command title for changing the current tab's group",
+      "extractionState" : "extracted_with_value",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Group Tab"
+          }
+        }
+      }
+    },
+    "settings.shortcuts.command.hideApp" : {
+      "comment" : "Shortcuts settings - Command title for hiding Phi and its windows",
+      "extractionState" : "extracted_with_value",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hide Phi"
+          }
+        }
+      }
+    },
+    "settings.shortcuts.command.hideOthers" : {
+      "comment" : "Shortcuts settings - Command title for hiding other applications",
+      "extractionState" : "extracted_with_value",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hide Others"
+          }
+        }
+      }
+    },
+    "settings.shortcuts.command.importSettings" : {
+      "comment" : "Shortcuts settings - Command title for importing bookmarks and settings from another browser",
+      "extractionState" : "extracted_with_value",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Import Settings"
           }
         }
       }
@@ -86122,6 +86314,18 @@
         }
       }
     },
+    "settings.shortcuts.command.minimizeWindow" : {
+      "comment" : "Shortcuts settings - Command title for minimizing the current window",
+      "extractionState" : "extracted_with_value",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Minimize Window"
+          }
+        }
+      }
+    },
     "settings.shortcuts.command.moveTabLeft" : {
       "comment" : "Shortcuts settings - Title of a browser shortcut",
       "extractionState" : "manual",
@@ -86238,6 +86442,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Mover pestaña a la derecha"
+          }
+        }
+      }
+    },
+    "settings.shortcuts.command.moveTabToNewWindow" : {
+      "comment" : "Shortcuts settings - Command title for moving the current tab to a new window",
+      "extractionState" : "extracted_with_value",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Move Tab to New Window"
           }
         }
       }
@@ -86478,6 +86694,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "新增 Kiosk 視窗"
+          }
+        }
+      }
+    },
+    "settings.shortcuts.command.newSplitTab" : {
+      "comment" : "Shortcuts settings - Command title for opening a tab in Split View",
+      "extractionState" : "extracted_with_value",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "New Split Tab"
           }
         }
       }
@@ -86841,6 +87069,18 @@
         }
       }
     },
+    "settings.shortcuts.command.openHelp" : {
+      "comment" : "Shortcuts settings - Command title for opening browser help",
+      "extractionState" : "extracted_with_value",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Phi Help"
+          }
+        }
+      }
+    },
     "settings.shortcuts.command.openSettings" : {
       "comment" : "Shortcuts settings - Command title for opening Phi settings",
       "extractionState" : "extracted_with_value",
@@ -86957,6 +87197,42 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "使用 AI 整理分頁"
+          }
+        }
+      }
+    },
+    "settings.shortcuts.command.paste" : {
+      "comment" : "Shortcuts settings - Command title for pasting the clipboard contents",
+      "extractionState" : "extracted_with_value",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Paste"
+          }
+        }
+      }
+    },
+    "settings.shortcuts.command.pasteMatchStyle" : {
+      "comment" : "Shortcuts settings - Command title for pasting text with the surrounding formatting",
+      "extractionState" : "extracted_with_value",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Paste and Match Style"
+          }
+        }
+      }
+    },
+    "settings.shortcuts.command.pinTab" : {
+      "comment" : "Shortcuts settings - Command title for pinning or unpinning the current tab",
+      "extractionState" : "extracted_with_value",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pin Tab"
           }
         }
       }
@@ -87200,6 +87476,18 @@
         }
       }
     },
+    "settings.shortcuts.command.redo" : {
+      "comment" : "Shortcuts settings - Command title for redoing the last undone edit",
+      "extractionState" : "extracted_with_value",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Redo"
+          }
+        }
+      }
+    },
     "settings.shortcuts.command.reloadPage" : {
       "comment" : "Shortcuts settings - Command title for reloading the current page",
       "extractionState" : "extracted_with_value",
@@ -87376,6 +87664,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "實際大小"
+          }
+        }
+      }
+    },
+    "settings.shortcuts.command.savePage" : {
+      "comment" : "Shortcuts settings - Command title for saving the current page to a file",
+      "extractionState" : "extracted_with_value",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Save Page"
           }
         }
       }
@@ -87560,6 +87860,18 @@
         }
       }
     },
+    "settings.shortcuts.command.selectAll" : {
+      "comment" : "Shortcuts settings - Command title for selecting all content in the focused area",
+      "extractionState" : "extracted_with_value",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Select All"
+          }
+        }
+      }
+    },
     "settings.shortcuts.command.selectLastTab" : {
       "comment" : "Shortcuts settings - Command title for selecting the last tab",
       "extractionState" : "extracted_with_value",
@@ -87740,6 +88052,18 @@
         }
       }
     },
+    "settings.shortcuts.command.selectNumberedSpace" : {
+      "comment" : "Shortcuts settings - Command title when a Space name is unavailable; %d is the one-based Space position",
+      "extractionState" : "extracted_with_value",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Go to Space %d"
+          }
+        }
+      }
+    },
     "settings.shortcuts.command.selectNumberedTab" : {
       "comment" : "Shortcuts settings - Command title for selecting a numbered tab; %d is the tab position",
       "extractionState" : "extracted_with_value",
@@ -87916,6 +88240,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "選取上一個分頁"
+          }
+        }
+      }
+    },
+    "settings.shortcuts.command.sendFeedback" : {
+      "comment" : "Shortcuts settings - Command title for opening the feedback page",
+      "extractionState" : "extracted_with_value",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Send Feedback"
           }
         }
       }
@@ -88220,6 +88556,18 @@
         }
       }
     },
+    "settings.shortcuts.command.showSpellingAndGrammar" : {
+      "comment" : "Shortcuts settings - Command title for opening spelling and grammar tools",
+      "extractionState" : "extracted_with_value",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show Spelling and Grammar"
+          }
+        }
+      }
+    },
     "settings.shortcuts.command.showTabSwitcher" : {
       "comment" : "Shortcuts settings - Command title for showing the tab switcher in forward order",
       "extractionState" : "extracted_with_value",
@@ -88400,6 +88748,30 @@
         }
       }
     },
+    "settings.shortcuts.command.taskManager" : {
+      "comment" : "Shortcuts settings - Command title for viewing browser tasks and their resource usage",
+      "extractionState" : "extracted_with_value",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Task Manager"
+          }
+        }
+      }
+    },
+    "settings.shortcuts.command.toggleBookmarkBar" : {
+      "comment" : "Shortcuts settings - Command title for showing or hiding the bookmarks bar",
+      "extractionState" : "extracted_with_value",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Toggle Bookmark Bar"
+          }
+        }
+      }
+    },
     "settings.shortcuts.command.toggleChatbar" : {
       "comment" : "Shortcuts settings - Command title for showing or hiding the Chatbar",
       "extractionState" : "extracted_with_value",
@@ -88456,6 +88828,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "顯示或隱藏 Chatbar"
+          }
+        }
+      }
+    },
+    "settings.shortcuts.command.toggleFullscreenToolbar" : {
+      "comment" : "Shortcuts settings - Command title for showing or hiding the toolbar in full screen",
+      "extractionState" : "extracted_with_value",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Toggle Fullscreen Toolbar"
           }
         }
       }
@@ -88636,6 +89020,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Activar o desactivar modo tableta"
+          }
+        }
+      }
+    },
+    "settings.shortcuts.command.undo" : {
+      "comment" : "Shortcuts settings - Command title for undoing the last edit",
+      "extractionState" : "extracted_with_value",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Undo"
           }
         }
       }
