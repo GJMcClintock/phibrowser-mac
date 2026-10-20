@@ -380,7 +380,8 @@ extension AppController {
         // AppKit dispatches Services through this selector, including items in
         // replacement menus that no longer equal NSApp.servicesMenu.
         guard item.action == NSSelectorFromString("_processRequest:") else { return }
-        let declared = item.keyEquivalent.isEmpty ? (item.copy() as? NSMenuItem ?? item) : item
+        let declared = item.keyEquivalent.isEmpty && item.view == nil
+            ? (item.copy() as? NSMenuItem ?? item) : item
         let key = ShortcutsKey(characters: declared.keyEquivalent,
                                modifiers: declared.keyEquivalentModifierMask)
         let reserved = ShortcutsKey(characters: "a", modifiers: [.command, .shift])

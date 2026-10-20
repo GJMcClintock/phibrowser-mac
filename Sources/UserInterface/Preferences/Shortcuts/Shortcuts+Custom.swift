@@ -25,7 +25,10 @@ final class ShortcutMenuPresentation {
     }
 
     private static func declaredKey(_ item: NSMenuItem) -> ShortcutsKey.MenuKeyEquivalent {
-        let declared = item.keyEquivalent.isEmpty ? (item.copy() as? NSMenuItem ?? item) : item
+        // AppKit copies custom views through NSCoding; programmatic hosting
+        // views cannot be decoded. Only detach ordinary items to recover keys.
+        let declared = item.keyEquivalent.isEmpty && item.view == nil
+            ? (item.copy() as? NSMenuItem ?? item) : item
         return .init(characters: declared.keyEquivalent, modifiers: declared.keyEquivalentModifierMask)
     }
 
@@ -86,7 +89,7 @@ final class ShortcutMenuPresentation {
             }
             if projection.alias.menu === menu { menu.removeItem(projection.alias) }
         }
-        for item in menu.items where item.submenu == nil && !isMatchingAlias(item) {
+        for item in menu.items where item.submenu == nil && item.view == nil && !isMatchingAlias(item) {
             let declared = declaredKey(item)
             let previous = state.projections[item]
             let original = previous.flatMap {
@@ -495,7 +498,7 @@ extension Shortcuts {
                 // after assigning Cmd-Z to Settings). A detached copy retains
                 // the declared binding, including explicit empty overrides.
                 // Keep it in the inventory so suppression cannot hide conflicts.
-                let keyItem = item.keyEquivalent.isEmpty
+                let keyItem = item.keyEquivalent.isEmpty && item.view == nil
                     ? (item.copy() as? NSMenuItem ?? item) : item
                 guard !keyItem.keyEquivalent.isEmpty,
                       let action = item.action else { return [] }

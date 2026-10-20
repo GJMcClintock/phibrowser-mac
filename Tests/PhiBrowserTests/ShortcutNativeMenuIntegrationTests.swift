@@ -5,6 +5,7 @@
 
 import AppKit
 import ObjectiveC
+import SwiftUI
 import XCTest
 @testable import Phi
 
@@ -16,6 +17,61 @@ private final class ShortcutMenuActionTarget: NSObject {
 
 @MainActor
 final class ShortcutNativeMenuIntegrationTests: XCTestCase {
+    func testMenuTrackingPreservesCustomHostingViewsWithoutCopyingThem() throws {
+        try XCTUnwrap(AppController.shared).startObservingServiceShortcuts()
+        let previousConfiguration = Shortcuts.configuration
+        defer { Shortcuts.configuration = previousConfiguration }
+        Shortcuts.configuration = ShortcutConfiguration()
+        let menu = NSMenu()
+        let submenu = NSMenu()
+        let parent = NSMenuItem()
+        parent.submenu = submenu
+        menu.addItem(parent)
+
+        let editor = NSMenuItem()
+        let hostingView = ThemedHostingView(rootView: Text("Theme editor"), themeSource: ThemeManager.shared)
+        editor.view = hostingView
+        submenu.addItem(editor)
+        NotificationCenter.default.post(name: NSMenu.didBeginTrackingNotification, object: menu)
+
+        // Items inserted during tracking must also avoid copying a hosting
+        // view, even when a known shortcut would otherwise create an alias.
+        let added = NSMenuItem(title: "Custom action",
+                              action: #selector(ShortcutMenuActionTarget.invokeShortcut(_:)), keyEquivalent: "!")
+        added.tag = CommandWrapper.PHI_CAPTURE_FULL_PAGE.rawValue
+        let addedView = ThemedHostingView(rootView: Text("Custom action"), themeSource: ThemeManager.shared)
+        added.view = addedView
+        submenu.addItem(added)
+        XCTAssertEqual(added.keyEquivalent, "!")
+        XCTAssertEqual(submenu.items.count, 2)
+        XCTAssertTrue(editor.view === hostingView)
+        XCTAssertTrue(added.view === addedView)
+        XCTAssertEqual(Shortcuts.menuBindings(in: menu).map(\.commandID), [added.tag])
+
+        NotificationCenter.default.post(name: NSMenu.didEndTrackingNotification, object: menu)
+        XCTAssertEqual(submenu.items.count, 2)
+        XCTAssertTrue(editor.view === hostingView)
+        XCTAssertTrue(added.view === addedView)
+        XCTAssertEqual(added.keyEquivalent, "!")
+    }
+
+    func testCustomViewWithoutShortcutIsSafeForInventoryAndServiceNotifications() throws {
+        try XCTUnwrap(AppController.shared).startObservingServiceShortcuts()
+        let menu = NSMenu()
+        let item = NSMenuItem(title: "Custom service",
+                              action: NSSelectorFromString("_processRequest:"), keyEquivalent: "")
+        let hostingView = ThemedHostingView(rootView: Text("Custom service"), themeSource: ThemeManager.shared)
+        item.view = hostingView
+        menu.addItem(item)
+        XCTAssertTrue(Shortcuts.menuBindings(in: menu).isEmpty)
+        NotificationCenter.default.post(name: NSMenu.didBeginTrackingNotification, object: menu)
+        XCTAssertTrue(Shortcuts.menuBindings(in: menu).isEmpty)
+        NotificationCenter.default.post(name: NSMenu.didEndTrackingNotification, object: menu)
+        XCTAssertTrue(item.view === hostingView)
+        XCTAssertTrue(item.keyEquivalent.isEmpty)
+        XCTAssertEqual(menu.items.count, 1)
+    }
+
     func testAllShiftedDigitsUseSharedMenuPresentationAndRestoreMatchingKeys() throws {
         let previousConfiguration = Shortcuts.configuration
         defer { Shortcuts.configuration = previousConfiguration }
