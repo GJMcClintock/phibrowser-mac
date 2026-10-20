@@ -1969,6 +1969,7 @@ class AuthManager {
             self.clearLocalAccountData()
             LoginController.shared.phase = .login
             ApplicationState.shared.requireLogin()
+            SpaceSessionControllersManager.shared.closeNonBrowserWindows()
             SpaceSessionControllersManager.shared.closeAllWindows()
             LoginController.shared.showLoginWindow()
         }

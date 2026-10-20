@@ -612,14 +612,9 @@ class AccountViewModel: ObservableObject {
         AppLogDebug("🚪 [Logout] Step 4: Local session invalidated")
         ApplicationState.shared.requireLogin()
         
-        // Step 5: close the settings window.
-        AppLogDebug("🚪 [Logout] Step 5: Closing settings window")
-        if let settingsWindow = AppController.shared?.settingsWindowController?.window {
-            settingsWindow.close()
-            AppLogDebug("🚪 [Logout] Settings window closed")
-        } else {
-            AppLogDebug("🚪 [Logout] Settings window not found or already closed")
-        }
+        // Step 5: close all auxiliary windows, including settings and account web pages.
+        AppLogDebug("🚪 [Logout] Step 5: Closing non-browser windows")
+        SpaceSessionControllersManager.shared.closeNonBrowserWindows()
         
         // Step 6: close every browser window.
         AppLogDebug("🚪 [Logout] Step 6: Closing all browser windows")

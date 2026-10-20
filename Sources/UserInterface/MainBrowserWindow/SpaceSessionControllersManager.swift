@@ -1172,6 +1172,33 @@ class SpaceSessionControllersManager: MainBrowserWindowLookup {
         return danglingWindows.first?.windowId
     }
     
+    /// Closes auxiliary UI before logout presents the login window.
+    @MainActor
+    func closeNonBrowserWindows() {
+        let browserWindows = windowControllers.compactMap(\.window)
+            + windowControllers.compactMap(\.lifecycleWindow)
+            + danglingWindows.map(\.window)
+        Self.closeNonBrowserWindows(in: NSApp.windows, excluding: browserWindows)
+    }
+
+    @MainActor
+    static func closeNonBrowserWindows(in windows: [NSWindow], excluding browserWindows: [NSWindow]) {
+        let browserWindowIDs = Set(browserWindows.map(ObjectIdentifier.init))
+        // Snapshot before closing: delegates can release controllers and mutate NSApp.windows.
+        let auxiliaryWindows = windows.filter {
+            !browserWindowIDs.contains(ObjectIdentifier($0))
+                && !($0 is ShellWindow)
+                && !($0.windowController is SpaceSessionController)
+        }
+        for window in auxiliaryWindows {
+            if let parent = window.sheetParent {
+                parent.endSheet(window, returnCode: .cancel)
+            }
+            // Logout has already been confirmed; non-closable panels must also disappear.
+            window.close()
+        }
+    }
+
     /// Closes every browser window, for example during logout flows.
     @MainActor
     func closeAllWindows() {
