@@ -71,6 +71,82 @@ class WebContentContainerViewController: NSViewController {
     /// excludes. See `WebContentViewController.pageCardView`.
     var currentPageCardView: NSView? { currentWebContentController?.pageCardView }
 
+    private var pendingPageMount: (tabId: Int, completion: (NSView) -> Void)?
+
+    /// Page overlays hand off a live WebContents only after its destination
+    /// host is mounted and laid out in the same window.
+    func whenPageIsMounted(tabId: Int, perform completion: @escaping (NSView) -> Void) {
+        if let controller = currentWebContentController,
+           controller.associatedTab?.guid == tabId, controller.webPanelView.window != nil {
+            completion(controller.webPanelView)
+        } else {
+            pendingPageMount = (tabId, completion)
+        }
+    }
+
+    func cancelPageMountWait(tabId: Int) {
+        if pendingPageMount?.tabId == tabId { pendingPageMount = nil }
+    }
+
+    private var isPeekBackgroundDeemphasized = false
+
+    /// Animate the common ancestor of the page chrome and Chromium content
+    /// surface. Transforming only the page card would leave surface-backed
+    /// web content at full size. Page overlays are siblings of this container.
+    func setPeekBackgroundDeemphasized(_ deemphasized: Bool, animated: Bool) {
+        guard isPeekBackgroundDeemphasized != deemphasized else { return }
+        isPeekBackgroundDeemphasized = deemphasized
+        updatePeekBackgroundPresentation(animated: animated)
+    }
+
+    private func updatePeekBackgroundPresentation(animated: Bool) {
+        guard let layer = contentContainer.layer else { return }
+        let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        let scale: CGFloat = isPeekBackgroundDeemphasized && !reduceMotion ? 0.99 : 1
+        let opacity: CGFloat = isPeekBackgroundDeemphasized ? 0.5 : 1
+        let cardRect = currentPageCardView.map { $0.convert($0.bounds, to: contentContainer) }
+            ?? contentContainer.bounds
+        // AppKit backing layers need not anchor at (0.5, 0.5). Compensate
+        // without changing their anchor or Auto Layout's page geometry.
+        let center = CGPoint(x: cardRect.midX, y: cardRect.midY)
+        let anchor = CGPoint(x: layer.bounds.minX + layer.bounds.width * layer.anchorPoint.x,
+                             y: layer.bounds.minY + layer.bounds.height * layer.anchorPoint.y)
+        let transform = CATransform3DScale(
+            CATransform3DMakeTranslation((center.x - anchor.x) * (1 - scale),
+                                        (center.y - anchor.y) * (1 - scale), 0),
+            scale, scale, 1)
+        guard !CATransform3DEqualToTransform(layer.transform, transform)
+                || contentContainer.alphaValue != opacity else { return }
+
+        let fromTransform = layer.presentation()?.transform ?? layer.transform
+        let fromOpacity = layer.presentation()?.opacity ?? Float(contentContainer.alphaValue)
+        layer.removeAnimation(forKey: "phiPeekBackgroundScale")
+        layer.removeAnimation(forKey: "phiPeekBackgroundFade")
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        layer.transform = transform
+        contentContainer.alphaValue = opacity
+        if animated {
+            let timing = CAMediaTimingFunction(name: .easeOut)
+            let shrink = CABasicAnimation(keyPath: "transform")
+            shrink.fromValue = NSValue(caTransform3D: fromTransform)
+            shrink.toValue = NSValue(caTransform3D: transform)
+            shrink.duration = 0.2
+            shrink.timingFunction = timing
+            if !reduceMotion {
+                layer.add(shrink, forKey: "phiPeekBackgroundScale")
+            }
+
+            let fade = CABasicAnimation(keyPath: "opacity")
+            fade.fromValue = fromOpacity
+            fade.toValue = Float(opacity)
+            fade.duration = 0.2
+            fade.timingFunction = timing
+            layer.add(fade, forKey: "phiPeekBackgroundFade")
+        }
+        CATransaction.commit()
+    }
+
     /// `tabId`'s pane card when it is in the mounted split; nil otherwise.
     func currentSplitPaneCardView(forTabId tabId: Int) -> NSView? {
         currentWebContentController?.splitPaneCardView(forTabId: tabId)
@@ -870,6 +946,9 @@ class WebContentContainerViewController: NSViewController {
 
     override func viewDidLayout() {
         super.viewDidLayout()
+        if isPeekBackgroundDeemphasized {
+            updatePeekBackgroundPresentation(animated: false)
+        }
         updateContentOuterBorder()
         updateStatusURLPosition()
     }
@@ -1989,6 +2068,10 @@ class WebContentContainerViewController: NSViewController {
         // previous size until the next viewDidLayout corrects it.
         view.layoutSubtreeIfNeeded()
         updateContentOuterBorder()
+        if let pending = pendingPageMount, pending.tabId == controller.associatedTab?.guid {
+            pendingPageMount = nil
+            pending.completion(controller.webPanelView)
+        }
     }
 
     /// Removes every tab view except `controller`'s from `contentContainer`.

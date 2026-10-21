@@ -3863,6 +3863,7 @@ class BrowserState {
         // paired one-shot marker of its own, reused across peek
         // replacements.
         if let opener = tabs.first(where: { $0.guid == openerTabId }) {
+            opener.pauseVideosForPeek()
             var openerKey: String?
             if let localGuid = opener.guidInLocalDB, !localGuid.isEmpty {
                 if !Self.isAIChatId(localGuid) {
@@ -4020,6 +4021,7 @@ class BrowserState {
     func closePeek(forOpener openerTabId: Int,
                    reason: PeekViewAnalytics.EndReason = .closed) {
         guard let tab = peekState.peek(forOpener: openerTabId) else { return }
+        windowController?.peekPanelControllerIfLoaded?.prepareToClose(tabId: tab.guid)
         MainActor.assumeIsolated {
             PeekViewAnalytics.ended(peekTabId: tab.guid, reason: reason)
         }
@@ -4070,6 +4072,7 @@ class BrowserState {
     func expandPeekIntoTab(peekTabId: Int) {
         guard let openerTabId = peekState.openerTabId(forPeekTabId: peekTabId),
               let tab = peekState.peek(forOpener: openerTabId) else { return }
+        windowController?.peekPanelControllerIfLoaded?.prepareToExpand(tabId: tab.guid)
         MainActor.assumeIsolated {
             PeekViewAnalytics.ended(peekTabId: tab.guid, reason: .openedAsTab)
         }

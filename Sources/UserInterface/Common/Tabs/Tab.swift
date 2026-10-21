@@ -198,6 +198,7 @@ class Tab: WebContentRepresentable {
     var onFocusGained: (() -> Void)?
     
     @Published private(set) var webContentWrapper: (WebContentWrapper & NSObject)?
+    private var peekLinkActivationGuard: PeekLinkActivationGuard?
     let parent: Tab? = nil
     let subTabs: [Tab] = []
     var guid: Int
@@ -326,6 +327,9 @@ class Tab: WebContentRepresentable {
     }
     
     private func setupObservers<Wrapper: WebContentWrapper & NSObject>(for wrapper: Wrapper?) {
+        MainActor.assumeIsolated {
+            peekLinkActivationGuard = wrapper.flatMap { PeekLinkActivationGuard(wrapper: $0) }
+        }
         cancellables.forEach { $0.cancel() }
         cancellables.removeAll()
         liveFaviconData = nil
@@ -387,7 +391,17 @@ class Tab: WebContentRepresentable {
             .store(in: &cancellables)
         
         wrapper.publisher(for: \.isLoading)
-            .assign(to: \.isLoading, on: self)
+            .sink { [weak self, weak wrapper] loading in
+                guard let self else { return }
+                self.isLoading = loading
+                // A newly created wrapper may not have a page target until
+                // its first navigation. Retry after that document loads.
+                if !loading, self.peekLinkActivationGuard == nil, let wrapper {
+                    MainActor.assumeIsolated {
+                        self.peekLinkActivationGuard = PeekLinkActivationGuard(wrapper: wrapper)
+                    }
+                }
+            }
             .store(in: &cancellables)
 
         wrapper.publisher(for: \.isDiscarded)
@@ -540,6 +554,15 @@ class Tab: WebContentRepresentable {
 
         self.webContentWrapper = wrapper
         setupObservers(for: wrapper)
+    }
+
+    func pauseVideosForPeek() {
+        MainActor.assumeIsolated {
+            if peekLinkActivationGuard == nil, let wrapper = webContentWrapper {
+                peekLinkActivationGuard = PeekLinkActivationGuard(wrapper: wrapper)
+            }
+            peekLinkActivationGuard?.pauseVideos()
+        }
     }
     
     func setFaviconSnapshotUpdater(_ updater: @escaping (Data, String) -> Void) {
