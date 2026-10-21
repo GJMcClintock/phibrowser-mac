@@ -21,9 +21,9 @@ final class ScreenshotEditorInteractionTests: XCTestCase {
         draw(m, .rectangle, CGPoint(x: 220, y: 40), CGPoint(x: 280, y: 100))
         return m.annotations.map(\.id)
     }
-    func testNewDocumentIsOrdinaryAndEveryCompletedCreationReturnsToIt() {
+    func testNewDocumentAndNonFreehandCreationUseSelectionTool() {
         let m = model(); XCTAssertEqual(m.tool, .select)
-        for tool in [ScreenshotTool.arrow, .freehand, .rectangle, .ellipse, .mosaic] {
+        for tool in [ScreenshotTool.arrow, .rectangle, .ellipse, .mosaic] {
             draw(m, tool, CGPoint(x: 100, y: 200), CGPoint(x: 400, y: 300))
             XCTAssertEqual(m.tool, .select); XCTAssertFalse(m.isInteracting)
             XCTAssertEqual(m.selected?.kind.rawValue, tool.rawValue)
@@ -31,6 +31,50 @@ final class ScreenshotEditorInteractionTests: XCTestCase {
         m.selectTool(.text); m.commitText("Hello", frame: CGRect(x: 100, y: 100, width: 280, height: 40))
         XCTAssertEqual(m.tool, .select)
         m.undo(); m.redo(); XCTAssertEqual(m.tool, .select)
+    }
+    func testFreehandRemainsActiveForConsecutiveStrokes() {
+        let m = model(); m.selectTool(.freehand)
+        for offset in [CGFloat(0), CGFloat(20)] {
+            m.beginInteraction(at: CGPoint(x: 100, y: 200 + offset), tolerance: 6)
+            m.continueInteraction(at: CGPoint(x: 400, y: 300 + offset)); m.endInteraction()
+            XCTAssertEqual(m.tool, .freehand); XCTAssertFalse(m.isInteracting)
+        }
+        XCTAssertEqual(m.annotations.count, 2)
+        XCTAssertTrue(m.annotations.allSatisfy { $0.kind == .freehand })
+        m.selectTool(.select)
+        XCTAssertEqual(m.tool, .select)
+    }
+    func testUndoRedoPreservesCurrentFreehandToolAcrossMixedHistory() {
+        let m = model()
+        draw(m, .freehand, CGPoint(x: 100, y: 100), CGPoint(x: 200, y: 200))
+        draw(m, .rectangle, CGPoint(x: 300, y: 300), CGPoint(x: 400, y: 400))
+        m.selectTool(.freehand)
+        m.undo()
+        XCTAssertEqual(m.annotations.count, 1); XCTAssertEqual(m.tool, .freehand)
+        m.undo()
+        XCTAssertTrue(m.annotations.isEmpty); XCTAssertEqual(m.tool, .freehand)
+        m.redo()
+        XCTAssertEqual(m.annotations.count, 1); XCTAssertEqual(m.tool, .freehand)
+        m.redo()
+        XCTAssertEqual(m.annotations.count, 2); XCTAssertEqual(m.tool, .freehand)
+    }
+    func testUndoRedoDoesNotRestoreFreehandWhenAnotherToolIsActive() {
+        let m = model()
+        draw(m, .freehand, CGPoint(x: 100, y: 100), CGPoint(x: 200, y: 200))
+        m.selectTool(.arrow); m.undo()
+        XCTAssertTrue(m.annotations.isEmpty); XCTAssertEqual(m.tool, .select)
+        m.selectTool(.rectangle); m.redo()
+        XCTAssertEqual(m.annotations.count, 1); XCTAssertEqual(m.tool, .select)
+    }
+    func testUndoRedoFreehandAllowsAnotherStroke() {
+        let m = model()
+        draw(m, .freehand, CGPoint(x: 100, y: 100), CGPoint(x: 200, y: 200))
+        m.undo(); m.redo()
+        m.beginInteraction(at: CGPoint(x: 200, y: 200), tolerance: 6)
+        m.continueInteraction(at: CGPoint(x: 300, y: 300)); m.endInteraction()
+        XCTAssertEqual(m.annotations.count, 2)
+        XCTAssertTrue(m.annotations.allSatisfy { $0.kind == .freehand })
+        XCTAssertEqual(m.tool, .freehand)
     }
     func testShiftExplicitlyRepeatsToolAndReleaseReturnsToOrdinary() {
         let m = model(); m.selectTool(.arrow)
@@ -53,7 +97,7 @@ final class ScreenshotEditorInteractionTests: XCTestCase {
         let m = model()
         for tool in [ScreenshotTool.arrow, .freehand] {
             m.selectTool(tool); m.beginInteraction(at: CGPoint(x: 100, y: 100), tolerance: 6); m.endInteraction()
-            XCTAssertTrue(m.annotations.isEmpty); XCTAssertFalse(m.canUndo); XCTAssertEqual(m.tool, .select)
+            XCTAssertTrue(m.annotations.isEmpty); XCTAssertFalse(m.canUndo); XCTAssertEqual(m.tool, tool == .freehand ? .freehand : .select)
         }
     }
     func testMarqueePreviewPreservesHistoryAndShiftAddsWhileCommandSubtracts() {

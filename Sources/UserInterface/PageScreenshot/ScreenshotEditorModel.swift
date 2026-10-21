@@ -103,7 +103,8 @@ final class ScreenshotEditorModel {
         cropRect = nil
         undoManager.registerUndo(withTarget: self) { target in target.restore(inverse, action: action) }
         undoManager.setActionName(action)
-        tool = .select; syncStyle(); changed(committed: true)
+        if tool != .freehand { tool = .select }
+        syncStyle(); changed(committed: true)
     }
     private func command(_ action: String, mutate: () -> Void) {
         prepareForCommand?(); cancelInteraction()
@@ -290,7 +291,7 @@ final class ScreenshotEditorModel {
             else { selectedIDs = [id] }
             return
         case .draw(let tool, let id):
-            self.tool = active.flags.contains(.shift) ? tool : .select
+            self.tool = tool == .freehand || active.flags.contains(.shift) ? tool : .select
             guard let i = annotations.firstIndex(where: { $0.id == id }) else { return }
             let object = annotations[i]
             if tool == .arrow && hypot(object.bounds.width, object.bounds.height) * zoom < 3 ||
@@ -404,8 +405,8 @@ final class ScreenshotEditorModel {
             annotations += copies; selectedIDs = Set(copies.map(\.id)); tool = .select
         }
     }
-    func undo() { prepareForCommand?(); cancelInteraction(); cropRect = nil; tool = .select; undoManager.undo(); changed() }
-    func redo() { prepareForCommand?(); cancelInteraction(); cropRect = nil; tool = .select; undoManager.redo(); changed() }
+    func undo() { prepareForCommand?(); cancelInteraction(); cropRect = nil; if tool != .freehand { tool = .select }; undoManager.undo(); changed() }
+    func redo() { prepareForCommand?(); cancelInteraction(); cropRect = nil; if tool != .freehand { tool = .select }; undoManager.redo(); changed() }
     func setZoomExact(_ value: Double) { if value.isFinite { zoom = max(0.02, min(32, value)) } }
     func zoomBy(_ factor: Double) { prepareForCommand?(); cancelInteraction(); hasUserZoomed = true; setZoomExact(zoom * factor) }
     func fit() {
