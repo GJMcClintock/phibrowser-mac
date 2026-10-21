@@ -27,6 +27,14 @@ final class ScreenshotEditorViewport: NSView {
         addSubview(annotationPopover)
         addSubview(zoomControl)
         addSubview(toolbar)
+        // SwiftUI can update its intrinsic size after the canvas presentation pass.
+        // Keep the native hit-test bounds tied to that size instead of a stale fittingSize.
+        toolbar.translatesAutoresizingMaskIntoConstraints = false
+        toolbar.sizingOptions = [.intrinsicContentSize]
+        NSLayoutConstraint.activate([
+            toolbar.centerXAnchor.constraint(equalTo: centerXAnchor),
+            toolbar.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -24)
+        ])
         (scrollView.documentView as? ScreenshotCanvasView)?.onPresentationChange = { [weak self] in self?.updatePresentation() }
         boundsObserver = NotificationCenter.default.addObserver(forName: NSView.boundsDidChangeNotification, object: scrollView.contentView, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.updatePresentation() }
@@ -45,9 +53,6 @@ final class ScreenshotEditorViewport: NSView {
         guard !updating, bounds.width > 0, bounds.height > 0, let toolbar else { return }
         updating = true
         defer { updating = false }
-        let size = toolbar.fittingSize
-        let center = CGPoint(x: bounds.midX, y: bounds.maxY - 24 - size.height / 2)
-        toolbar.frame = ScreenshotPopoverPlacement.clamp(CGRect(x: center.x - size.width / 2, y: center.y - size.height / 2, width: size.width, height: size.height), to: bounds.insetBy(dx: 12, dy: 12))
         let zoomSize = zoomControl.fittingSize
         var zoomFrame = CGRect(x: 20, y: bounds.maxY - zoomSize.height - 24, width: zoomSize.width, height: zoomSize.height)
         if zoomFrame.intersects(toolbar.frame.insetBy(dx: -8, dy: -8)) { zoomFrame.origin.y = toolbar.frame.minY - zoomSize.height - 12 }

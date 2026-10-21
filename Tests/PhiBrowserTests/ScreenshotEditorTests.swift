@@ -2,6 +2,7 @@ import AppKit
 import CoreGraphics
 import ImageIO
 import UniformTypeIdentifiers
+import SwiftUI
 import XCTest
 @testable import Phi
 
@@ -287,6 +288,55 @@ final class ScreenshotEditorTests: XCTestCase {
         window.isReleasedWhenClosed = false
         window.makeKeyAndOrderFront(nil)
         return window
+    }
+
+    func testOverlayToolbarTracksCropContentSizeWithoutAnotherCanvasClick() async throws {
+        let parent = browserWindow()
+        let editor = ScreenshotEditorWindowController(canvas: image(width: 600, height: 400),
+                                                      fileName: "Fixture.png", parent: parent)
+        let window = try XCTUnwrap(editor.window)
+        defer { window.close(); parent.close() }
+        editor.showWindow(nil)
+        try await Task.sleep(for: .milliseconds(200))
+
+        func find<View: NSView>(_ type: View.Type, in root: NSView) -> View? {
+            if let view = root as? View { return view }
+            return root.subviews.lazy.compactMap { find(type, in: $0) }.first
+        }
+        let viewport = try XCTUnwrap(find(ScreenshotEditorViewport.self, in: try XCTUnwrap(window.contentView)))
+        let toolbar = try XCTUnwrap(find(NSHostingView<ScreenshotEditorToolbar>.self, in: viewport))
+        func assertToolbarLayout(file: StaticString = #filePath, line: UInt = #line) {
+            // Read the native frame before asking SwiftUI to measure its current content.
+            let frame = toolbar.frame
+            let size = toolbar.fittingSize
+            XCTAssertEqual(frame.width, size.width, accuracy: 1, file: file, line: line)
+            XCTAssertEqual(frame.height, size.height, accuracy: 1, file: file, line: line)
+            XCTAssertEqual(frame.midX, viewport.bounds.midX, accuracy: 1, file: file, line: line)
+            XCTAssertEqual(frame.maxY, viewport.bounds.maxY - 24, accuracy: 1, file: file, line: line)
+        }
+
+        // Exercise successive intrinsic-size changes without manually laying out the
+        // viewport or synchronizing the canvas, either of which can hide the regression.
+        for iteration in 0..<20 {
+            editor.model.selectTool(.crop)
+            try await Task.sleep(for: .milliseconds(100))
+            assertToolbarLayout()
+            editor.model.beginInteraction(at: CGPoint(x: 20, y: 20), tolerance: 2)
+            editor.model.continueInteraction(at: CGPoint(x: 480, y: 300))
+            editor.model.endInteraction()
+            try await Task.sleep(for: .milliseconds(100))
+            assertToolbarLayout()
+            if iteration.isMultiple(of: 2) { editor.model.cropToSelection() }
+            else { editor.model.selectTool(.select) }
+            try await Task.sleep(for: .milliseconds(100))
+            assertToolbarLayout()
+            let exportCenter = CGPoint(x: toolbar.frame.maxX - 26, y: toolbar.frame.midY)
+            let hit = viewport.hitTest(viewport.convert(exportCenter, to: viewport.superview))
+            XCTAssertTrue(hit === toolbar || hit?.isDescendant(of: toolbar) == true,
+                          "The visible export button must remain inside the native hit-test region")
+            if iteration.isMultiple(of: 2) { editor.model.undo() }
+            try await Task.sleep(for: .milliseconds(100))
+        }
     }
 
     func testOverlayFollowsBrowserContentAndRestoresFocusOnClose() throws {
