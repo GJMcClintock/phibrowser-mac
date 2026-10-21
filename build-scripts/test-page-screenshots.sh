@@ -19,7 +19,7 @@ for path in [build/'Sources', build/'Tests']:
 source=build/'Sources/Phi'; source.mkdir(parents=True)
 fixture=build/'Sources/ScreenshotFixture'; fixture.mkdir(parents=True)
 tests=build/'Tests/ScreenshotTests'; tests.mkdir(parents=True)
-for name in ['Sources/States/PageScreenshotService.swift','Sources/States/PageScreenshotGeometry.swift','Sources/UserInterface/WebContent/Header/PageScreenshotRegionSelector.swift','Tests/PageScreenshotHarness/Dependencies.swift']:
+for name in ['Sources/States/PageScreenshotService.swift','Sources/States/PageScreenshotGeometry.swift','Sources/UserInterface/WebContent/Header/PageScreenshotRegionSelector.swift','Sources/UserInterface/Preferences/Shortcuts/Shortcuts.swift','Tests/PageScreenshotHarness/Dependencies.swift']:
     shutil.copy(root/name, source/Path(name).name)
 for file in (root/'Sources/UserInterface/PageScreenshot').glob('*.swift'):
     shutil.copy(file,source/file.name)

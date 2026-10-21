@@ -453,8 +453,12 @@ final class ScreenshotEditorWindow: NSPanel {
                 return true
             }
         }
-        if flags == [.command] || flags == [.command, .shift], event.charactersIgnoringModifiers?.lowercased() == "z" {
-            replayUndo(redo: flags.contains(.shift))
+        // IMEs can retain local-script characters in charactersIgnoringModifiers.
+        // Use the shared layout-aware identity while preserving text undo ownership.
+        if let shortcut = ShortcutsKey.eventKeys(for: event)?.canonical,
+           shortcut.characters == "z",
+           shortcut.modifiers == [.command] || shortcut.modifiers == [.command, .shift] {
+            replayUndo(redo: shortcut.modifiers.contains(.shift))
             return true
         }
         if flags == [.command], event.charactersIgnoringModifiers?.lowercased() == "w" {

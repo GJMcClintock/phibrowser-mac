@@ -404,6 +404,68 @@ final class ScreenshotEditorInteractionTests: XCTestCase {
         m.isEditingText = false; m.select(nil); canvas.synchronize(); XCTAssertTrue(viewport.annotationPopover.isHidden)
     }
 
+    private func historyKey(in window: NSWindow, semantic: String, characters: String = "z",
+                            flags: NSEvent.ModifierFlags = .command, code: UInt16 = 6) throws -> NSEvent {
+        try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags, timestamp: 0,
+            windowNumber: window.windowNumber, context: nil, characters: characters,
+            charactersIgnoringModifiers: semantic, isARepeat: false, keyCode: code))
+    }
+
+    func testHistoryShortcutsUseASCIICommandEquivalentForNonLatinEvents() throws {
+        let editor = ScreenshotEditorWindowController(canvas: model().source, fileName: "Fixture.jpg")
+        let window = try XCTUnwrap(editor.window as? ScreenshotEditorWindow)
+        defer { window.close() }
+        let m = editor.model
+        draw(m, .rectangle, CGPoint(x: 100, y: 100), CGPoint(x: 300, y: 200))
+        let original = m.annotations
+        // Synthetic event pairs cover kana, Hangul, Cyrillic, and an empty IME semantic value.
+        for semantic in ["つ", "ㅋ", "я", "", "z"] {
+            XCTAssertTrue(window.performKeyEquivalent(with: try historyKey(in: window, semantic: semantic)))
+            XCTAssertTrue(m.annotations.isEmpty, semantic)
+            XCTAssertTrue(window.performKeyEquivalent(with: try historyKey(in: window, semantic: semantic,
+                characters: "Z", flags: [.command, .shift])))
+            XCTAssertEqual(m.annotations, original, semantic)
+        }
+        // A semantic Z on a different physical key must still work (for example, QWERTZ).
+        XCTAssertTrue(window.performKeyEquivalent(with: try historyKey(in: window, semantic: "z", code: 16)))
+        XCTAssertTrue(m.annotations.isEmpty)
+    }
+
+    func testNonLatinHistoryShortcutsKeepTextUndoSeparateFromAnnotations() throws {
+        let editor = ScreenshotEditorWindowController(canvas: model().source, fileName: "Fixture.jpg")
+        let window = try XCTUnwrap(editor.window as? ScreenshotEditorWindow)
+        let canvas = ScreenshotCanvasView()
+        canvas.model = editor.model; window.contentView = canvas
+        defer { window.close() }
+        draw(editor.model, .rectangle, CGPoint(x: 100, y: 100), CGPoint(x: 300, y: 200))
+        let original = editor.model.annotations
+        canvas.beginText(at: CGPoint(x: 400, y: 300))
+        let entry = try XCTUnwrap(canvas.textEntry)
+        entry.insertText("Text", replacementRange: NSRange(location: NSNotFound, length: 0))
+        XCTAssertTrue(window.performKeyEquivalent(with: try historyKey(in: window, semantic: "ㅋ")))
+        XCTAssertEqual(entry.string, "")
+        XCTAssertEqual(editor.model.annotations, original)
+        XCTAssertTrue(window.performKeyEquivalent(with: try historyKey(in: window, semantic: "ㅋ",
+            characters: "Z", flags: [.command, .shift])))
+        XCTAssertEqual(entry.string, "Text")
+        XCTAssertEqual(editor.model.annotations, original)
+        XCTAssertTrue(editor.model.isEditingText)
+    }
+
+    func testHistoryShortcutsDoNotTreatEveryPhysicalZAsUndoOrIgnoreExtraModifiers() throws {
+        let editor = ScreenshotEditorWindowController(canvas: model().source, fileName: "Fixture.jpg")
+        let window = try XCTUnwrap(editor.window as? ScreenshotEditorWindow)
+        defer { window.close() }
+        draw(editor.model, .rectangle, CGPoint(x: 100, y: 100), CGPoint(x: 300, y: 200))
+        let original = editor.model.annotations
+        _ = window.performKeyEquivalent(with: try historyKey(in: window, semantic: ";", characters: ";"))
+        XCTAssertEqual(editor.model.annotations, original)
+        for flags: NSEvent.ModifierFlags in [[], .shift, [.command, .option], [.command, .control], [.command, .function]] {
+            _ = window.performKeyEquivalent(with: try historyKey(in: window, semantic: "ㅋ", flags: flags))
+            XCTAssertEqual(editor.model.annotations, original)
+        }
+    }
+
     func testSizeShortcutsAdjustShapesAndTextWithoutZoomingAndSupportUndo() throws {
         let editor = ScreenshotEditorWindowController(canvas: model().source, fileName: "Fixture.jpg")
         let window = try XCTUnwrap(editor.window as? ScreenshotEditorWindow)
