@@ -74,12 +74,13 @@ extension LocalStore {
                      name: String,
                      colorHex: String,
                      iconName: String,
-                     spaceId: String = UUID().uuidString) {
+                     spaceId: String = UUID().uuidString,
+                     afterSpaceId: String? = nil) {
         performBackgroundWrite { context in
             do {
                 try self.createSpaceBody(profileId: profileId, name: name, colorHex: colorHex,
                                          iconName: iconName, spaceId: spaceId,
-                                         createdDate: nil, in: context)
+                                         createdDate: nil, afterSpaceId: afterSpaceId, in: context)
             } catch {
                 AppLogError("[LocalStore] createSpace failed: \(error)")
             }
@@ -102,21 +103,32 @@ extension LocalStore {
         }
     }
 
-    /// Single implementation shared by both entry points; the body is the
-    /// existing one verbatim, plus the optional `createdDate` the sync layer
-    /// needs so `created_at_ms` (merged with `min()`) really reaches the row.
+    /// Shared creation body. UI creation can insert after a source Space;
+    /// sync creation preserves its supplied date and the append behavior.
     private func createSpaceBody(profileId: String, name: String, colorHex: String,
                                  iconName: String, spaceId: String,
-                                 createdDate: Date?, in context: ModelContext) throws {
+                                 createdDate: Date?, afterSpaceId: String? = nil,
+                                 in context: ModelContext) throws {
         // Spaces from every profile share one strip order.
-        let existing = try context.fetch(FetchDescriptor<SpaceModel>())
+        let existing = try context.fetch(FetchDescriptor<SpaceModel>(sortBy: [
+            SortDescriptor(\.sortOrder), SortDescriptor(\.profileId), SortDescriptor(\.createdDate),
+        ]))
         // `spaceId` is unique, so inserting a duplicate would silently overwrite the existing row
         // (profile binding and order reset, bookmark root orphaned). No caller relies on that: UI
         // creation passes a fresh UUID, and sync lands an existing row through its update branch.
         guard !existing.contains(where: { $0.spaceId == spaceId }) else {
             throw LocalStoreWriteError.spaceAlreadyExists
         }
-        let nextOrder = (existing.map(\.sortOrder).max() ?? -1) + 1
+        // Insert and shift the following Spaces in the same write so observers
+        // never see the new Space briefly appended at the end of the strip.
+        let anchorIndex = afterSpaceId.flatMap { id in existing.firstIndex { $0.spaceId == id } }
+        let nextOrder = anchorIndex.map { $0 + 1 }
+            ?? ((existing.map(\.sortOrder).max() ?? -1) + 1)
+        if anchorIndex != nil {
+            for (index, space) in existing.enumerated() {
+                space.sortOrder = index < nextOrder ? index : index + 1
+            }
+        }
         let space = SpaceModel(
             spaceId: spaceId,
             profileId: profileId,

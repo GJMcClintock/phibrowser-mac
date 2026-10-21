@@ -1513,7 +1513,8 @@ class SidebarViewController: NSViewController, BrowserThemeContextProviding {
             manager: .shared,
             profileManager: .shared,
             initialProfileId: initialProfileId,
-            initialThemeId: state.themeContext.currentTheme.id
+            initialThemeId: state.themeContext.currentTheme.id,
+            afterSpaceId: state.spaceId
         ) { [weak self] restorePreviewTheme in
             self?.dismissCreateSpaceOverlay(
                 restorePreviewTheme: restorePreviewTheme

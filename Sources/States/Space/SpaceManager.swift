@@ -5430,18 +5430,16 @@ final class SpaceManager: ObservableObject {
     /// the currently-active Space's profile when the user takes the default
     /// one-click "+" path, or the user's explicit choice from the picker.
     ///
-    /// The new Space inherits the currently-active Space's pinned theme, which
-    /// decides the sidebar's overlay background color, so it opens looking like
-    /// the Space it was created from rather than snapping to the global default
-    /// theme. A nil pin means "follow the global theme" —
-    /// the new Space already does, so we only copy an explicit override.
+    /// `afterSpaceId` places a UI-created Space immediately after its source.
+    /// Other callers keep the append behavior. The caller also owns theme setup.
     @discardableResult
     func createSpace(name: String,
                      colorHex: String,
                      iconName: String,
                      profileId: String,
                      makeDefaultActive: Bool = true,
-                     spaceId: String? = nil) -> String? {
+                     spaceId: String? = nil,
+                     afterSpaceId: String? = nil) -> String? {
         guard acceptsStoreAction(), let account = boundAccount else { return nil }
         let newSpaceId = spaceId ?? UUID().uuidString
         guard !spaces.contains(where: { $0.spaceId == newSpaceId }) else { return nil }
@@ -5450,7 +5448,8 @@ final class SpaceManager: ObservableObject {
             name: name,
             colorHex: colorHex,
             iconName: iconName,
-            spaceId: newSpaceId
+            spaceId: newSpaceId,
+            afterSpaceId: afterSpaceId
         )
         // Optimistic in-memory insert so the new Space's pill renders this
         // runloop turn instead of waiting for the background write to commit
@@ -5458,13 +5457,28 @@ final class SpaceManager: ObservableObject {
         // SQLite fsync → NSManagedObjectContextDidSave → main-thread re-fetch),
         // which is what made "New Space" feel slow. The persisted row stays
         // authoritative: once its emission lands, `handleSpacesUpdate` replaces
-        // the presentation fields with the stored values. We mirror
-        // `LocalStore.createSpace`'s GLOBAL max+1 sortOrder (the strip is one
-        // combined list, so appending past the global max is what lands the
-        // new pill last) and reuse `getAllSpaces`'s (sortOrder, profileId,
-        // createdDate) ordering so the pill's position is identical before
-        // and after that reconciliation — no visible reposition.
-        let nextOrder = (spaces.map(\.sortOrder).max() ?? -1) + 1
+        // the presentation fields with the stored values. Mirror the store's
+        // insertion and following sort orders so reconciliation keeps every
+        // pip in place, including when the new Space uses a different profile.
+        let storedSpaces = spaces.filter { !Self.isIncognitoSpaceId($0.spaceId) }.sorted { lhs, rhs in
+            if lhs.sortOrder != rhs.sortOrder { return lhs.sortOrder < rhs.sortOrder }
+            if lhs.profileId != rhs.profileId { return lhs.profileId < rhs.profileId }
+            return lhs.createdDate < rhs.createdDate
+        }
+        let anchorIndex = afterSpaceId.flatMap { id in storedSpaces.firstIndex { $0.spaceId == id } }
+        let nextOrder = anchorIndex.map { $0 + 1 }
+            ?? ((storedSpaces.map(\.sortOrder).max() ?? -1) + 1)
+        if anchorIndex != nil {
+            for (index, space) in storedSpaces.enumerated() {
+                space.update(from: Space(
+                    spaceId: space.spaceId, profileId: space.profileId,
+                    name: space.name, colorHex: space.colorHex,
+                    iconName: space.iconName, sortOrder: index < nextOrder ? index : index + 1,
+                    createdDate: space.createdDate, updatedDate: space.updatedDate,
+                    storeIdentifier: space.storeIdentifier
+                ))
+            }
+        }
         spaces.append(Space(spaceId: newSpaceId,
                                  profileId: profileId,
                                  name: name,
@@ -9611,8 +9625,12 @@ final class SpaceWindowSlot: ObservableObject {
     /// tab's title on the window. `inPlaceholderMode` is passed in because
     /// `BrowserState` publishes that flag before it changes.
     func retitleShell(presenting controller: SpaceSessionController, inPlaceholderMode: Bool) {
-        shell?.window.title = (inPlaceholderMode ? nil : controller.hostedChromiumWindow?.title)
+        guard let window = shell?.window else { return }
+        let title = (inPlaceholderMode ? nil : controller.hostedChromiumWindow?.title)
             ?? manager?.spaces.first(where: { $0.spaceId == controller.spaceId })?.name ?? "Phi"
+        // Reassigning the same title still invalidates native titlebar layout.
+        guard window.title != title else { return }
+        window.title = title
     }
 
     /// Puts `controller`'s content in the shell and makes it the slot's

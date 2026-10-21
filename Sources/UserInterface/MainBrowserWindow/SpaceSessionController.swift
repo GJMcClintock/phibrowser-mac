@@ -1509,7 +1509,8 @@ class SpaceSessionController: NSWindowController {
         trafficLightPositioner?.stop(restoringPlacement: true)
         let positioner = TrafficLightPositioner(
             window: window,
-            centerFromWindowTop: Self.chromeRowCenter(for: layoutMode)
+            centerFromWindowTop: Self.chromeRowCenter(for: layoutMode),
+            centerFromWindowLeading: layoutMode == .balanced ? 22 : nil
         )
         trafficLightPositioner = positioner
         trafficLightLayoutMode = layoutMode

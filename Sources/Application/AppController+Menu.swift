@@ -2127,11 +2127,9 @@ extension AppController {
         menu.addItem(newSpaceItem)
     }
 
-    /// Builds the shared account-button menu using the same window and command
-    /// routing as the main menu and the Space switcher.
+    /// Builds the shared account-button menu using the main menu's window and
+    /// command routing.
     func populateProfileMenu(_ menu: NSMenu) {
-        populateSpaceSwitcherMenu(menu, includesNewSpaceAction: false)
-
         func add(_ title: String, action: Selector, command: CommandWrapper? = nil, target: AnyObject? = nil) {
             let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
             item.target = target
@@ -2151,7 +2149,6 @@ extension AppController {
             menu.addItem(item)
         }
 
-        menu.addItem(.separator())
         add(NSLocalizedString("profile.menu.downloads", value: "Download List", comment: "Profile menu - Download List action"),
             action: #selector(commandDispatch(_:)), command: .IDC_SHOW_DOWNLOADS, target: nil)
         add(NSLocalizedString("profile.menu.bookmarks", value: "Manage Bookmarks", comment: "Profile menu - Manage Bookmarks action"),

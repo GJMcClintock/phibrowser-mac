@@ -45,6 +45,8 @@ struct CreateSpacePanel: View {
     /// different from the Space it was created from — and it remains the
     /// fallback while no selection is resolved.
     let initialThemeId: String
+    /// Capture the source when the form opens so preview and persisted order agree.
+    var afterSpaceId: String? = nil
     /// Whether the host should restore the theme that preceded its live
     /// preview. Successful creation keeps the selected preview in place until
     /// the new Space is activated, avoiding a flash of the previous theme.
@@ -435,7 +437,8 @@ struct CreateSpacePanel: View {
             name: finalName,
             colorHex: resolvedColorHex(),
             iconName: selectedIcon.storageValue,
-            profileId: profileId
+            profileId: profileId,
+            afterSpaceId: afterSpaceId
         )
         if newSpaceId != nil {
             PostHogSDK.shared.capture("space_created", properties: [
@@ -557,7 +560,8 @@ extension CreateSpacePanel {
             initialProfileId: initialProfileId,
             initialThemeId: manager.activeSpaceId.map {
                 manager.resolvedThemeId(forSpaceId: $0)
-            } ?? ThemeManager.shared.currentTheme.id
+            } ?? ThemeManager.shared.currentTheme.id,
+            afterSpaceId: manager.activeSpaceId
         ) { [weak window] _ in
             window?.close()
         }
