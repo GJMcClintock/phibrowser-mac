@@ -619,6 +619,8 @@ extension ShortcutsKey {
             return "⇥"
         case "\r":
             return "↩︎"
+        case "\u{3}":
+            return "⌤"
         case "\u{1B}":
             return "⎋"
         case "\u{F700}":
