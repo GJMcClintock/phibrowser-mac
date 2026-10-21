@@ -165,10 +165,32 @@ final class ThemePaletteTests: XCTestCase {
         XCTAssertGreaterThan(edge.brightnessComponent - center.brightnessComponent, 0.2)
         XCTAssertGreaterThan(edge.saturationComponent, center.saturationComponent)
         let lightEdge = ThemePalette(hue: 0.6, saturation: 1).colors(for: .light)[0]
-        XCTAssertEqual(edge.saturationComponent, 0.95, accuracy: 0.000001)
+        XCTAssertEqual(edge.saturationComponent, 0.45, accuracy: 0.000001)
         XCTAssertEqual(lightEdge.saturationComponent, 0.52, accuracy: 0.000001)
-        XCTAssertLessThan(edge.brightnessComponent, 0.7)
+        XCTAssertEqual(center.brightnessComponent, 0.36, accuracy: 0.000001)
+        XCTAssertEqual(edge.brightnessComponent, 0.9, accuracy: 0.000001)
         XCTAssertEqual(edge.alphaComponent, center.alphaComponent)
+    }
+
+    func testDarkSaturationPeaksInsideAndFadesTowardTheBrighterEdge() {
+        let radii = [0.0, 0.05, 0.1, 0.2, 0.4, 0.7, 1.0]
+        let colors = radii.map { ThemePalette(hue: 0.6, saturation: $0).colors(for: .dark)[0] }
+        XCTAssertEqual(colors[0].saturationComponent, 0, accuracy: 0.000001)
+        XCTAssertEqual(colors[3].saturationComponent, 0.9, accuracy: 0.000001)
+        for index in 1..<colors.count {
+            XCTAssertGreaterThan(colors[index].brightnessComponent, colors[index - 1].brightnessComponent)
+            if index <= 3 {
+                XCTAssertGreaterThan(colors[index].saturationComponent, colors[index - 1].saturationComponent)
+            } else {
+                XCTAssertLessThan(colors[index].saturationComponent, colors[index - 1].saturationComponent)
+            }
+        }
+        for color in colors {
+            let restored = ThemePalette(color: color, appearance: .dark).colors(for: .dark)[0]
+            XCTAssertEqual(restored.redComponent, color.redComponent, accuracy: 0.000001)
+            XCTAssertEqual(restored.greenComponent, color.greenComponent, accuracy: 0.000001)
+            XCTAssertEqual(restored.blueComponent, color.blueComponent, accuracy: 0.000001)
+        }
     }
 
     func testFieldSamplesMatchEveryLinkedHandleColor() throws {
@@ -275,6 +297,12 @@ final class ThemePaletteTests: XCTestCase {
         let lightColors = try XCTUnwrap(gradient.colors as? [CGColor])
         XCTAssertEqual(lightColors.first, palette.colors(for: .light).first?.cgColor)
         XCTAssertEqual(lightColors.last, palette.colors(for: .light).last?.cgColor)
+
+        context.setTheme(palette.applying(to: base))
+        drainThemeUpdates()
+        let repeatedColors = try XCTUnwrap(gradient.colors as? [CGColor])
+        XCTAssertTrue(zip(lightColors, repeatedColors).allSatisfy { $0 === $1 },
+                      "Repeated theme notifications must reuse unchanged gradient samples.")
 
         context.setUserAppearanceChoice(.dark)
         drainThemeUpdates()
@@ -438,6 +466,8 @@ final class ThemePaletteTests: XCTestCase {
         let manager = SpaceManager.makeForTesting(boundTo: account)
         let spaceId = "palette-test-space"
         let palette = ThemePalette(hue: 0.95, saturation: 0.6, colorCount: 3)
+        manager.previewThemePalette(palette, forSpaceId: spaceId, expectedStoreIdentifier: manager.storeIdentifier)
+        XCTAssertNil(manager.themePalette(forSpaceId: spaceId), "Pointer previews must not persist intermediate edits.")
         manager.setThemePalette(palette, forSpaceId: spaceId)
         XCTAssertEqual(manager.resolvedTheme(forSpaceId: spaceId).navigationPalette, palette)
         manager.setOverlaySaturation(0.5, forSpaceId: spaceId, appearance: .light)

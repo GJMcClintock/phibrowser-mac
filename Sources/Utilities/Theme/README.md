@@ -56,11 +56,21 @@ apply the interaction-only snap.
 Version 1 palettes
 decode at maximum brightness, the removed slider's rightmost endpoint; version 2
 records retain explicit brightness edits from the existing settings panes.
-Dark colors gain brightness toward the field edge. Clicking the field always
+In dark appearance, the stored saturation controls radial position. Resolved HSB
+saturation rises continuously from zero at the center to 90% at 20% of the radius,
+then falls to 45% at the edge, with a smooth peak between the two curves.
+At maximum palette brightness, HSB brightness rises from 36% at the neutral center
+to 90% at the edge. Color import prefers the outer radius when both saturation
+branches can represent the input brightness.
+Clicking the field always
 moves the primary handle with an eased transition; dragging an existing handle
 keeps direct tracking and preserves the linked harmony. Reduce Motion disables
 the transition. Changes use the existing per-Space theme notification path and
-are saved immediately. The standalone editor uses AppKit's titled-window mask
+preview immediately in the Space's windows. Pointer tracking saves once on release
+or editor dismissal; keyboard and discrete control edits save immediately. Unchanged
+navigation gradient samples are reused across repeated theme notifications, and
+Oklab samples are constructed directly in sRGB without per-sample AppKit conversion.
+The standalone editor uses AppKit's titled-window mask
 and popover material; the field uses a continuous corner mask. Empty editor
 background can drag the panel, while control bounds retain their own input.
 

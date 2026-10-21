@@ -6612,6 +6612,21 @@ final class SpaceManager: ObservableObject {
         boundAccount?.userDefaults.spaceThemePalettes()[spaceId]
     }
 
+    /// Previews a pointer edit in the Space's windows without writing account
+    /// preferences or broadcasting application-wide theme changes per event.
+    /// The editor commits through setThemePalette when tracking ends.
+    func previewThemePalette(_ palette: ThemePalette, forSpaceId spaceId: String, expectedStoreIdentifier: UUID?) {
+        guard acceptsStoreAction(from: expectedStoreIdentifier), boundAccount != nil else { return }
+        MainActor.assumeIsolated {
+            let theme = palette.applying(to: resolvedTheme(forSpaceId: spaceId))
+            for slot in slots {
+                if let controller = slot.windowController(for: spaceId) {
+                    controller.browserState.themeContext.setTheme(theme)
+                }
+            }
+        }
+    }
+
     /// Persists one linked palette and broadcasts through the existing
     /// per-Space theme path, including every window presenting that Space.
     func setThemePalette(_ palette: ThemePalette, forSpaceId spaceId: String, expectedStoreIdentifier: UUID? = nil) {

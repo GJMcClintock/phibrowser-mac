@@ -13,6 +13,7 @@ class ColoredVisualEffectView: NSVisualEffectView {
     private var themeSubscription: AnyCancellable?
     private weak var subscribedProvider: ThemeStateProvider?
     private var renderedAppearance: Appearance?
+    private var renderedPaletteColors: [NSColor]?
 
     /// Opt in only for navigation backdrops; ordinary themed surfaces keep
     /// resolving their existing semantic solid color.
@@ -169,13 +170,18 @@ class ColoredVisualEffectView: NSVisualEffectView {
             paletteLayer.startPoint = CGPoint(x: 0.5, y: 1)
             paletteLayer.endPoint = CGPoint(x: 0.5, y: 0)
             paletteLayer.locations = nil
-            paletteLayer.colors = Self.gradientColors(palette.colors(for: appearance).map {
+            let colors = palette.colors(for: appearance).map {
                 $0.withAlphaComponent(colorAlphaComponent ?? $0.alphaComponent)
-            })
+            }
+            if colors != renderedPaletteColors {
+                paletteLayer.colors = Self.gradientColors(colors)
+                renderedPaletteColors = colors
+            }
             paletteLayer.isHidden = false
         } else {
             paletteLayer.isHidden = true
             paletteLayer.colors = nil
+            renderedPaletteColors = nil
             paletteLayer.locations = nil
         }
         if paletteLayer.isHidden {
@@ -225,7 +231,7 @@ class ColoredVisualEffectView: NSVisualEffectView {
             } else {
                 value = components[0] * (1 - position) + components[1] * position
             }
-            return colorFromOklab(value).cgColor
+            return colorFromOklab(value)
         }
     }
 
@@ -249,7 +255,9 @@ class ColoredVisualEffectView: NSVisualEffectView {
         )
     }
 
-    private static func colorFromOklab(_ value: SIMD4<Double>) -> NSColor {
+    private static let gradientColorSpace = CGColorSpace(name: CGColorSpace.sRGB)!
+
+    private static func colorFromOklab(_ value: SIMD4<Double>) -> CGColor {
         let lRoot = value.x + 0.3963377774 * value.y + 0.2158037573 * value.z
         let mRoot = value.x - 0.1055613458 * value.y - 0.0638541728 * value.z
         let sRoot = value.x - 0.0894841775 * value.y - 1.2914855480 * value.z
@@ -260,12 +268,14 @@ class ColoredVisualEffectView: NSVisualEffectView {
             let value = min(max(value, 0), 1)
             return CGFloat(value <= 0.0031308 ? value * 12.92 : 1.055 * pow(value, 1 / 2.4) - 0.055)
         }
-        return NSColor(
-            srgbRed: encoded(4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s),
-            green: encoded(-1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s),
-            blue: encoded(-0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s),
-            alpha: CGFloat(value.w)
-        )
+        // Build sRGB samples directly. NSColor.cgColor repeats ColorSync
+        // profile resolution for every sample on every pointer update.
+        return CGColor(colorSpace: gradientColorSpace, components: [
+            encoded(4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s),
+            encoded(-1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s),
+            encoded(-0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s),
+            CGFloat(value.w)
+        ])!
     }
 
     override func layout() {

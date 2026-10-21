@@ -469,6 +469,9 @@ struct SpaceThemeEditorView: View {
             }
         }
         .onAppear(perform: syncControls)
+        .onDisappear {
+            if draggedHandle != nil { update(palette) }
+        }
         .onReceive(NotificationCenter.default.publisher(for: .spaceThemeDidChange)) { notification in
             guard let spaceId,
                   notification.userInfo?["spaceId"] as? String == spaceId else { return }
@@ -629,7 +632,7 @@ struct SpaceThemeEditorView: View {
                 guard hypot(value.translation.width, value.translation.height) >= 3 else { return }
                 update(palette.movingHandle(at: draggedHandle ?? 0, to: CGPoint(
                     x: value.location.x / geometry.size.width, y: value.location.y / geometry.size.height
-                ), snappingToCenter: true))
+                ), snappingToCenter: true), preview: true)
             }.onEnded { value in
                 let isClick = hypot(value.translation.width, value.translation.height) < 3
                 update(palette.movingHandle(at: isClick ? 0 : (draggedHandle ?? 0), to: CGPoint(
@@ -644,17 +647,22 @@ struct SpaceThemeEditorView: View {
         .accessibilityIdentifier("theme.editor.palette")
     }
 
-    private func update(_ newPalette: ThemePalette, animated: Bool = false) {
+    private func update(_ newPalette: ThemePalette, animated: Bool = false, preview: Bool = false) {
         guard draftPalette != nil || spaceManager.acceptsStoreAction(from: storeIdentifier) else {
             onDismiss()
             return
         }
+        guard !preview || newPalette != palette else { return }
         withAnimation(animated && !reduceMotion ? .timingCurve(0.22, 1, 0.36, 1, duration: 0.3) : nil) {
             palette = newPalette
             if let draftPalette {
                 draftPalette.wrappedValue = newPalette
             } else if let spaceId {
-                spaceManager.setThemePalette(newPalette, forSpaceId: spaceId, expectedStoreIdentifier: storeIdentifier)
+                if preview {
+                    spaceManager.previewThemePalette(newPalette, forSpaceId: spaceId, expectedStoreIdentifier: storeIdentifier)
+                } else {
+                    spaceManager.setThemePalette(newPalette, forSpaceId: spaceId, expectedStoreIdentifier: storeIdentifier)
+                }
             }
         }
     }
@@ -665,6 +673,7 @@ struct SpaceThemeEditorView: View {
             return
         }
         guard let spaceId, spaceManager.acceptsStoreAction(from: storeIdentifier) else { onDismiss(); return }
+        guard draggedHandle == nil else { return }
         palette = spaceManager.themePalette(forSpaceId: spaceId) ?? ThemePalette(
             color: spaceManager.resolvedTheme(forSpaceId: spaceId).color(for: .windowOverlayBackground, appearance: appearance),
             appearance: appearance

@@ -246,8 +246,21 @@ struct ThemePalette: Codable, Equatable {
     init(color: NSColor, appearance: Appearance) {
         let color = color.usingColorSpace(.sRGB) ?? .white
         let lower = appearance.isDark ? 0.12 : 0.65
-        let saturation = Self.unit(Double(color.saturationComponent) / (appearance.isDark ? 0.95 : 0.52))
-        let span = appearance.isDark ? 0.24 + 0.32 * saturation : 0.35
+        let saturation: Double
+        if appearance.isDark {
+            let colorSaturation = min(Double(color.saturationComponent), Self.darkInnerSaturation)
+            let innerRadius = Self.darkInnerRadius * (1 - sqrt(1 - colorSaturation / Self.darkInnerSaturation))
+            let outerRadius = Self.unit(Self.darkInnerRadius + (1 - Self.darkInnerRadius)
+                * sqrt((Self.darkInnerSaturation - colorSaturation) / (Self.darkInnerSaturation - Self.darkOuterSaturation)))
+            // Two radii can share a saturation. Prefer the outer one when it can
+            // represent the input brightness; otherwise use the neutral-center branch.
+            saturation = colorSaturation >= Self.darkOuterSaturation - 0.000001
+                && Double(color.brightnessComponent) <= 0.36 + 0.54 * outerRadius + 0.000001
+                ? outerRadius : innerRadius
+        } else {
+            saturation = Self.unit(Double(color.saturationComponent) / 0.52)
+        }
+        let span = appearance.isDark ? 0.24 + 0.54 * saturation : 0.35
         self.init(
             hue: Double(color.hueComponent),
             saturation: saturation,
@@ -294,12 +307,26 @@ struct ThemePalette: Codable, Equatable {
         return sample.resolvedColor(hue: sample.hue, appearance: appearance)
     }
 
+    private static let darkInnerRadius = 0.2
+    private static let darkInnerSaturation = 0.9
+    private static let darkOuterSaturation = 0.45
+
+    private var darkSaturation: Double {
+        if saturation <= Self.darkInnerRadius {
+            let remaining = 1 - saturation / Self.darkInnerRadius
+            return Self.darkInnerSaturation * (1 - remaining * remaining)
+        }
+        let progress = (saturation - Self.darkInnerRadius) / (1 - Self.darkInnerRadius)
+        return Self.darkInnerSaturation
+            - (Self.darkInnerSaturation - Self.darkOuterSaturation) * progress * progress
+    }
+
     private func resolvedColor(hue: Double, appearance: Appearance) -> NSColor {
         NSColor(
             hue: CGFloat(hue),
-            saturation: CGFloat(saturation * (appearance.isDark ? 0.95 : 0.52)),
+            saturation: CGFloat(appearance.isDark ? darkSaturation : saturation * 0.52),
             brightness: CGFloat(appearance.isDark
-                ? 0.12 + brightness * (0.24 + saturation * 0.32)
+                ? 0.12 + brightness * (0.24 + saturation * 0.54)
                 : 0.65 + brightness * 0.35),
             alpha: ThemeColorAdjustment.defaultOverlayAlpha
         )
