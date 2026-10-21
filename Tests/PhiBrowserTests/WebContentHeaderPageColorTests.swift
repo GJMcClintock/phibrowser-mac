@@ -38,6 +38,66 @@ final class WebContentHeaderPageColorTests: XCTestCase {
         XCTAssertEqual(state.themeContext.currentTheme.id, Theme.pure.id)
     }
 
+    func testPaletteOnlyColorsDefaultNewTabHeaderAndRestoresPageColorsOnNavigation() throws {
+        let state = try makeState()
+        let base = state.themeContext.currentTheme
+        let palette = ThemePalette(hue: 0.85, saturation: 0.8, colorCount: 3)
+        state.themeContext.setTheme(palette.applying(to: base))
+        let (tab, wrapper) = makeTab(color: .black)
+        wrapper.urlString = "chrome://newtab/"
+        drainPageColorUpdates()
+        let header = WebContentHeader(browserState: state)
+        header.currentTab = tab
+
+        assertBackground(header, palette.colors(for: .light)[0].withAlphaComponent(1))
+        XCTAssertNil(header.pageColorPresentation.appearance)
+        XCTAssertNotNil(header.pageColorPresentation.backgroundColor,
+                        "The address bar and adjacent chrome must inherit the same new-tab color.")
+
+        wrapper.urlString = "https://example.com"
+        drainPageColorUpdates()
+        assertBackground(header, .black)
+        XCTAssertEqual(header.pageColorPresentation.appearance, .dark)
+        wrapper.pageColor = .white
+        drainPageColorUpdates()
+        assertBackground(header, .white)
+        XCTAssertEqual(header.pageColorPresentation.appearance, .light)
+
+        let changed = palette.rotatingHue(by: 0.3)
+        state.themeContext.setTheme(changed.applying(to: base))
+        drainPageColorUpdates()
+        assertBackground(header, .white)
+        wrapper.pageColor = nil
+        drainPageColorUpdates()
+        assertBackground(header, base.color(for: .windowBackground, appearance: .light))
+        XCTAssertNil(header.pageColorPresentation.backgroundColor)
+
+        wrapper.urlString = "phi://newtab/"
+        drainPageColorUpdates()
+        assertBackground(header, changed.colors(for: .light)[0].withAlphaComponent(1))
+        state.themeContext.setUserAppearanceChoice(.dark)
+        drainPageColorUpdates()
+        assertBackground(header, changed.colors(for: .dark)[0].withAlphaComponent(1))
+        XCTAssertNil(header.appearance, "New-tab chrome follows the window appearance.")
+    }
+
+    func testTranslucentPageHeaderRemainsIndependentOfPaletteEdits() throws {
+        let state = try makeState()
+        let base = state.themeContext.currentTheme
+        let pageColor = NSColor(srgbRed: 0.1, green: 0.25, blue: 0.4, alpha: 0.35)
+        let expected = WebContentHeader.compositePageColor(
+            pageColor, over: base.color(for: .windowBackground, appearance: .light)
+        )
+        let (tab, _) = makeTab(color: pageColor)
+        let header = WebContentHeader(browserState: state)
+        header.currentTab = tab
+        for hue in [0.0, 0.33, 0.66] {
+            state.themeContext.setTheme(ThemePalette(hue: hue, saturation: 1, colorCount: 3).applying(to: base))
+            drainPageColorUpdates()
+            assertBackground(header, expected)
+        }
+    }
+
     func testTabStripInheritsWhileChatIsExpandedAndRestoresLatestPageColor() throws {
         let key = PhiPreferences.GeneralSettings.layoutModeKey
         let originalMode = UserDefaults.standard.object(forKey: key)

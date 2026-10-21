@@ -67,9 +67,19 @@ public final class ThemeObserver: ObservableObject {
     private func bindSubscription(to source: ThemeStateProvider) {
         generation &+= 1
         let expectedGeneration = generation
-        self.subscription = source.subscribe { [weak self] theme, appearance in
+        self.subscription = source.subscribe { [weak self, weak source] theme, appearance in
+            // Appearance is UI state. Deliver an actual change immediately
+            // on the main thread, while keeping initial view binding deferred.
+            if Thread.isMainThread, let self, self.generation == expectedGeneration,
+               self.appearance != appearance {
+                self.theme = theme
+                self.appearance = appearance
+                return
+            }
             DispatchQueue.main.async {
-                guard let self, self.generation == expectedGeneration else { return }
+                guard let self, self.generation == expectedGeneration,
+                      source?.currentAppearance == appearance,
+                      source?.currentTheme === theme else { return }
                 self.theme = theme
                 self.appearance = appearance
             }

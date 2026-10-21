@@ -28,8 +28,8 @@ public struct ColorPair: Hashable {
 }
 
 enum ThemeDefaults {
-    static let overlayLightOpacity: CGFloat = 0.8
-    static let overlayDarkOpacity: CGFloat = 0.8
+    static let overlayLightOpacity: CGFloat = ThemeColorAdjustment.defaultOverlayAlpha
+    static let overlayDarkOpacity: CGFloat = ThemeColorAdjustment.defaultOverlayAlpha
 }
 
 /// Linear mapping between the slider position (0...100) and saturation
@@ -227,11 +227,164 @@ struct ThemeSnapshot: Codable, Equatable {
     }
 }
 
+/// A linked color harmony. Only the anchor is stored, so dragging any handle
+/// cannot break the complementary (two colors) or split complementary (three colors) rule.
+struct ThemePalette: Codable, Equatable {
+    private let version = 2
+    private(set) var hue: Double
+    private(set) var saturation: Double
+    private(set) var brightness: Double
+    private(set) var colorCount: Int
+
+    init(hue: Double, saturation: Double, brightness: Double = 1, colorCount: Int = 1) {
+        self.hue = Self.wrappedHue(hue)
+        self.saturation = Self.unit(saturation)
+        self.brightness = Self.unit(brightness)
+        self.colorCount = min(max(colorCount, 1), 3)
+    }
+
+    init(color: NSColor, appearance: Appearance) {
+        let color = color.usingColorSpace(.sRGB) ?? .white
+        let lower = appearance.isDark ? 0.12 : 0.65
+        let saturation = Self.unit(Double(color.saturationComponent) / (appearance.isDark ? 0.95 : 0.52))
+        let span = appearance.isDark ? 0.24 + 0.32 * saturation : 0.35
+        self.init(
+            hue: Double(color.hueComponent),
+            saturation: saturation,
+            brightness: (Double(color.brightnessComponent) - lower) / span
+        )
+    }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        let storedVersion = try values.decodeIfPresent(Int.self, forKey: .version) ?? 1
+        self.init(
+            hue: try values.decode(Double.self, forKey: .hue),
+            saturation: try values.decode(Double.self, forKey: .saturation),
+            // The removed editor slider finishes at its rightmost endpoint.
+            // Upgrade older saved palettes before any window resolves them.
+            brightness: storedVersion < 2 ? 1 : try values.decode(Double.self, forKey: .brightness),
+            colorCount: try values.decode(Int.self, forKey: .colorCount)
+        )
+    }
+
+    func hue(at index: Int) -> Double {
+        Self.wrappedHue(hue + hueOffset(at: index))
+    }
+
+    private func hueOffset(at index: Int) -> Double {
+        if colorCount == 3 {
+            switch index {
+            case 1: return 150 / 360
+            case 2: return 210 / 360
+            default: return 0
+            }
+        }
+        return Double(index) / Double(colorCount)
+    }
+
+    func colors(for appearance: Appearance) -> [NSColor] {
+        (0..<colorCount).map { resolvedColor(hue: hue(at: $0), appearance: appearance) }
+    }
+
+    /// Samples the field with the same coordinate mapping and color resolution
+    /// used by the handles. Presentation can make this opaque without changing RGB.
+    func color(at point: CGPoint, appearance: Appearance) -> NSColor {
+        let sample = movingHandle(at: 0, to: point)
+        return sample.resolvedColor(hue: sample.hue, appearance: appearance)
+    }
+
+    private func resolvedColor(hue: Double, appearance: Appearance) -> NSColor {
+        NSColor(
+            hue: CGFloat(hue),
+            saturation: CGFloat(saturation * (appearance.isDark ? 0.95 : 0.52)),
+            brightness: CGFloat(appearance.isDark
+                ? 0.12 + brightness * (0.24 + saturation * 0.32)
+                : 0.65 + brightness * 0.35),
+            alpha: ThemeColorAdjustment.defaultOverlayAlpha
+        )
+    }
+
+    func settingColorCount(_ count: Int) -> ThemePalette {
+        ThemePalette(hue: hue, saturation: saturation, brightness: brightness, colorCount: count)
+    }
+
+    func settingBrightness(_ value: Double) -> ThemePalette {
+        ThemePalette(hue: hue, saturation: saturation, brightness: value, colorCount: colorCount)
+    }
+
+    /// The supplied Figma field has nonuniform angular color stops. Map hue
+    /// through those same stops so the handles track the displayed spectrum.
+    private static let spectrumHues: [Double] = [0, 1.0 / 12, 1.0 / 6, 1.0 / 3, 0.5, 2.0 / 3, 5.0 / 6, 1]
+    private static let spectrumAngles: [Double] = [0, 0.149, 0.332, 0.486, 0.620, 0.784, 0.880, 1]
+    private static let fieldRadius = 0.42
+
+    func handlePosition(at index: Int) -> CGPoint {
+        let angle = Self.interpolate(hue(at: index), from: Self.spectrumHues, to: Self.spectrumAngles) * 2 * .pi - .pi / 4
+        let radius = saturation * Self.fieldRadius
+        return CGPoint(x: 0.5 + cos(angle) * radius, y: 0.5 + sin(angle) * radius)
+    }
+
+    func movingHandle(at index: Int, to point: CGPoint, snappingToCenter: Bool = false) -> ThemePalette {
+        let x = Double(point.x) - 0.5
+        let y = Double(point.y) - 0.5
+        let radius = hypot(x, y)
+        // Interaction snaps within about 6 points in the 244-point field.
+        // Color sampling keeps the continuous mapping by leaving this disabled.
+        if snappingToCenter, radius <= 0.025 {
+            return ThemePalette(hue: hue, saturation: 0, brightness: brightness, colorCount: colorCount)
+        }
+        // Retain the hue at the white center, where angle is undefined.
+        let angle = Self.wrappedHue((atan2(y, x) + .pi / 4) / (2 * .pi))
+        let movedHue = radius < 0.0001 ? hue(at: index)
+            : Self.interpolate(angle, from: Self.spectrumAngles, to: Self.spectrumHues)
+        return ThemePalette(
+            hue: movedHue - hueOffset(at: index),
+            saturation: radius / Self.fieldRadius,
+            brightness: brightness,
+            colorCount: colorCount
+        )
+    }
+
+    func rotatingHue(by delta: Double) -> ThemePalette {
+        ThemePalette(hue: hue + delta, saturation: saturation, brightness: brightness, colorCount: colorCount)
+    }
+
+    private static func interpolate(_ value: Double, from source: [Double], to target: [Double]) -> Double {
+        let index = (1..<source.count).first { value <= source[$0] } ?? source.count - 1
+        let fraction = (value - source[index - 1]) / (source[index] - source[index - 1])
+        return target[index - 1] + fraction * (target[index] - target[index - 1])
+    }
+
+    private static func wrappedHue(_ value: Double) -> Double {
+        guard value.isFinite else { return 0 }
+        return value - floor(value)
+    }
+
+    private static func unit(_ value: Double) -> Double {
+        value.isFinite ? min(max(value, 0), 1) : 0
+    }
+
+    func applying(to base: Theme) -> Theme {
+        let theme = base.duplicating()
+        theme.navigationPalette = self
+        let light = colors(for: .light)[0]
+        let dark = colors(for: .dark)[0]
+        let lightAccent = NSColor(hue: CGFloat(hue), saturation: 0.65, brightness: 0.6, alpha: 1)
+        let darkAccent = NSColor(hue: CGFloat(hue), saturation: 0.5, brightness: 0.85, alpha: 1)
+        theme.setColor(light: light, dark: dark, for: .windowOverlayBackground)
+        theme.setColor(light: lightAccent, dark: darkAccent, for: .themeColor)
+        theme.setColor(light: lightAccent.adjustingBrightness(percent: -5), dark: darkAccent.adjustingBrightness(percent: 5), for: .themeColorOnHover)
+        return theme
+    }
+}
+
 /// Theme definition backed by semantic color roles.
 public class Theme: NSObject {
     public let id: String
     public let name: String
     private var colorPalette: [ColorRole: ColorPair]
+    var navigationPalette: ThemePalette?
     
     public init(id: String, name: String, colorPalette: [ColorRole: ColorPair] = [:]) {
         self.id = id
@@ -286,14 +439,16 @@ public class Theme: NSObject {
     /// a snapshot round-trip: `makeSnapshot()` only carries the four editable
     /// roles, which would drop the rest of a built-in theme's palette.
     public func duplicating() -> Theme {
-        Theme(id: id, name: name, colorPalette: colorPalette)
+        let copy = Theme(id: id, name: name, colorPalette: colorPalette)
+        copy.navigationPalette = navigationPalette
+        return copy
     }
 
     public func windowOverlayOpacity(for appearance: Appearance) -> CGFloat {
         color(for: .windowOverlayBackground, appearance: appearance).alphaComponent
     }
 
-    @available(*, deprecated, message: "Theme overlay alpha is fixed at 0.8 in ThemeSnapshot V2.")
+    @available(*, deprecated, message: "Theme overlay alpha is fixed by ThemeColorAdjustment in ThemeSnapshot V2.")
     public func setWindowOverlayOpacity(_ opacity: CGFloat, for appearance: Appearance) {
         _ = opacity
         let existingPair = colorPair(for: .windowOverlayBackground)

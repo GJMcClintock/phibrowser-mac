@@ -79,6 +79,7 @@ final class PlaceholderShellViewController: NSViewController {
     override func loadView() {
         let root = PlaceholderShellRootView()
         root.themedBackgroundColor = .windowOverlayBackground
+        root.usesThemePalette = true
         root.material = .fullScreenUI
         root.wantsLayer = true
         root.suppressesBackdrop = !paintsOwnBackdrop

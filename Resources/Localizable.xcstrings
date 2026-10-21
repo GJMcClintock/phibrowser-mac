@@ -104549,6 +104549,18 @@
         }
       }
     },
+    "sidebar.createSpace.colorPicker.label" : {
+      "comment" : "Create Space form - row that opens the color picker",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Color"
+          }
+        }
+      }
+    },
     "sidebar.createSpace.createButton" : {
       "comment" : "Confirm button in the create-Space panel",
       "extractionState" : "extracted_with_value",
@@ -125583,6 +125595,54 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%1$@ · %2$d 個分頁"
+          }
+        }
+      }
+    },
+    "theme.editor.colorHandle" : {
+      "comment" : "Theme editor - accessible color handle label; placeholder is the color number, from one to three",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Color %d"
+          }
+        }
+      }
+    },
+    "theme.editor.singleColor" : {
+      "comment" : "Theme editor - select a palette with one color",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Single color"
+          }
+        }
+      }
+    },
+    "theme.editor.threeColors" : {
+      "comment" : "Theme editor - select three linked split complementary colors",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Three colors"
+          }
+        }
+      }
+    },
+    "theme.editor.twoColors" : {
+      "comment" : "Theme editor - select two linked complementary colors",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Two colors"
           }
         }
       }
