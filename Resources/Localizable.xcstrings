@@ -98811,7 +98811,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Saved shortcuts could not be read. Retry, or restore all shortcuts to keep a recovery copy and use the defaults."
+            "value" : "Saved shortcuts could not be read. Retry, or choose Reset All to Defaults to keep a recovery copy and use the defaults."
           }
         },
         "es" : {
@@ -99765,7 +99765,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Restore All"
+            "value" : "Reset All to Defaults"
           }
         },
         "es" : {
@@ -99825,7 +99825,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "All custom shortcuts will be removed and the defaults restored. This action cannot be undone."
+            "value" : "All shortcuts will be reset to their defaults. This action cannot be undone."
           }
         },
         "es" : {
@@ -99885,7 +99885,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Restore All Shortcuts?"
+            "value" : "Reset All to Defaults?"
           }
         },
         "es" : {
@@ -99945,7 +99945,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "new",
-            "value" : "Restore all shortcuts"
+            "value" : "Reset All to Defaults"
           }
         },
         "es" : {
@@ -100005,7 +100005,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "new",
-            "value" : "Restore"
+            "value" : "Reset"
           }
         },
         "es" : {

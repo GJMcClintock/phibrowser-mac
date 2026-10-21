@@ -126,7 +126,7 @@ struct ShortcutRestoreSection: View {
     let restore: () -> Void
 
     var body: some View {
-        Button(NSLocalizedString("settings.shortcuts.restoreShortcutButton", value: "Restore", comment: "Shortcuts settings - Button to restore single shortcut to default"), action: restore)
+        Button(NSLocalizedString("settings.shortcuts.restoreShortcutButton", value: "Reset", comment: "Shortcuts settings - Button to restore single shortcut to default"), action: restore)
             .buttonStyle(.bordered)
             .controlSize(.small)
             .font(.system(size: 12))

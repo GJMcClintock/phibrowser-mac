@@ -38,7 +38,7 @@ class ShortcutsViewModel: ObservableObject {
         var message: String {
             switch self {
             case .load:
-                return NSLocalizedString("settings.shortcuts.persistence.loadFailed", value: "Saved shortcuts could not be read. Retry, or restore all shortcuts to keep a recovery copy and use the defaults.", comment: "Shortcuts settings - Configuration could not be loaded; edits are blocked until retry or explicit recovery")
+                return NSLocalizedString("settings.shortcuts.persistence.loadFailed", value: "Saved shortcuts could not be read. Retry, or choose Reset All to Defaults to keep a recovery copy and use the defaults.", comment: "Shortcuts settings - Configuration could not be loaded; edits are blocked until retry or explicit recovery")
             case .save:
                 return NSLocalizedString("settings.shortcuts.persistence.saveFailed", value: "The change could not be saved. Your previous shortcuts are still active. Try the change again.", comment: "Shortcuts settings - A failed save leaves the previous shortcuts active")
             }

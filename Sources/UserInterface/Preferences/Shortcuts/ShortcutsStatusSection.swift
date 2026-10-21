@@ -20,7 +20,7 @@ struct ShortcutsStatusSection: View {
                     viewModel.capture = nil
                     showRestoreConfirmation = true
                 } label: {
-                    Label(NSLocalizedString("settings.shortcuts.restoreDefaultsButton", value: "Restore all shortcuts", comment: "Shortcuts settings - Button to reset all shortcuts to default"), systemImage: "arrow.clockwise")
+                    Label(NSLocalizedString("settings.shortcuts.restoreDefaultsButton", value: "Reset All to Defaults", comment: "Shortcuts settings - Button to reset all shortcuts to default"), systemImage: "arrow.clockwise")
                 }
                 .buttonStyle(.borderless)
                 .font(.system(size: 11))
@@ -52,15 +52,15 @@ struct ShortcutsStatusSection: View {
             }
         }
         .alert(
-            NSLocalizedString("settings.shortcuts.restoreConfirmation.title", value: "Restore All Shortcuts?", comment: "Shortcuts settings - Confirmation title before resetting all shortcuts"),
+            NSLocalizedString("settings.shortcuts.restoreConfirmation.title", value: "Reset All to Defaults?", comment: "Shortcuts settings - Confirmation title before resetting all shortcuts"),
             isPresented: $showRestoreConfirmation
         ) {
-            Button(NSLocalizedString("settings.shortcuts.restoreConfirmation.confirmButton", value: "Restore All", comment: "Shortcuts settings - Destructive button confirming the reset of all shortcuts"), role: .destructive) {
+            Button(NSLocalizedString("settings.shortcuts.restoreConfirmation.confirmButton", value: "Reset All to Defaults", comment: "Shortcuts settings - Destructive button confirming the reset of all shortcuts"), role: .destructive) {
                 viewModel.restoreAllShortcuts()
             }
             Button(NSLocalizedString("settings.shortcuts.restoreConfirmation.cancelButton", value: "Cancel", comment: "Shortcuts settings - Cancel button preserving all shortcut settings"), role: .cancel) {}
         } message: {
-            Text(NSLocalizedString("settings.shortcuts.restoreConfirmation.message", value: "All custom shortcuts will be removed and the defaults restored. This action cannot be undone.", comment: "Shortcuts settings - Warning that resetting all shortcuts is irreversible"))
+            Text(NSLocalizedString("settings.shortcuts.restoreConfirmation.message", value: "All shortcuts will be reset to their defaults. This action cannot be undone.", comment: "Shortcuts settings - Warning that resetting all shortcuts is irreversible"))
         }
     }
 }
