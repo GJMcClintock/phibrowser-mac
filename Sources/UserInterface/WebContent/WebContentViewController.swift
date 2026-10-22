@@ -258,6 +258,7 @@ class WebContentViewController: NSViewController {
     /// the hidden window's own view size is 0×0, and measuring a tab's
     /// WebContents over CDP is polluted by native-NTP shell tabs.
     var webPanelSize: CGSize { hostView.bounds.size }
+    var webPanelView: NSView { hostView }
 
     private var headerHeightConstraint: Constraint?
 

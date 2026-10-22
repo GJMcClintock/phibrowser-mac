@@ -385,6 +385,7 @@
 		A11E00000000000000000002 /* PhiScriptCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11E00000000000000000012 /* PhiScriptCommands.swift */; };
 		A11E00000000000000000003 /* Phi.sdef in Resources */ = {isa = PBXBuildFile; fileRef = A11E00000000000000000013 /* Phi.sdef */; };
 		A17100000000000000000011 /* NativeMediaAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A17100000000000000000001 /* NativeMediaAdapter.swift */; };
+		A17200000000000000000011 /* PeekLinkActivationGuard.swift in Sources */ = {isa = PBXBuildFile; fileRef = A17200000000000000000001 /* PeekLinkActivationGuard.swift */; };
 		A17100000000000000000012 /* SidebarMediaController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A17100000000000000000002 /* SidebarMediaController.swift */; };
 		A17100000000000000000013 /* SidebarMediaPlayerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A17100000000000000000003 /* SidebarMediaPlayerView.swift */; };
 		A18579F32E653D9600B9A99E /* ProfileButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = A18579F42E653D9600B9A99E /* ProfileButton.swift */; };
@@ -1217,6 +1218,7 @@
 		A11E00000000000000000012 /* PhiScriptCommands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhiScriptCommands.swift; sourceTree = "<group>"; };
 		A11E00000000000000000013 /* Phi.sdef */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = Phi.sdef; sourceTree = "<group>"; };
 		A17100000000000000000001 /* NativeMediaAdapter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeMediaAdapter.swift; sourceTree = "<group>"; };
+		A17200000000000000000001 /* PeekLinkActivationGuard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PeekLinkActivationGuard.swift; sourceTree = "<group>"; };
 		A17100000000000000000002 /* SidebarMediaController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarMediaController.swift; sourceTree = "<group>"; };
 		A17100000000000000000003 /* SidebarMediaPlayerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarMediaPlayerView.swift; sourceTree = "<group>"; };
 		A18579F42E653D9600B9A99E /* ProfileButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileButton.swift; sourceTree = "<group>"; };
@@ -2518,6 +2520,7 @@
 				8EC5A10A2E5C10AA00B41A01 /* ChromiumAnalyticsRelay.swift */,
 				B00179592E49CF84007B4635 /* PhiChromiumCoordinator.swift */,
 				A17100000000000000000001 /* NativeMediaAdapter.swift */,
+				A17200000000000000000001 /* PeekLinkActivationGuard.swift */,
 				CC288AA82E55824A004A6C1C /* PhiChromiumBridgeHeader.h */,
 				B02586ED2E42FD97001B08FC /* ChromiumLauncher.h */,
 				B02586EE2E42FD97001B08FC /* ChromiumLauncher.m */,
@@ -3664,6 +3667,7 @@
 				ACDC00000000000000000B03 /* AgentDirectChannel.swift in Sources */,
 				ACDC00000000000000000B04 /* AppDevToolsPageSession.swift in Sources */,
 				A17100000000000000000011 /* NativeMediaAdapter.swift in Sources */,
+				A17200000000000000000011 /* PeekLinkActivationGuard.swift in Sources */,
 				CC450AE42EA74AD5004EE144 /* CommandDispatcher.swift in Sources */,
 				CCBF0FA02ECEC1AE005E729B /* AppController+Deeplink.swift in Sources */,
 				CCBF8F442E653F3400B9A99E /* SidebarItem.swift in Sources */,
