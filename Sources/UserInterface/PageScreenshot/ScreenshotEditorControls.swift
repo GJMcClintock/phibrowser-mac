@@ -25,10 +25,10 @@ struct ScreenshotEditorToolbar: View {
                     .padding(.horizontal, 8).padding(.vertical, 4).disabled(!model.canCrop)
                     .accessibilityIdentifier("screenshot.crop.confirm")
             } else {
-                ForEach([ScreenshotTool.select, .arrow, .freehand, .text, .rectangle, .ellipse, .mosaic, .crop], id: \.self) { tool in
+                ForEach([ScreenshotTool.select, .freehand, .text, .rectangle, .ellipse, .arrow, .mosaic, .crop], id: \.self) { tool in
                     ScreenshotToolButton(tool: tool, selected: model.tool == tool) { model.selectTool(tool) }
                 }
-                Divider().frame(height: 22).padding(.horizontal, 8)
+                Divider().frame(height: 22)
                 Menu {
                     Button { export(.png) } label: { Text(verbatim: "PNG…") }
                     Button { export(.jpg) } label: { Text(verbatim: "JPG…") }
@@ -37,7 +37,9 @@ struct ScreenshotEditorToolbar: View {
                     Image(systemName: "arrow.down.to.line").font(.system(size: 18, weight: .regular))
                         .foregroundStyle(Color.primary)
                         // Size the menu label itself so its padding also opens the menu.
-                        .frame(width: 36, height: 36)
+                        .fixedSize()
+                        .padding(.horizontal, 5)
+                        .frame(height: 36)
                         .contentShape(Rectangle())
                 }
                 .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
@@ -59,9 +61,12 @@ private struct ScreenshotToolButton: View {
 
     var body: some View {
         Button(action: action) {
-            Image(systemName: tool.symbol).font(.system(size: 18, weight: .regular))
+            Image(systemName: tool.symbol).font(.system(size: tool == .select ? 17 : 18, weight: .regular))
                 .foregroundStyle(selected ? Color.accentColor : hovered ? Color.accentColor.opacity(0.75) : Color.primary)
-                .frame(width: 36, height: 36)
+                // Equal side padding keeps narrow and localized symbols visually evenly spaced.
+                .fixedSize()
+                .padding(.horizontal, 5)
+                .frame(height: 36)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain).onHover { hovered = $0 }
@@ -123,7 +128,7 @@ extension ScreenshotTool {
         case .crop: return "crop"
         case .arrow: return "arrow.up.right"
         case .freehand: return "pencil.tip"
-        case .text: return "textformat"
+        case .text: return "character.textbox"
         case .rectangle: return "rectangle"
         case .ellipse: return "circle"
         }
