@@ -86,16 +86,26 @@ struct SidebarBottomBarSwiftUI: View {
     
     // MARK: - Regular Layout
     
-    private var widthWithChatTitle: CGFloat {
-        let iconCount = 2 + (state.isMemoryHidden ? 0 : 1)
-            + (showCardEntry ? 1 : 0) + (state.isFeedbackHidden ? 0 : 1)
-        // The zero-length spacer still has a four-point gap on each side.
-        return CGFloat(iconCount) * 24 + CGFloat(iconCount + 1) * 4
-            + ChatButton.preferredContentWidth + 2 * WebContentConstant.edgesSpacing
+    private var widthWithFeedback: CGFloat {
+        let iconCount = 3 + (state.isMemoryHidden ? 0 : 1) + (showCardEntry ? 1 : 0)
+        let chatCount = state.isChatHidden ? 0 : 1
+        // Include both gaps around the zero-length spacer.
+        return CGFloat(iconCount) * 24 + CGFloat(iconCount + chatCount) * 4
+            + (state.isChatHidden ? 0 : ChatButton.preferredContentWidth)
+            + 2 * WebContentConstant.edgesSpacing
     }
 
     private func regularLayout(availableWidth: CGFloat) -> some View {
-        HStack(spacing: 4) {
+        let showsFeedback = !state.isFeedbackHidden && availableWidth >= widthWithFeedback
+        let iconCount = 2 + (state.isMemoryHidden ? 0 : 1) + (showCardEntry ? 1 : 0)
+            + (showsFeedback ? 1 : 0)
+        let gapCount = iconCount + (state.isChatHidden ? 0 : 1)
+        let controlsWidth = CGFloat(iconCount) * 24
+            + (state.isChatHidden ? 0 : ChatButton.preferredContentWidth)
+        // Hide Feedback first, then compress only the gaps if the remaining row cannot fit.
+        let spacing = min(4, max(0, (availableWidth - controlsWidth
+            - 2 * WebContentConstant.edgesSpacing) / CGFloat(gapCount)))
+        return HStack(spacing: spacing) {
             ProfileButton(surface: .sidebar)
                 .frame(width: 24, height: 24)
 
@@ -107,13 +117,13 @@ struct SidebarBottomBarSwiftUI: View {
 
             Spacer(minLength: 0)
 
-            if !state.isFeedbackHidden {
+            if showsFeedback {
                 FeedbackButtonSwiftUI(action: onFeedbackTap)
                     .layoutPriority(1)
             }
 
             if !state.isChatHidden {
-                ChatButton(action: onChatTap, showsTitle: availableWidth >= widthWithChatTitle)
+                ChatButton(action: onChatTap)
                     .layoutPriority(2)
             }
         }

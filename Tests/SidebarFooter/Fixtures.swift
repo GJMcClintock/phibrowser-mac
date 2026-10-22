@@ -49,7 +49,7 @@ extension View {
     func probe(_ name: String) -> some View {
         background(GeometryReader { geometry in
             Color.clear.preference(key: FrameKey.self, value: [name: geometry.frame(in: .global)])
-        }).onPreferenceChange(FrameKey.self) { frames in
+        }).onDisappear { Probe.frames.removeValue(forKey: name) }.onPreferenceChange(FrameKey.self) { frames in
             MainActor.assumeIsolated { Probe.frames.merge(frames, uniquingKeysWith: { _, new in new }) }
         }
     }

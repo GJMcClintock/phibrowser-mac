@@ -11,7 +11,6 @@ import AppKit
 /// Chat button that opens the AI Chat sidebar.
 struct ChatButton: View {
     let action: () -> Void
-    var showsTitle: Bool = true
     /// Minimum width for contexts that reserve a fixed toolbar slot.
     var contentWidth: CGFloat? = nil
     var contentHeight: CGFloat? = nil
@@ -69,18 +68,15 @@ struct ChatButton: View {
                     .frame(width: Constants.iconSize, height: Constants.iconSize)
                     .foregroundColor(.white)
                 
-                if showsTitle {
-                    Text(Self.localizedTitle)
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundColor(.white)
-                        .lineLimit(1)
-                        .fixedSize(horizontal: true, vertical: false)
-                }
+                Text(Self.localizedTitle)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(.white)
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
             }
             .padding(.leading, Constants.leadingPadding)
-            .padding(.trailing, showsTitle ? Constants.trailingPadding : 0)
+            .padding(.trailing, Constants.trailingPadding)
             .padding(.vertical, Constants.verticalPadding)
-            .frame(width: showsTitle ? nil : 24, height: showsTitle ? nil : 24)
             .frame(
                 minWidth: contentWidth,
                 minHeight: contentHeight,
