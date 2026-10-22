@@ -4,6 +4,7 @@
 // found in the LICENSE file.
 
 import AppKit
+import Combine
 import PostHog
 import SwiftUI
 
@@ -14,7 +15,10 @@ final class LibraryViewModule: NSViewController {
     }
 
     enum Section: Int, CaseIterable {
-        case folio, spaces, downloads
+        /// Mirage's Folio library page, hosted in the pane as the window's
+        /// off-strip pane tab (`BrowserState.libraryPaneTab`).
+        case folio
+        case spaces, downloads
 
         var analyticsName: String {
             switch self {
@@ -58,14 +62,12 @@ final class LibraryViewModule: NSViewController {
     private let browserState: BrowserState
     private let presentation: Presentation
     private let downloadsManager = DownloadsManager(profileIds: [])
-    private let folioModel: FolioLibraryModel
     private var findShortcutMonitor: Any?
     var onDismiss: (() -> Void)?
 
     init(browserState: BrowserState, presentation: Presentation = .embedded) {
         self.browserState = browserState
         self.presentation = presentation
-        folioModel = FolioLibraryModel(profileId: browserState.profileId)
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -92,7 +94,7 @@ final class LibraryViewModule: NSViewController {
             let owner = SpaceSessionControllersManager.shared.controller(for: browserState.windowId)
             owner?.openLibraryInNewWindow(section: self.navigationState.selection)
         }, browserState: browserState, presentation: presentation,
-                                         downloadsManager: downloadsManager, folioModel: folioModel) { [weak self] in
+                                         downloadsManager: downloadsManager) { [weak self] in
             self?.onDismiss?()
         }
         let host = ThemedHostingController(rootView: content, themeSource: browserState.themeContext)
@@ -116,7 +118,6 @@ private struct LibraryContentView: View {
     let browserState: BrowserState
     let presentation: LibraryViewModule.Presentation
     let downloadsManager: DownloadsManager
-    let folioModel: FolioLibraryModel
     let dismiss: () -> Void
     @Environment(\.phiTheme) private var theme
     @Environment(\.phiAppearance) private var appearance
@@ -193,23 +194,16 @@ private struct LibraryContentView: View {
         .tint(color(.themeColor))
         .task(id: selection) {
             folioAvailable = SaveForLaterService.featureEnabled
-            if selection == .folio {
-                guard folioAvailable else {
-                    folioModel.clear()
-                    selection = .downloads
-                    return
-                }
+            if selection == .folio, !folioAvailable {
+                // Folio went away under a stale selection: fall back.
+                selection = .downloads
+                return
             }
             PostHogSDK.shared.capture("library_section_viewed", properties: [
                 "section": selection.analyticsName,
                 "is_standalone_window": presentation == .standalone,
             ])
-            if selection == .folio {
-                await folioModel.refresh()
-                await folioModel.watchFolder()
-            }
         }
-        .onDisappear { folioModel.clear() }
     }
 
     private var content: some View {
@@ -217,13 +211,17 @@ private struct LibraryContentView: View {
             if selection == .downloads {
                 AllDownloadsListView(downloadsManager: downloadsManager)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if selection == .spaces {
+            } else if selection == .folio {
+                LibraryFolioPane(browserState: browserState,
+                                 staysOpen: presentation == .standalone,
+                                 dismiss: dismiss)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    // Keep the page below the window controls, as the Spaces cards are.
+                    .padding(.top, presentation == .standalone ? Self.titlebarClearance : 0)
+            } else {
                 LibrarySpacesView(browserState: browserState)
                     // Keep standalone cards below the window controls in both sidebar states.
                     .padding(.top, presentation == .standalone ? Self.titlebarClearance : 0)
-            } else {
-                FolioLibraryView(model: folioModel, openURL: openOriginal, openArchive: openArchive, reveal: reveal)
-                    .onDisappear { folioModel.clear() }
             }
         }
         .frame(minWidth: 0, maxWidth: .infinity, maxHeight: .infinity)
@@ -282,8 +280,8 @@ private struct LibraryContentView: View {
         VStack(spacing: 12) {
             ForEach(LibraryViewModule.Section.allCases.filter { $0 != .folio || folioAvailable }, id: \.self) { section in
                 Button {
-                    selection = section
                     selectionAnimationTriggers[section, default: 0] += 1
+                    selection = section
                 } label: {
                     VStack(spacing: 9) {
                         Image(systemName: section.symbol)
@@ -367,34 +365,122 @@ private struct LibraryContentView: View {
         .accessibilityLabel(title)
         .accessibilityIdentifier(presentation == .embedded ? "library.openInNewWindow" : floating ? "library.showSidebar" : "library.hideSidebar")
     }
+}
 
-    private func openOriginal(_ url: URL) {
-        guard FolioLibrary.webURL(url.absoluteString) != nil,
-              SaveForLaterService.featureEnabled else { return }
-        dismiss()
-        browserState.createTab(url.absoluteString, customGuid: nil, focusAfterCreate: true)
+/// The Folio pane: Mirage's library page, a Chromium tab of the Library's
+/// window that the Library hosts off the strip (`BrowserState.libraryPaneTab`).
+/// The pane asks for the tab when it enters a window and closes it when it
+/// leaves one — a section switch, the overlay's dismissal or the standalone
+/// window closing — so the page lives exactly as long as it is on screen.
+private struct LibraryFolioPane: NSViewRepresentable {
+    let browserState: BrowserState
+    /// Whether the Library stays on screen after yielding (the standalone
+    /// window does; the attached panel dismisses), so the pane asks for a
+    /// fresh library page in place of the one that left for the strip.
+    let staysOpen: Bool
+    /// The Library yields to its browser window: a link followed inside the
+    /// page adopted the tab into the strip, which now shows that page.
+    let dismiss: () -> Void
+
+    func makeNSView(context: Context) -> LibraryFolioPaneHostView {
+        LibraryFolioPaneHostView(browserState: browserState, staysOpen: staysOpen, dismiss: dismiss)
     }
 
-    private func openArchive(_ item: FolioItem) {
-        guard SaveForLaterService.featureEnabled else { return }
-        do {
-            let url = try FolioLibrary.fileURL(basename: item.basename, ext: "mhtml", folder: folioModel.folder)
-            dismiss()
-            browserState.createTab(url.absoluteString, customGuid: nil, focusAfterCreate: true)
-        } catch { folioModel.error = error.localizedDescription }
-    }
+    func updateNSView(_ view: LibraryFolioPaneHostView, context: Context) {}
 
-    private func reveal(_ item: FolioItem?) {
-        guard SaveForLaterService.featureEnabled else { return }
-        do {
-            if let item {
-                let url = try FolioLibrary.fileURL(basename: item.basename, ext: "md", folder: folioModel.folder)
-                NSWorkspace.shared.activateFileViewerSelecting([url])
-            } else {
-                try FileManager.default.createDirectory(at: folioModel.folder, withIntermediateDirectories: true)
-                NSWorkspace.shared.open(folioModel.folder)
+    static func dismantleNSView(_ view: LibraryFolioPaneHostView, coordinator: ()) {
+        view.unmount()
+    }
+}
+
+/// Hosts the pane tab's native view edge to edge. A Chromium web view mounted
+/// outside the browser window's page container draws itself, in whichever
+/// window it is in — the attached Library panel or the standalone Library
+/// window — as Peek's and Reader's do.
+final class LibraryFolioPaneHostView: NSView {
+    private weak var browserState: BrowserState?
+    private let staysOpen: Bool
+    private let dismiss: () -> Void
+    private var subscriptions = Set<AnyCancellable>()
+    private weak var hostedTab: Tab?
+    private weak var hostedWebView: NSView?
+
+    init(browserState: BrowserState, staysOpen: Bool, dismiss: @escaping () -> Void) {
+        self.browserState = browserState
+        self.staysOpen = staysOpen
+        self.dismiss = dismiss
+        super.init(frame: .zero)
+        wantsLayer = true
+        // Synchronous on purpose: `libraryPaneTabWillBeRemoved` runs inside
+        // Chromium's close turn, and the view must leave before the
+        // WebContents is destroyed.
+        browserState.$libraryPaneTab
+            .sink { [weak self] tab in self?.host(tab) }
+            .store(in: &subscriptions)
+        browserState.libraryPaneTabAdopted
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                guard let self else { return }
+                self.dismiss()
+                if self.staysOpen, self.window != nil {
+                    self.browserState?.requestLibraryPaneTab()
+                }
             }
-        } catch { folioModel.error = error.localizedDescription }
+            .store(in: &subscriptions)
+    }
+
+    required init?(coder: NSCoder) { nil }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        guard let browserState else { return }
+        if window == nil {
+            unmount()
+            return
+        }
+        host(browserState.libraryPaneTab)
+        browserState.requestLibraryPaneTab()
+    }
+
+    /// Leaves the window's pane tab: detaches the page and closes the tab.
+    func unmount() {
+        detachHostedWebView()
+        browserState?.closeLibraryPane()
+    }
+
+    private func host(_ tab: Tab?) {
+        guard let window else { return }
+        if let tab, tab === hostedTab, hostedWebView?.superview === self { return }
+        detachHostedWebView()
+        guard let tab else { return }
+        guard let webView = tab.webContentView else {
+            // Without a native view there is nothing to host — show the page
+            // as a tab instead of an empty pane. Deferred: this runs inside
+            // the publish of `libraryPaneTab`, before the value is stored.
+            AppLogWarn("📚 [LibraryPane] tab \(tab.guid) has no webContentView — expanding into a tab")
+            DispatchQueue.main.async { [weak browserState] in
+                browserState?.expandLibraryPaneIntoTab()
+            }
+            return
+        }
+        hostedTab = tab
+        hostedWebView = webView
+        webView.removeFromSuperview()
+        webView.frame = bounds
+        webView.autoresizingMask = [.width, .height]
+        addSubview(webView)
+        if window.isKeyWindow {
+            window.makeFirstResponder(webView)
+            tab.webContentWrapper?.focus()
+        }
+    }
+
+    private func detachHostedWebView() {
+        if let hostedWebView, hostedWebView.superview === self {
+            hostedWebView.removeFromSuperview()
+        }
+        hostedWebView = nil
+        hostedTab = nil
     }
 }
 

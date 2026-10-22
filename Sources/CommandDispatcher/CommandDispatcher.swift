@@ -31,6 +31,8 @@ struct CommandDispatcher {
         .PHI_NEW_KIOSK_WINDOW,
         .PHI_NEW_INCOGNITO_SPACE,
         .PHI_SHARE_PAGE,
+        .PHI_CAPTURE_FULL_PAGE,
+        .PHI_CAPTURE_AREA,
         .PHI_SAVE_FOR_LATER,
     ] + CommandWrapper.spaceSelectionCommands
 
@@ -87,7 +89,8 @@ struct CommandDispatcher {
     }
 
     @MainActor
-    private static func dispatchCommand(_ command: CommandWrapper, to window: NSWindow) -> Bool {
+    private static func dispatchCommand(_ command: CommandWrapper, to window: NSWindow,
+                                        initiatingShortcut: ShortcutsKey? = nil) -> Bool {
         if SpaceSessionControllersManager.shared
             .isGuestTransitionInteractionBlocked {
             return true
@@ -107,7 +110,16 @@ struct CommandDispatcher {
             return false
         }
         if let kioskWindowController = windowController as? KioskBrowserWindowController {
-            return kioskWindowController.handleCommand(command)
+            switch command {
+            case .PHI_COPY_URL, .PHI_SHARE_PAGE, .PHI_TOGGLE_READER, .PHI_SAVE_FOR_LATER,
+                 .PHI_CAPTURE_FULL_PAGE, .PHI_CAPTURE_AREA:
+                // Kiosk already exposes these native page actions through its
+                // menu/toolbar. Run their common handlers below, rather than
+                // treating the Kiosk-specific switch's false as action failure.
+                break
+            default:
+                return kioskWindowController.handleCommand(command)
+            }
         }
         // Agent lock: while the agent controls this window, block every command
         // except Space navigation. The menu items are greyed and the shortcuts
@@ -125,6 +137,12 @@ struct CommandDispatcher {
         }
 
         switch command {
+        case .IDC_SHOW_BOOKMARK_BAR:
+            // Keep the Chromium command identity while Phi owns its presentation.
+            if PhiPreferences.GeneralSettings.loadLayoutMode().isTraditional {
+                AppController.shared?.toggleBookmarkBar(nil)
+            }
+            return true
         case .IDC_HOME:
             guard !AgentAnimationManager.shared.isActive(for: windowController.browserState.focusingTab?.guid ?? 0) else {
                 // disable home command when the current tab is excuting agent job
@@ -193,10 +211,12 @@ struct CommandDispatcher {
             windowController.browserState.swicthTab(.forward)
             return true
         case .PHI_TAB_SWITCHER_FORWARD:
-            windowController.browserState.tabSwitchManager.handleStep(.forward)
+            windowController.browserState.tabSwitchManager.handleStep(
+                .forward, initiatingKey: initiatingShortcut)
             return true
         case .PHI_TAB_SWITCHER_BACKWARD:
-            windowController.browserState.tabSwitchManager.handleStep(.backward)
+            windowController.browserState.tabSwitchManager.handleStep(
+                .backward, initiatingKey: initiatingShortcut)
             return true
         case .PHI_SELECT_NEXT_SPACE:
             return activateSpace(by: 1, from: windowController)
@@ -214,10 +234,16 @@ struct CommandDispatcher {
             OverlayToastCenter.shared.showURLCopyConfirmation(copiedURLs: copiedURLs, in: state)
             return true
         case .PHI_SHARE_PAGE:
-            guard PageSharingPresenter.canShare(tab: windowController.browserState.focusingTab) else {
+            guard PageSharingPresenter.canShare(tab: windowController.browserState.pageCommandTarget) else {
                 return false
             }
             windowController.sharePage(nil)
+            return true
+        case .PHI_CAPTURE_FULL_PAGE, .PHI_CAPTURE_AREA:
+            let state = windowController.browserState
+            let area = command == .PHI_CAPTURE_AREA
+            guard PageScreenshotService.shared.canCapture(in: state, area: area) else { return false }
+            PageScreenshotService.shared.capture(in: state, area: area)
             return true
         case .PHI_TOGGLE_READER:
             let state = windowController.browserState
@@ -229,7 +255,7 @@ struct CommandDispatcher {
             return true
         case .PHI_SAVE_FOR_LATER:
             let state = windowController.browserState
-            guard let tab = state.focusingTab, SaveForLaterService.canSave(tab) else {
+            guard let tab = state.pageCommandTarget, SaveForLaterService.canSave(tab) else {
                 return false
             }
             SaveForLaterService.save(tab: tab, in: state)
@@ -337,9 +363,14 @@ struct CommandDispatcher {
             return kiosk.handleCommand(command)
         }
 
-        // PHI-only commands: intercepted before Chromium sees the event.
-        if let phiCommand = interceptedPhiCommand(for: event) {
-            return dispatchCommand(phiCommand, to: window)
+        // An applicable binding owns the key even when its action currently
+        // has no result (for example, Copy URL without a copyable selection).
+        // Returning the action's success here would let a hidden Chromium
+        // alias execute a different command for the same press.
+        if let phiCommand = interceptedPhiCommand(for: event),
+           phiShortcutApplies(phiCommand, to: window) {
+            _ = dispatchCommand(phiCommand, to: window, initiatingShortcut: Shortcuts.key(for: phiCommand))
+            return true
         }
 
         // Agent lock: swallow every other browser shortcut while the agent
@@ -351,6 +382,31 @@ struct CommandDispatcher {
         }
 
         return false
+    }
+
+    /// Window/feature scope is distinct from transient action availability.
+    /// Keep non-browser windows, unsupported Kiosk commands and absent indexed
+    /// Space targets out of interception, without duplicating action validation.
+    @MainActor
+    private static func phiShortcutApplies(_ command: CommandWrapper, to window: NSWindow) -> Bool {
+        if command == .PHI_NEW_KIOSK_WINDOW { return AppController.shared != nil }
+        if command == .PHI_NEW_INCOGNITO_SPACE {
+            return spacesShortcutsEnabled && AppController.shared != nil
+        }
+        guard let controller = SpaceSessionControllersManager.shared.findControllerWith(window: window) else {
+            return false
+        }
+        if controller is KioskBrowserWindowController,
+           !command.shortcutScope.contains(.kiosk) { return false }
+        if command == .PHI_SELECT_NEXT_SPACE || command == .PHI_SELECT_PREVIOUS_SPACE {
+            return spacesShortcutsEnabled
+        }
+        if let index = command.spaceSelectionIndex {
+            return spacesShortcutsEnabled
+                && controller.slot?.presentedSpaces.indices.contains(index) == true
+        }
+        if command == .PHI_SAVE_FOR_LATER { return SaveForLaterService.featureEnabled }
+        return true
     }
 
     static func interceptedKioskCommand(
@@ -393,17 +449,14 @@ struct CommandDispatcher {
             eventKeys = ShortcutsKey.eventKeys(for: event)
         }
         guard let eventKeys else { return nil }
-        for key in eventKeys.matchingKeys {
-            if let command = shortcutMap[key] {
-                return command
-            }
-            if let command = shortcutMap.first(where: {
-                $0.key.menuKeyEquivalent == key.menuKeyEquivalent
-            })?.value {
-                return command
-            }
-        }
-        return nil
+        return shortcutMap.compactMap { key, command -> (rank: Int, command: CommandWrapper)? in
+            guard let rank = eventKeys.matchingRank(for: key) else { return nil }
+            return (rank, command)
+        }.min {
+            // Old configurations may contain equivalent conflicting bindings.
+            // Keep resolution stable instead of depending on Dictionary order.
+            $0.rank == $1.rank ? $0.command.rawValue < $1.command.rawValue : $0.rank < $1.rank
+        }?.command
     }
     
     @MainActor

@@ -323,6 +323,96 @@ final class ApplicationStateTests: XCTestCase {
         wait(for: [stateChanges], timeout: 0.1)
     }
 
+    /// Every window activation resolves the launch state again, and a
+    /// signed-in user resolves the same state each time. Each defaults write
+    /// posts `UserDefaults.didChangeNotification` to every observer in the
+    /// app, so an unchanged Guest choice is not written again.
+    func testResolvingTheSameSignedInStateAgainWritesNoDefault() {
+        let state = makeState()
+
+        expectDefaultsWrite {
+            state.resolveInitialAccess(
+                isAuthenticationBlocked: false,
+                hasRecoverableLoginSession: false,
+                isAuthenticated: true
+            )
+        }
+        expectDefaultsWrite(inverted: true) {
+            state.resolveInitialAccess(
+                isAuthenticationBlocked: false,
+                hasRecoverableLoginSession: false,
+                isAuthenticated: true
+            )
+        }
+
+        XCTAssertEqual(state.browserAccessState, .signedIn)
+        XCTAssertTrue(state.isAuthenticated)
+        XCTAssertFalse(state.isGuest)
+        XCTAssertEqual(makeState().browserAccessState, .loginRequired)
+    }
+
+    func testResolvingSignedInAfterAGuestChoiceStillClearsIt() {
+        let state = makeState()
+        state.enterGuestMode()
+
+        expectDefaultsWrite {
+            state.resolveInitialAccess(
+                isAuthenticationBlocked: false,
+                hasRecoverableLoginSession: false,
+                isAuthenticated: true
+            )
+        }
+
+        XCTAssertEqual(state.browserAccessState, .signedIn)
+        XCTAssertEqual(makeState().browserAccessState, .loginRequired)
+    }
+
+    func testTransitionsWithoutAuthenticationDoNotRewriteTheGuestChoice() {
+        let state = makeState(supportsAuthentication: false)
+
+        expectDefaultsWrite(inverted: true) {
+            state.resolveInitialAccess(
+                isAuthenticationBlocked: false,
+                hasRecoverableLoginSession: false,
+                isAuthenticated: true
+            )
+            state.enterGuestMode()
+            state.markSignedIn()
+            state.requireLogin()
+        }
+
+        XCTAssertEqual(state.browserAccessState, .guest)
+        XCTAssertEqual(
+            makeState(supportsAuthentication: false).browserAccessState,
+            .guest
+        )
+    }
+
+    /// Runs `body` and waits for it to write the test defaults, or with
+    /// `inverted`, for it to write nothing.
+    private func expectDefaultsWrite(
+        inverted: Bool = false,
+        _ body: () -> Void
+    ) {
+        let write = expectation(
+            description: inverted ? "No defaults write" : "Defaults write"
+        )
+        write.isInverted = inverted
+        write.assertForOverFulfill = false
+        let observer = NotificationCenter.default.addObserver(
+            forName: UserDefaults.didChangeNotification,
+            object: defaults,
+            queue: nil
+        ) { _ in
+            write.fulfill()
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+
+        body()
+
+        wait(for: [write], timeout: 0.1)
+    }
+
     private func makeState(
         supportsAuthentication: Bool = true
     ) -> ApplicationState {

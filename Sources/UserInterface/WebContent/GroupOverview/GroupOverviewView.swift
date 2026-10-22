@@ -183,13 +183,12 @@ final class GroupOverviewViewModel: ObservableObject {
     }
 
     private func makeSnapshotImage(for tab: Tab) -> NSImage? {
+        // Use Chromium's cached thumbnail for both foreground and background tabs.
+        // Live AppKit capture can return a blank image for Chromium's remote surface.
+        // FIXME: Fix live capture of Chromium content before restoring it as a fallback.
         if let jpegData = ChromiumLauncher.sharedInstance().bridge?.thumbnail(forTab: Int64(tab.guid)),
            let image = NSImage(data: jpegData) {
             return image
-        }
-        if tab.isActive, let browserState,
-           let live = browserState.tabDraggingSession.singleTabSnapshotImage(for: tab) {
-            return live
         }
         return placeholderSnapshot(for: tab)
     }

@@ -350,13 +350,13 @@ final class ApplicationState {
         let effectiveState = supportsAuthentication ? newState : .guest
         if supportsAuthentication {
             if let persistedGuestChoice {
-                defaults.set(persistedGuestChoice, forKey: Self.guestModeEnabledKey)
+                persistGuestChoiceIfChanged(persistedGuestChoice)
             }
             if let guestPromotionInProgress {
                 self.guestAccountPromotionInProgress = guestPromotionInProgress
             }
         } else {
-            defaults.set(true, forKey: Self.guestModeEnabledKey)
+            persistGuestChoiceIfChanged(true)
             self.guestAccountPromotionInProgress = false
         }
         let oldRecoveryState = self.guestMigrationRecoveryInProgress
@@ -373,6 +373,17 @@ final class ApplicationState {
 
         guard didChange else { return }
         notificationCenter.post(name: .browserAccessStateDidChange, object: self)
+    }
+
+    /// Writes the choice only when it differs from the stored one. Every
+    /// window activation resolves the launch state again, and each write
+    /// posts `UserDefaults.didChangeNotification` to every defaults observer
+    /// in the app.
+    private func persistGuestChoiceIfChanged(_ choice: Bool) {
+        guard defaults.object(forKey: Self.guestModeEnabledKey) as? Bool != choice else {
+            return
+        }
+        defaults.set(choice, forKey: Self.guestModeEnabledKey)
     }
 
     private func guestTransitionSnapshot() -> (

@@ -233,8 +233,10 @@ final class TabItemView: NSView {
         return view
     }()
 
-    private lazy var recordingIconHostingView: ZeroSafeAreaHostingView<AnyView> = {
-        let view = ZeroSafeAreaHostingView(rootView: makeRecordingIconRootView())
+    private lazy var recordingIconHostingView: TabRecordingIconHostingView = {
+        let view = TabRecordingIconHostingView { [weak self] in
+            self?.makeRecordingIconRootView() ?? AnyView(EmptyView())
+        }
         view.layer?.backgroundColor = .clear
         return view
     }()
@@ -393,6 +395,11 @@ final class TabItemView: NSView {
             isUnloaded: sourceTab?.isUnloaded == true
                 || pinnedSplitPartner?.isUnloaded == true
         )
+        // Pinned and compact cells show recording as the centered icon below
+        // and hide both favicons; drop their corner badges with them.
+        let hidesRecordingBadges = showRecording && mode != .normal
+        viewModel.hidesRecordingBadge = hidesRecordingBadges
+        secondaryFaviconViewModel.hidesRecordingBadge = hidesRecordingBadges
 
         switch mode {
         case .pinned, .compact:
@@ -711,6 +718,9 @@ final class TabItemView: NSView {
             view.isHidden = true
             view.frame = .zero
         }
+        // SwiftUI keeps animating a hidden host's recording badge.
+        viewModel.hidesRecordingBadge = true
+        secondaryFaviconViewModel.hidesRecordingBadge = true
         removePaneToolTips()
     }
 

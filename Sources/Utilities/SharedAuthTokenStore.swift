@@ -362,10 +362,13 @@ final class SharedAuthTokenStore {
             userInfo["auth0_sub"] = auth0Sub
         }
 
-        DistributedNotificationCenter.default().post(
-            name: .sharedAuthTokenDidChange,
+        // Token consumers must update even while AppKit suspends ordinary
+        // distributed notifications for an inactive application.
+        DistributedNotificationCenter.default().postNotificationName(
+            .sharedAuthTokenDidChange,
             object: nil,
-            userInfo: userInfo
+            userInfo: userInfo,
+            deliverImmediately: true
         )
         #endif
     }

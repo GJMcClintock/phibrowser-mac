@@ -120,6 +120,83 @@ final class PeekPanelController {
             fatalError("init(coder:) has not been implemented")
         }
 
+        /// AppKit gives a square-bezel button 2.5pt top / 1.5pt bottom
+        /// alignment insets for a bezel this button never draws. Constraints
+        /// size the alignment rect, so without this the frame — and the layer
+        /// that paints the chip — came out 28×32 with the glyph riding high.
+        override var alignmentRectInsets: NSEdgeInsets { NSEdgeInsetsZero }
+
+        /// Places the glyph by its ink, not by the symbol's alignment rect.
+        /// `NSButtonCell` centres the alignment rect and rounds its origin
+        /// down to whole points, which lands the wider symbols (the split and
+        /// reader glyphs) half a point left of centre. The ink box is read
+        /// once per image by rasterising it; the glyph is then drawn at a
+        /// half-point-snapped origin so it stays pixel-aligned on 2x.
+        private final class Cell: NSButtonCell {
+            /// Vertical nudge of the ink centre from the chip centre, in
+            /// points, should the chip ever want optical rather than exact
+            /// centring. Exact centring was judged right against the shadow.
+            static let opticalDrop: CGFloat = 0
+
+            private var inkCache: [ObjectIdentifier: NSRect] = [:]
+
+            override func drawImage(_ image: NSImage, withFrame frame: NSRect, in controlView: NSView) {
+                let ink = inkRect(of: image)
+                let bounds = controlView.bounds
+                // The control is flipped: +y is down.
+                let target = CGPoint(x: bounds.midX, y: bounds.midY + Self.opticalDrop)
+                let inkCentreFromTop = image.size.height - ink.midY
+                func snap(_ value: CGFloat) -> CGFloat { (value * 2).rounded() / 2 }
+                let origin = CGPoint(x: snap(target.x - ink.midX), y: snap(target.y - inkCentreFromTop))
+                let tint = (controlView as? NSButton)?.contentTintColor ?? .labelColor
+                let color = isHighlighted ? (tint.blended(withFraction: 0.3, of: .black) ?? tint) : tint
+                let config = image.symbolConfiguration.applying(NSImage.SymbolConfiguration(paletteColors: [color]))
+                let tinted = image.withSymbolConfiguration(config) ?? image
+                tinted.draw(in: NSRect(origin: origin, size: image.size), from: .zero,
+                            operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
+            }
+
+            /// Bounding box of the image's opaque pixels, in image points with
+            /// a bottom-left origin. Falls back to the whole image.
+            private func inkRect(of image: NSImage) -> NSRect {
+                if let cached = inkCache[ObjectIdentifier(image)] { return cached }
+                let scale: CGFloat = 2
+                let width = Int((image.size.width * scale).rounded(.up))
+                let height = Int((image.size.height * scale).rounded(.up))
+                var rect = NSRect(origin: .zero, size: image.size)
+                if let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: width, pixelsHigh: height,
+                                              bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+                                              colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0) {
+                    rep.size = image.size
+                    NSGraphicsContext.saveGraphicsState()
+                    NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
+                    image.draw(in: NSRect(origin: .zero, size: image.size))
+                    NSGraphicsContext.restoreGraphicsState()
+                    var minX = width, minY = height, maxX = -1, maxY = -1
+                    for y in 0..<height {
+                        for x in 0..<width where (rep.colorAt(x: x, y: y)?.alphaComponent ?? 0) > 0.1 {
+                            minX = min(minX, x); maxX = max(maxX, x)
+                            minY = min(minY, y); maxY = max(maxY, y)
+                        }
+                    }
+                    if maxX >= 0 {
+                        // The rep is top-down; image coordinates are bottom-up.
+                        rect = NSRect(x: CGFloat(minX) / scale,
+                                      y: CGFloat(height - 1 - maxY) / scale,
+                                      width: CGFloat(maxX - minX + 1) / scale,
+                                      height: CGFloat(maxY - minY + 1) / scale)
+                    }
+                }
+                inkCache[ObjectIdentifier(image)] = rect
+                return rect
+            }
+        }
+
+        override class var cellClass: AnyClass? {
+            get { Cell.self }
+            set {}
+        }
+
         override func updateTrackingAreas() {
             super.updateTrackingAreas()
             if let hoverTrackingArea {
@@ -376,6 +453,22 @@ final class PeekPanelController {
         landAppearFlight()
         removeEventMonitor()
         rootView.removeFromSuperview()
+        setHostedPeekPresented(false)
+    }
+
+    /// Chromium's page commands (Reload, Stop, Zoom, Print, Save Page, View
+    /// Source, DevTools, Find) act on the presented peek instead of the
+    /// strip-active opener behind it, mirroring `BrowserState
+    /// .pageCommandTarget` on the native side. Tracks the panel being on
+    /// screen with `hostedTab`'s page: set on reveal, cleared on hide and
+    /// detach. An eclipsing omnibox leaves the page visible, so it keeps the
+    /// bit; tab search conceals the panel through `hide()`, so it drops it.
+    private func setHostedPeekPresented(_ presented: Bool) {
+        guard let wrapper = hostedTab?.webContentWrapper,
+              wrapper.responds(to: #selector(WebContentWrapper.updateIsPeekPresented(_:))) else {
+            return
+        }
+        wrapper.updateIsPeekPresented(presented)
     }
 
     /// The omnibox keeps keyboard ownership while the page remains visible.
@@ -534,6 +627,7 @@ final class PeekPanelController {
         layoutOnAnchor()
         if flyIn { armAppearFlight() }
         rootView.isHidden = false
+        setHostedPeekPresented(true)
         runAppearFlight()
         // The page, not `subviews.first` — docked DevTools sits below it.
         if focusContent, !isEclipsedByInWindowOverlay,
@@ -557,6 +651,7 @@ final class PeekPanelController {
     private func detachHostedContent() {
         toastCenter.clearWindow(windowId: toastViewController.state.windowId)
         landAppearFlight()
+        setHostedPeekPresented(false)
         webHostView.subviews.forEach { $0.removeFromSuperview() }
         hostedTab = nil
         controlVisibility = nil
@@ -970,6 +1065,40 @@ final class PeekPanelController {
         observedCardView = nil
     }
 
+    /// Consumes only keys owned by this visible, focused overlay. Closing the
+    /// preview must never pass the same Close Tab command to its opener.
+    func handleKeyEquivalent(_ event: NSEvent) -> Bool {
+        guard event.type == .keyDown, rootView.isPresented,
+              !isEclipsedByInWindowOverlay,
+              event.window === parentWindow, parentWindow?.isKeyWindow == true,
+              rootView.containsFirstResponder else { return false }
+        let eventKeys = ShortcutsKey.eventKeys(for: event)
+        if eventKeys?.matches(Shortcuts.key(for: .IDC_CLOSE_TAB)) == true {
+            closeHostedPeek()
+            return true
+        }
+        // DevTools retains Escape and navigation unless the user explicitly
+        // bound that key to Close Tab, which must still protect the opener.
+        guard !PageOverlayDevToolsDock.hasFocus(hostedTab) else { return false }
+        if event.keyCode == 53,
+           event.modifierFlags.intersection(ShortcutsKey.supportedModifierFlags).isEmpty {
+            closeHostedPeek()
+            return true
+        }
+        guard let eventKeys else { return false }
+        if NSApp.keyWindow === parentWindow,
+           eventKeys.matches(Shortcuts.key(for: .PHI_KIOSK_OPEN_IN_SPACE)) {
+            expandButtonClicked(nil)
+            return true
+        }
+        if eventKeys.matches(Shortcuts.key(for: .IDC_BACK))
+            || eventKeys.matches(Shortcuts.key(for: .IDC_FORWARD)) {
+            closeHostedPeek()
+            return true
+        }
+        return false
+    }
+
     private func installEventMonitorIfNeeded() {
         guard eventMonitor == nil else { return }
         eventMonitor = NSEvent.addLocalMonitorForEvents(
@@ -979,50 +1108,7 @@ final class PeekPanelController {
                   !self.isEclipsedByInWindowOverlay else { return event }
             switch event.type {
             case .keyDown:
-                guard event.window === self.parentWindow,
-                      self.parentWindow?.isKeyWindow == true,
-                      self.rootView.containsFirstResponder else { return event }
-                // Cmd-W must be swallowed here: strip-active is the bound
-                // opener while the peek is up, so letting it reach Chromium's
-                // IDC_CLOSE_TAB would close the opener.
-                if event.modifierFlags.contains(.command),
-                   event.charactersIgnoringModifiers?.lowercased() == "w" {
-                    self.closeHostedPeek()
-                    return nil
-                }
-                // Docked DevTools owns its keys: Esc toggles its console
-                // drawer and Cmd-[ / Cmd-] switch its panels.
-                if PageOverlayDevToolsDock.hasFocus(self.hostedTab) {
-                    return event
-                }
-                // Esc closes the peek.
-                if event.keyCode == 53 {
-                    self.closeHostedPeek()
-                    return nil
-                }
-                // Back/Forward reads as "leave the preview": close the peek
-                // and swallow the key. Matched here (against the configured
-                // shortcuts) because the peek's web view holds focus — the
-                // event would otherwise walk the peek page's own history
-                // instead of reaching the menu command.
-                if let eventKeys = ShortcutsKey.eventKeys(for: event) {
-                    // Share Kiosk's configurable Open in Space binding with
-                    // Open as Tab, scoped to this Peek's window so another
-                    // visible Peek cannot consume the active window's command.
-                    if (NSApp.keyWindow === self.parentWindow),
-                       let expandKey = Shortcuts.key(for: .PHI_KIOSK_OPEN_IN_SPACE),
-                       eventKeys.matchingKeys.contains(expandKey) {
-                        self.expandButtonClicked(nil)
-                        return nil
-                    }
-                    let backForwardKeys = [Shortcuts.key(for: .IDC_BACK),
-                                           Shortcuts.key(for: .IDC_FORWARD)].compactMap { $0 }
-                    if eventKeys.matchingKeys.contains(where: backForwardKeys.contains) {
-                        self.closeHostedPeek()
-                        return nil
-                    }
-                }
-                return event
+                return self.handleKeyEquivalent(event) ? nil : event
             case .leftMouseDown, .rightMouseDown:
                 // Only clicks on the page pane around the panel close the
                 // peek (Arc behavior). Sidebar/toolbar clicks pass through so

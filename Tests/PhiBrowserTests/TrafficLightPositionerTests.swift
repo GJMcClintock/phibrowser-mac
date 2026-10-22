@@ -81,3 +81,185 @@ final class TrafficLightPositionerTests: XCTestCase {
         }
     }
 }
+
+/// `apply()` runs on every main run-loop pass in every window, so it must not
+/// look the traffic lights up each time: `standardWindowButton` searches the
+/// whole frame view. It reuses the buttons it last found while they are still
+/// in the window, and looks them up again only once AppKit has replaced them.
+@MainActor
+final class TrafficLightPositionerButtonCacheTests: XCTestCase {
+    private let centerFromWindowTop: CGFloat = 30
+
+    func test_repeatedApplyReusesTheButtonsItFound() throws {
+        let window = makeWindow()
+        let positioner = TrafficLightPositioner(
+            window: window,
+            centerFromWindowTop: centerFromWindowTop
+        )
+        defer { positioner.stop(restoringPlacement: false) }
+
+        positioner.apply()
+        try assertLightsHeld(in: window)
+        let lookupsAfterFirstApply = window.buttonLookups
+        XCTAssertGreaterThan(
+            lookupsAfterFirstApply,
+            0,
+            "Precondition: the first apply finds the buttons."
+        )
+
+        for _ in 0..<10 {
+            positioner.apply()
+        }
+
+        XCTAssertEqual(
+            window.buttonLookups,
+            lookupsAfterFirstApply,
+            "Applies whose cached buttons are still in the window must not "
+            + "search the window for them again."
+        )
+        try assertLightsHeld(in: window)
+    }
+
+    func test_applyLooksTheButtonsUpAgainOnceAppKitReplacesOne() throws {
+        let window = makeWindow()
+        let positioner = TrafficLightPositioner(
+            window: window,
+            centerFromWindowTop: centerFromWindowTop
+        )
+        defer { positioner.stop(restoringPlacement: false) }
+        positioner.apply()
+        try assertLightsHeld(in: window)
+
+        // What AppKit rebuilding the titlebar leaves behind: a new close
+        // button in the old one's place, and the old one out of the tree.
+        let oldClose = try XCTUnwrap(window.uncountedButton(.closeButton))
+        let titlebarView = try XCTUnwrap(oldClose.superview)
+        let newClose = NSButton(frame: oldClose.frame)
+        titlebarView.addSubview(newClose)
+        oldClose.removeFromSuperview()
+        window.replacementCloseButton = newClose
+
+        var lookupsBefore = window.buttonLookups
+        positioner.apply()
+        XCTAssertEqual(
+            window.buttonLookups - lookupsBefore,
+            3,
+            "A cached button that left the window must send the next apply "
+                + "back to the window for all three."
+        )
+
+        lookupsBefore = window.buttonLookups
+        positioner.apply()
+        XCTAssertEqual(
+            window.buttonLookups - lookupsBefore,
+            0,
+            "The replacement buttons must be cached in turn."
+        )
+    }
+
+    /// The per-pass observer exists for the moves AppKit makes without a
+    /// notification; reading the buttons from the cache may not skip
+    /// putting them back.
+    func test_applyRestoresALightMovedWithoutNotice() throws {
+        let window = makeWindow()
+        let positioner = TrafficLightPositioner(
+            window: window,
+            centerFromWindowTop: centerFromWindowTop
+        )
+        defer { positioner.stop(restoringPlacement: false) }
+        positioner.apply()
+        try assertLightsHeld(in: window)
+
+        let zoom = try XCTUnwrap(window.uncountedButton(.zoomButton))
+        let heldOrigin = zoom.frame.origin
+        zoom.postsFrameChangedNotifications = false
+        zoom.setFrameOrigin(NSPoint(x: heldOrigin.x, y: heldOrigin.y - 6))
+        XCTAssertNotEqual(zoom.frame.origin, heldOrigin, "Precondition: moved.")
+
+        let lookupsBefore = window.buttonLookups
+        positioner.apply()
+
+        XCTAssertEqual(zoom.frame.origin, heldOrigin)
+        try assertLightsHeld(in: window)
+        XCTAssertEqual(
+            window.buttonLookups - lookupsBefore,
+            0,
+            "The cached buttons are still in the window; the correction must "
+                + "not search for them."
+        )
+    }
+
+    // MARK: - Helpers
+
+    private func makeWindow() -> ButtonLookupCountingWindow {
+        let window = ButtonLookupCountingWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
+            styleMask: [
+                .titled,
+                .closable,
+                .miniaturizable,
+                .resizable,
+                .fullSizeContentView,
+            ],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        return window
+    }
+
+    /// Every light's centre sits `centerFromWindowTop` below the top of the
+    /// window.
+    private func assertLightsHeld(
+        in window: ButtonLookupCountingWindow,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws {
+        for type in [
+            NSWindow.ButtonType.closeButton,
+            .miniaturizeButton,
+            .zoomButton,
+        ] {
+            let button = try XCTUnwrap(
+                window.uncountedButton(type),
+                file: file,
+                line: line
+            )
+            let frameInWindow = button.convert(button.bounds, to: nil)
+            XCTAssertEqual(
+                window.frame.height - frameInWindow.midY,
+                centerFromWindowTop,
+                accuracy: 0.5,
+                "\(type.rawValue) is not on the held line",
+                file: file,
+                line: line
+            )
+        }
+    }
+}
+
+/// Counts every `standardWindowButton(_:)` call, and can stand a new close
+/// button in for the window's own.
+private final class ButtonLookupCountingWindow: NSWindow {
+    private(set) var buttonLookups = 0
+    var replacementCloseButton: NSButton?
+
+    override func standardWindowButton(
+        _ button: NSWindow.ButtonType
+    ) -> NSButton? {
+        buttonLookups += 1
+        if button == .closeButton, let replacementCloseButton {
+            return replacementCloseButton
+        }
+        return super.standardWindowButton(button)
+    }
+
+    /// The button the positioner should be holding, without counting a
+    /// lookup.
+    func uncountedButton(_ button: NSWindow.ButtonType) -> NSButton? {
+        if button == .closeButton, let replacementCloseButton {
+            return replacementCloseButton
+        }
+        return super.standardWindowButton(button)
+    }
+}

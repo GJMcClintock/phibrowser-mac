@@ -4,7 +4,7 @@ Defines what happens when a Space's NSWindow closes, depending on how the close 
 
 ## The shell window
 
-Every Space session is hosted: a slot owns one visible `ShellWindow` (`ShellWindowController.swift`) and Chromium never shows a browser window. The shell owns the window's one split (`ShellSplitViewController.swift`: the sidebar column with its vibrancy backdrop, width and collapsed state | the page area), so the sidebar reads as one sidebar across Space switches; each Space's `SpaceSessionController` keeps its sidebar content (`SidebarViewController.view`, painting no backdrop) *resident* in the column — added once it has a shell, hidden unless presented, sized with the column — and keeps its page tree (`MainSplitViewController.view`, which builds no split of its own when hosted) resident and hidden in the page area. A switch reuses these attachments: the vertical-layout switch shows the entering session's resident content with only its band visible and slides that band in while the leaving band slides out (`HostedBandSlide`), the entering page cross-fades on the same animation clock, and the Chromium round trips (`setPresented:`, the Browser spawn of a dormant Space) run one turn after the first frame. The session's Chromium NSWindow only carries the Browser's lifecycle and mirrors the shell's frame. The close model maps onto the legacy one as follows; `unregisterWindow` still classifies, then hands off to `unregisterHostedSession`.
+Every Space session is hosted: a slot owns one visible `ShellWindow` (`ShellWindowController.swift`) and Chromium never shows a browser window. The shell owns the window's one split (`ShellSplitViewController.swift`: the sidebar column with its vibrancy backdrop, width and collapsed state | the page area), so the sidebar reads as one sidebar across Space switches; each Space's `SpaceSessionController` keeps its sidebar content (`SidebarViewController.view`, painting no backdrop) *resident* in the column — added once it has a shell, hidden unless presented, sized with the column — and keeps its page tree (`MainSplitViewController.view`, which builds no split of its own when hosted) resident and hidden in the page area. A switch reuses these attachments: the vertical-layout switch shows the entering session's resident content with only its band visible and slides that band in while the leaving band slides out (`HostedBandSlide`), the entering page cross-fades on the same animation clock, and the Chromium round trips (`setPresented:`, the Browser spawn of a dormant Space) run one turn after the first frame. The session's Chromium NSWindow only carries the Browser's lifecycle and mirrors the shell's frame; the shell takes the presented session's title from it (its active tab's), since the Dock menu, the Window menu and Mission Control list the shell, and shows the Space name instead while the session has no Browser yet or is on the placeholder page (`SpaceWindowSlot.retitleShell`). The close model maps onto the legacy one as follows; `unregisterWindow` still classifies, then hands off to `unregisterHostedSession`.
 
 - **Window-driven close of the shell** (red ✕, ⇧⌘W on the shell): `ShellWindowController.windowShouldClose` → `slot.shellRequestedClose()`, which starts the same cascade a window-driven close does — `IDC_CLOSE_WINDOW` for every session through Chromium — and refuses the AppKit close. The shell is closed by `removeSlot` → `closeShellIfPresent` once the last session has unregistered, or kept (with the survivor re-presented by the cascade-veto recovery) when a `beforeunload` prompt vetoes.
 - **A session's Chromium window closing** (⌘W on the last tab, `window.close()`, an Incognito Space reap, a Space deleted): `windowWillClose` on the hidden window → `unregisterWindow` → `unregisterHostedSession`. Presented + tab-driven with a sibling that has tabs → `activate(sibling)`. Presented otherwise → cascade the rest, as above. A background session → dropped from the map with no side effects (it was never on screen). When the map empties, `removeSlot` closes the shell.
@@ -24,11 +24,24 @@ tree, and each is handled at the moment the Space withdraws
   every Space. The withdrawing session puts it back under its tree first
   (`WebContentContainerViewController.collapseContentFullscreenForConcealment`),
   and Chromium's `UnpresentHostedBrowser` leaves tab fullscreen with the
-  Space, as a tab switch does in a real window. The shell keeps its own
-  fullscreen state for the Space replacing it; the leaving Space is a
+  Space, as a tab switch does in a real window. The leaving Space is a
   background session for `sessionRequestedShellFullscreen` from the moment
   `concealFromShell` runs, whether or not the slot has moved
-  `visibleController` on yet.
+  `visibleController` on yet, and the shell keeps its fullscreen state for
+  the Space replacing it, with one exception: when the leaving Space's
+  request put the shell into fullscreen (`shellFullscreenOwner`), Chromium
+  asks for the window to leave fullscreen with the tab, and the shell does,
+  as a real window does. Fullscreen the user entered through AppKit — the
+  green button, or View › Enter Full Screen and its ⌃⌘F, which send
+  AppKit's `toggleFullScreen:` rather than Chromium's fullscreen command and
+  reach the slot as `shellFullScreenWillChange`, not as a request — has no
+  owner and stays. A browser fullscreen Chromium requests for a Space (an
+  extension or agent changing the window's state, through
+  `windowRequestedFullscreen:`) belongs to that Space, but no tab brought
+  it, so it stays too when the Space leaves.
+  The slot's restore record leaves out a fullscreen whose owner's page is
+  still in it (`snapshotIsFullScreen`), so quitting from a video in
+  fullscreen reopens windowed.
 - A crash page reloads and opens help through its own session
   (`BrowserState.windowController`), never through the shell's window
   controller, which is whichever Space is presented.

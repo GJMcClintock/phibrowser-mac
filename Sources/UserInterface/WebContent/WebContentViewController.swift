@@ -27,10 +27,23 @@
              └── contentView             // AI Chat content container
                  └── aiChatWebView       // AI Chat WebView
  
+ Content surface (chromium ADR 0014, while Chromium's PhiContentSurface is on):
+ the container installs its Space instance's content surface view below this
+ whole tree, and every web view above (webContentView, the split panes,
+ aiChatWebView, docked DevTools) draws there instead of in its own NSView,
+ which stays the input and accessibility carrier. The fills of
+ splitViewContainer, leftContainerView, the split pane cards and the AI Chat
+ contentView are then clear (`hasContentSurface`), borders and corners kept;
+ the container tells Chromium each web view's corner radii and stacking
+ order. Nothing of another tab shows through those clear fills: the
+ container mounts only the current tab's view and removes the others in the
+ same turn (mac ADR 0011). Without a surface every web view draws itself, as
+ before.
+
  Layout constraints:
  - splitViewContainer: trailing/bottom inset 8pt from view edges, top is 0
  - leading inset is 0 when the sidebar is expanded, 8pt when collapsed or in traditional layout
- - leftContainerView: 4pt inset + border when AI Chat is expanded; no inset/border when collapsed
+ - leftContainerView: 4pt inset + border when AI Chat is expanded or the extension side panel is docked (kept until a collapse animation or panel slide ends); no inset/border otherwise. The tab strip's active tab follows it: browser color while separated, page color otherwise
  - embeddedChatViewController: min width 300, max width 600, collapsible
  
  AI Chat state management:
@@ -113,9 +126,16 @@ class WebContentViewController: NSViewController {
     /// partner URL changes so entering or leaving a native URL renderer replaces
     /// that pane immediately instead of waiting for a focus switch.
     private var partnerContentCancellable: AnyCancellable?
-    /// Saved superview reference while hostView is re-parented to window.contentView
-    /// for HTML5 content fullscreen. Nil when not in fullscreen.
+    /// Saved superview reference while hostView is re-parented into an overlay
+    /// over window.contentView for HTML5 content fullscreen. Nil when not in
+    /// fullscreen.
     private weak var savedHostViewSuperview: NSView?
+    /// Covers `window.contentView` while this page is in content fullscreen,
+    /// holding the content surface's view under `hostView`.
+    private var contentFullscreenOverlay: NSView?
+    /// The container the surface was borrowed from; `parent` is gone by
+    /// `deinit`.
+    private weak var contentSurfaceLender: WebContentContainerViewController?
     private var progressObserverCancellables = Set<AnyCancellable>()
     private var lastProgressLogBucket: Int?
     private var isSubscriptionsSetup = false
@@ -150,7 +170,33 @@ class WebContentViewController: NSViewController {
     /// Frame-change processing is skipped during this window to avoid interfering
     /// with the animation (e.g. persisting intermediate widths).
     private var isAnimatingAIChatExpansion = false
-    
+    /// True while the AI Chat split item is animating its collapse transition.
+    /// The page card keeps its separated style meanwhile (see
+    /// `updateLeftContainerStyle`).
+    private var isAnimatingAIChatCollapse = false
+    /// Counts AI Chat expand/collapse transitions, so a completion handler
+    /// can tell whether its transition is still the latest.
+    private var aiChatTransitionCount = 0
+    /// Counts the container's extension side panel slides over this page, so
+    /// a slide's completion handler can tell whether its slide is still this
+    /// page's latest. Per page: another tab's slide never moves this split,
+    /// so it must not cancel the alignment this page's own slide owes it.
+    private var panelTransitionCount = 0
+    /// True from the start of the container's latest extension side panel
+    /// slide over this page until it ends. A closing panel keeps the page
+    /// card separated meanwhile (see `updateLeftContainerStyle`).
+    private var isAnimatingPanelSlide = false
+    /// The page card's width when the latest side panel slide began.
+    private var pageCardWidthAtPanelSlideStart: CGFloat = 0
+    /// The transition whose end lets go of the page card held for a
+    /// handoff between AI Chat and the extension side panel
+    /// (`capPageCardWidth`).
+    private var pageCardWidthCapOwner: PageCardWidthCapOwner?
+    private enum PageCardWidthCapOwner: Equatable {
+        case panelSlide(Int)
+        case aiChatTransition(Int)
+    }
+
     /// Chromium's `restoreFocus` / `focus` silently fails on pages that haven't
     /// loaded yet (url=nil).  When set, the `$url` observer will re-trigger
     /// `restoreFocusForCurrentTab` once the URL arrives and the page is ready.
@@ -164,7 +210,7 @@ class WebContentViewController: NSViewController {
     
     // MARK: - Left Content Area
     /// Wrapper that provides the adjustable inset for the left content area.
-    private lazy var leftContainerWrapper = NSView()
+    private lazy var leftContainerWrapper = PageCardPaneView()
     /// Main left container hosting the header, bookmark bar, and content host.
     private lazy var leftContainerView = NSView()
     /// Stable slot between the header and content host for the bookmark bar.
@@ -176,21 +222,24 @@ class WebContentViewController: NSViewController {
     private var splitLoginRequiredViews: [Int: LoginRequiredOverlayView] = [:]
 
     var addressBarAnchorView: NSView? { headerView.addressBarAnchorView }
+    /// The active tab sits on the window frame while the page card is
+    /// separated, and on the header otherwise, so it takes the header's
+    /// page color only then. Following the card rather than its causes keeps
+    /// the AI Chat ↔ extension side panel handoff free of a page-colored
+    /// frame: the panel closes a turn before the chat expands, but the card
+    /// stays separated across that turn.
     var tabStripPageColorPresentation: WebContentHeaderPageColorPresentation {
         if let state = browserState, let tab = state.focusingTab,
            state.readerOverlayState.reader(forOrigin: tab.guid) != nil {
             return .inherited
         }
-        return aiChatSplitViewItem?.isCollapsed == false ? .inherited : headerView.pageColorPresentation
+        return isPageCardSeparated ? .inherited : headerView.pageColorPresentation
     }
     var tabStripPageColorPresentationPublisher: AnyPublisher<WebContentHeaderPageColorPresentation, Never> {
-        var presentation = headerView.pageColorPresentationPublisher
-        if let aiChatSplitViewItem {
-            presentation = presentation
-                .combineLatest(aiChatSplitViewItem.publisher(for: \.isCollapsed))
-                .map { presentation, isCollapsed in isCollapsed ? presentation : .inherited }
-                .eraseToAnyPublisher()
-        }
+        let presentation = headerView.pageColorPresentationPublisher
+            .combineLatest($isPageCardSeparated)
+            .map { presentation, isSeparated in isSeparated ? .inherited : presentation }
+            .eraseToAnyPublisher()
         guard let state = browserState else { return presentation }
         // Match the Reader panel's focused-origin selection, including tab switches.
         return presentation
@@ -299,10 +348,6 @@ class WebContentViewController: NSViewController {
     /// Split-view container that owns the rounded background and spacing.
     private lazy var splitViewContainer = NSView()
 
-    /// Inset, rounded web-content region used as the close-snapshot source; excludes
-    /// the side margins so the placeholder doesn't cover the window-edge material.
-    var closeSnapshotSourceView: NSView { splitViewContainer }
-
     /// The visible rounded page card. What "cover the page pane" means for a
     /// full-pane overlay (the Reader panel): the controller's whole view also
     /// spans the window margins around the card, which must stay visible.
@@ -320,6 +365,9 @@ class WebContentViewController: NSViewController {
     /// Test-only view of the page card (panel-separation style coverage).
     var leftContainerViewForTesting: NSView { leftContainerView }
 
+    /// Test-only view of the page / AI Chat split.
+    var contentSplitViewForTesting: NSSplitView { contentSplitViewController.splitView }
+
     /// Whether this page paints the themed vibrancy backdrop in the margins
     /// around its card. Follows its container's
     /// (`WebContentContainerViewController.paintsOwnBackdrop`): a hosted
@@ -329,6 +377,28 @@ class WebContentViewController: NSViewController {
             guard isViewLoaded else { return }
             (view as? ColoredVisualEffectView)?.suppressesBackdrop = !paintsOwnBackdrop
         }
+    }
+
+    /// Whether this page's web views draw through their window's content
+    /// surface (chromium ADR 0014), which lies below this whole view tree.
+    /// The fills behind them (page card, left container, AI Chat panel,
+    /// split panes) are then clear. Follows its container's
+    /// (`WebContentContainerViewController.hasContentSurface`).
+    var hasContentSurface = false {
+        didSet {
+            guard hasContentSurface != oldValue, isViewLoaded else { return }
+            applyFills()
+            embeddedChatViewController?.hasContentSurface = hasContentSurface
+            currentSplitHost?.hasContentSurface = hasContentSurface
+        }
+    }
+
+    /// The page card's and left container's fills (see `hasContentSurface`).
+    private func applyFills() {
+        splitViewContainer.setFill(ThemedColor.contentOverlayBackground.cgColorMapperOptional,
+                                   overContentSurface: hasContentSurface)
+        leftContainerView.setFill(NSColor.white <> NSColor.black,
+                                  overContentSurface: hasContentSurface)
     }
 
     override func loadView() {
@@ -440,9 +510,11 @@ class WebContentViewController: NSViewController {
     
     override func viewDidAppear() {
         super.viewDidAppear()
+        // Mount content that waited for a window (a cold mount's web view)
+        // first, so focus goes to a view that is in the window.
+        flushDeferredContentUpdateIfPossible()
         // Restore focus after the view enters the hierarchy.
         restoreFocusForCurrentTab()
-        flushDeferredContentUpdateIfPossible()
         updateLoginRequiredPresentation(for: associatedTab)
         // If this controller became associated with a fullscreen tab before
         // its view was in a window (so applyContentFullscreenState bailed
@@ -755,7 +827,7 @@ class WebContentViewController: NSViewController {
     }
 
     private func updateTheme() {
-        splitViewContainer.phiLayer?.setBackgroundColor(ThemedColor.contentOverlayBackground)
+        applyFills()
         // Theme change writes into ColoredVisualEffectView's colorView layer,
         // whose CA transaction commit re-applies kCAFilterPlusL on hostView's
         // layer-backed descendants. Re-clear (sync + post-commit) to keep
@@ -1105,6 +1177,7 @@ class WebContentViewController: NSViewController {
     private func setupView() {
         // Build the split view that hosts web content and optional AI Chat.
         setupContentSplitView()
+        applyFills()
 
         // Set initial visibility state
         updateHeaderVisibility()
@@ -1119,7 +1192,6 @@ class WebContentViewController: NSViewController {
         leftContainerView.layer?.cornerCurve = .continuous
         leftContainerView.layer?.cornerRadius = LiquidGlassCompatible.webContentInnerComponentsCornerRadius
         leftContainerView.layer?.masksToBounds = true
-        leftContainerView.phiLayer?.backgroundColor = NSColor.white <> NSColor.black
         // Border visibility is updated later based on the current layout mode.
         
         // Pin the header to the top edge of the left container.
@@ -1170,7 +1242,6 @@ class WebContentViewController: NSViewController {
         splitViewContainer.layer?.cornerCurve = .continuous
         splitViewContainer.layer?.cornerRadius = LiquidGlassCompatible.webContentContainerCornerRadius
         splitViewContainer.layer?.masksToBounds = true
-        splitViewContainer.phiLayer?.setBackgroundColor(ThemedColor.contentOverlayBackground)
         splitViewContainer.snp.makeConstraints { make in
             splitViewLeadingConstraint = make.leading.equalToSuperview().constraint
             make.trailing.bottom.equalToSuperview().inset(WebContentConstant.edgesSpacing)
@@ -1198,6 +1269,7 @@ class WebContentViewController: NSViewController {
         leftContainerView.snp.makeConstraints { make in
             leftContainerInsetConstraint = make.edges.equalToSuperview().inset(0).constraint
         }
+        leftContainerWrapper.cardEdges = leftContainerInsetConstraint?.layoutConstraints ?? []
         
         // Left split item hosts the web content container.
         let leftContainerVC = NSViewController()
@@ -1209,7 +1281,8 @@ class WebContentViewController: NSViewController {
         
         // Skip AI Chat entirely in incognito mode.
         guard browserState?.isIncognito != true, let chatVC = embeddedChatViewController else { return }
-        
+        chatVC.hasContentSurface = hasContentSurface
+
         let aiChatSplitViewItem = NSSplitViewItem(viewController: chatVC)
         aiChatSplitViewItem.minimumThickness = 300
         aiChatSplitViewItem.maximumThickness = 800
@@ -1439,11 +1512,18 @@ class WebContentViewController: NSViewController {
     }
 
     private func flushDeferredContentUpdateIfPossible() {
-        guard let tab = associatedTab,
-              deferredContentUpdateTabId == tab.guid,
+        guard hasDeferredContentUpdate,
+              let tab = associatedTab,
               view.window != nil else { return }
         deferredContentUpdateTabId = nil
         updateContentForTab(tab)
+    }
+
+    /// Whether the tab's content waits for the deferred update. A
+    /// never-shown tab's does from its first mount: `viewWillAppear` runs
+    /// before its view has a window.
+    var hasDeferredContentUpdate: Bool {
+        associatedTab.map { deferredContentUpdateTabId == $0.guid } ?? false
     }
 
     /// Restores this tab to a clean NTP after a Space URL rule routed a
@@ -1977,6 +2057,7 @@ class WebContentViewController: NSViewController {
                 ratio: group.ratio,
                 layoutMode: layoutMode
             )
+            newHost.hasContentSurface = hasContentSurface
             newHost.translatesAutoresizingMaskIntoConstraints = false
             hostView.addSubview(newHost)
             newHost.snp.makeConstraints { $0.edges.equalToSuperview() }
@@ -2193,15 +2274,17 @@ class WebContentViewController: NSViewController {
 
     deinit {
         // If this controller is being torn down while still in content
-        // fullscreen, hostView sits under window.contentView — NOT inside
-        // self.view's subtree — so normal view-hierarchy teardown leaves
-        // it orphaned on top of the window. This happens specifically on
-        // close: Chromium's async DidToggleFullscreenModeForTab(false) can
-        // arrive after TabsProxy::OnTabWillBeRemoved has already erased the
-        // observer, so the terminal exit event never reaches Mac. Detach
-        // here as the last-resort guarantee.
+        // fullscreen, hostView sits in the overlay under window.contentView
+        // — NOT inside self.view's subtree — so normal view-hierarchy
+        // teardown leaves it orphaned on top of the window, with the content
+        // surface's view in it. This happens specifically on close:
+        // Chromium's async DidToggleFullscreenModeForTab(false) can arrive
+        // after TabsProxy::OnTabWillBeRemoved has already erased the
+        // observer, so the terminal exit event never reaches Mac. Give the
+        // surface back and detach here as the last-resort guarantee.
         if savedHostViewSuperview != nil {
-            hostView.removeFromSuperview()
+            contentSurfaceLender?.reclaimContentSurface()
+            contentFullscreenOverlay?.removeFromSuperview()
         }
     }
 
@@ -2241,10 +2324,16 @@ class WebContentViewController: NSViewController {
             }
     }
 
-    /// Enter or exit HTML5 content fullscreen by re-parenting `hostView`
-    /// directly under `window.contentView`. This covers every other Phi
+    /// Enter or exit HTML5 content fullscreen by re-parenting `hostView` into
+    /// an overlay over `window.contentView`. This covers every other Phi
     /// chrome element (tab strip, sidebar, header, AI chat, traffic lights)
-    /// in one move, and needs no per-element visibility toggling.
+    /// in one move, and needs no per-element visibility toggling. The page
+    /// container's content surface view goes into the overlay first, under
+    /// `hostView`, so the lifted web views keep drawing through the surface
+    /// (chromium ADR 0014: a web view draws through the hosting container
+    /// nearest in its ancestry). Lifted alone they left the surface, built a
+    /// compositor of their own and showed nothing until its first frame,
+    /// while the AppKit fullscreen transition held the main thread.
     private func applyContentFullscreenState(_ isFullscreen: Bool) {
         if isFullscreen {
             guard savedHostViewSuperview == nil else { return }
@@ -2276,8 +2365,21 @@ class WebContentViewController: NSViewController {
             // they reference hostView and would otherwise be torn down by
             // AutoLayout with an `unsatisfiable` log.
             webContentProgressBar.snp.removeConstraints()
+            let overlay = NSView()
+            overlay.wantsLayer = true
+            contentView.addSubview(overlay, positioned: .above, relativeTo: nil)
+            overlay.snp.makeConstraints { make in
+                make.edges.equalToSuperview()
+            }
+            contentFullscreenOverlay = overlay
+            // The surface before the host view, so its web views join a tree
+            // the surface is already under. With no page container (a Kiosk
+            // window) or no surface (the feature off) the page draws itself
+            // up here, as before.
+            contentSurfaceLender = parent as? WebContentContainerViewController
+            contentSurfaceLender?.lendContentSurface(to: overlay)
             hostView.removeFromSuperview()
-            contentView.addSubview(hostView, positioned: .above, relativeTo: nil)
+            overlay.addSubview(hostView, positioned: .above, relativeTo: nil)
             hostView.snp.remakeConstraints { make in
                 make.edges.equalToSuperview()
             }
@@ -2289,6 +2391,11 @@ class WebContentViewController: NSViewController {
             restoreWebContentFirstResponder()
         } else {
             guard let original = savedHostViewSuperview else { return }
+            // The surface first again, so the host view's web views rejoin
+            // the container with the surface already back above the
+            // page-area backdrop.
+            contentSurfaceLender?.reclaimContentSurface()
+            contentSurfaceLender = nil
             hostView.removeFromSuperview()
             original.addSubview(hostView)
             hostView.snp.remakeConstraints { make in
@@ -2305,6 +2412,8 @@ class WebContentViewController: NSViewController {
                     make.height.equalTo(2)
                 }
             }
+            contentFullscreenOverlay?.removeFromSuperview()
+            contentFullscreenOverlay = nil
             savedHostViewSuperview = nil
             // Re-clear AppKit's kCAFilterPlusL after moving hostView back into
             // the ColoredVisualEffectView hierarchy (matches DevTools paths).
@@ -2815,6 +2924,9 @@ class WebContentViewController: NSViewController {
     /// the state actually flips.
     private var appliedPageCardSeparated: Bool?
     private var appliedPanelDockedCorners: Bool?
+    /// Whether the page card is separated, as last applied. The tab strip's
+    /// page color follows it (see `tabStripPageColorPresentation`).
+    @Published private(set) var isPageCardSeparated = false
 
     /// Layout mode last seen by the defaults-change restyle sink; the sink
     /// only re-runs the styling when this actually changes.
@@ -2840,13 +2952,20 @@ class WebContentViewController: NSViewController {
         // fill track the slide animations. The two answers may differ for
         // the animation window only.
         let panelDocked = browserState?.extensionSidePanel != nil
+        // A collapsing chat keeps the card separated, and the tab strip
+        // on the browser color, until its animation ends: the chat still
+        // shows beside the page meanwhile.
+        let chatHoldsCard = isAIChatExpanded || isAnimatingAIChatCollapse
+        // A closing panel holds it until its slide ends, for the same reason.
+        let panelHoldsCard = panelDocked || isAnimatingPanelSlide
         let shouldSeparatePageCard =
-            (isAIChatExpanded || panelDocked) && !isPerformanceSplitContent
+            (chatHoldsCard || panelHoldsCard) && !isPerformanceSplitContent
 
         guard shouldSeparatePageCard != appliedPageCardSeparated
             || panelDocked != appliedPanelDockedCorners else { return }
         appliedPageCardSeparated = shouldSeparatePageCard
         appliedPanelDockedCorners = panelDocked
+        isPageCardSeparated = shouldSeparatePageCard
 
         if shouldSeparatePageCard {
             leftContainerView.layer?.borderWidth = 1
@@ -2916,10 +3035,14 @@ class WebContentViewController: NSViewController {
     ) {
         let expanding = !collapsed
         isAnimatingAIChatExpansion = expanding
+        isAnimatingAIChatCollapse = collapsed
+        aiChatTransitionCount += 1
+        let transition = aiChatTransitionCount
 
         // For expand: temporarily raise minimumThickness so the uncollapse
         // animation targets the cached width instead of the default minimum.
         var savedMinThickness: CGFloat?
+        var chatTargetWidth: CGFloat?
         if expanding, let targetWidth = pendingAIChatWidthRestore {
             savedMinThickness = splitViewItem.minimumThickness
             let clampedTarget = min(
@@ -2927,10 +3050,33 @@ class WebContentViewController: NSViewController {
                 splitViewItem.maximumThickness
             )
             splitViewItem.minimumThickness = clampedTarget
+            chatTargetWidth = clampedTarget
             AppLogDebug("[AIChatSidebarCache] temporarily set minimumThickness=\(clampedTarget) for expand animation (original=\(savedMinThickness ?? 0))")
         }
 
-        hostView.isFrameSyncPaused = true
+        // AI Chat taking over from a closing extension side panel (not one
+        // still sliding in, as when its close was not carried out). The
+        // split heads for its end width at once: the chat slides in to meet
+        // the page card as it does on its own, instead of the pane between
+        // them following the closing panel out first.
+        let takesOverFromClosingPanel = expanding && isAnimatingPanelSlide
+            && browserState?.extensionSidePanel == nil
+        if takesOverFromClosingPanel {
+            let splitView = contentSplitViewController.splitView
+            if let superview = splitView.superview, splitView.frame != superview.bounds {
+                NSAnimationContext.runAnimationGroup { context in
+                    context.duration = 0
+                    splitView.animator().frame = superview.bounds
+                }
+            }
+        }
+        // That handoff holds the page card, and so does any transition while
+        // one holds it.
+        if takesOverFromClosingPanel || leftContainerWrapper.maxCardWidth != nil {
+            capPageCardWidth(from: takesOverFromClosingPanel ? pageCardWidthAtPanelSlideStart : nil,
+                             settlingAt: settledPageCardWidth(chatWidth: collapsed ? 0 : chatTargetWidth),
+                             until: .aiChatTransition(transition))
+        }
 
         NSAnimationContext.runAnimationGroup({ _ in
             splitViewItem.animator().isCollapsed = collapsed
@@ -2940,15 +3086,14 @@ class WebContentViewController: NSViewController {
                 splitViewItem.minimumThickness = savedMinThickness
                 AppLogDebug("[AIChatSidebarCache] restored minimumThickness=\(savedMinThickness)")
             }
+            self.releasePageCardWidthCap(after: .aiChatTransition(transition))
 
-            // If DevTools is docked, it owns hostView.isFrameSyncPaused (keeps it
-            // true for the duration of the attachment) and manages webContentView's
-            // partial frame explicitly via DevTools JS bounds. Resetting the flag
-            // or force-syncing here would collapse webContentView to hostView.bounds,
-            // hiding DevTools and routing events to the webpage.
-            if self.associatedTab?.devToolsAttached != true {
-                self.hostView.isFrameSyncPaused = false
-                self.hostView.forceSyncAllSubviewFrames()
+            // Drop the card style held for the collapse. Only the latest
+            // transition may: AppKit also runs the completion of an
+            // animation that a newer one replaced.
+            if collapsed, transition == self.aiChatTransitionCount {
+                self.isAnimatingAIChatCollapse = false
+                self.updateLeftContainerStyleForCurrentAIChatState()
             }
 
             self.isAnimatingAIChatExpansion = false
@@ -2963,19 +3108,90 @@ class WebContentViewController: NSViewController {
         })
     }
 
-    /// Pause / resume this page's content frame sync around the extension
-    /// side panel slide animation (driven by the container), mirroring the
-    /// AI Chat transition above: pause so the WebContents isn't relaid out
-    /// on every animation frame, then resume with one force-sync at the
-    /// settled size. Resume leaves a docked DevTools session alone —
-    /// DevTools owns the flag while attached.
-    func setContentFrameSyncPausedForPanelTransition(_ paused: Bool) {
-        if paused {
-            hostView.isFrameSyncPaused = true
-        } else if associatedTab?.devToolsAttached != true {
-            hostView.isFrameSyncPaused = false
-            hostView.forceSyncAllSubviewFrames()
+    /// Numbers a container side panel slide over this page, for
+    /// `finishPanelTransition(_:)`.
+    func beginPanelTransition() -> Int {
+        panelTransitionCount += 1
+        isAnimatingPanelSlide = true
+        pageCardWidthAtPanelSlideStart = leftContainerView.frame.width
+        return panelTransitionCount
+    }
+
+    /// Keeps the page card, and the header and page in it, from widening
+    /// and narrowing again while AI Chat and the extension side panel hand
+    /// over to each other. Its pane does, as one panel goes and the other
+    /// comes, each on its own timing. Capped at the wider of its width at
+    /// `start` (now when nil) and the width it settles at, the card only
+    /// ever moves toward that settled width; the rest of the pane shows the
+    /// frame around the cards. The end of `owner` lets the card go, filling
+    /// its pane at that width by then.
+    private func capPageCardWidth(from start: CGFloat? = nil,
+                                  settlingAt settled: CGFloat?,
+                                  until owner: PageCardWidthCapOwner?) {
+        leftContainerWrapper.maxCardWidth = max(start ?? leftContainerView.frame.width, settled ?? 0)
+        pageCardWidthCapOwner = owner
+    }
+
+    private func releasePageCardWidthCap(after owner: PageCardWidthCapOwner) {
+        guard leftContainerWrapper.maxCardWidth != nil, pageCardWidthCapOwner == owner else { return }
+        leftContainerWrapper.maxCardWidth = nil
+        pageCardWidthCapOwner = nil
+    }
+
+    /// The page card's width once the page / AI Chat split has its
+    /// superview's width (a slide's end frame already) with AI Chat
+    /// `chatWidth` wide, 0 when collapsed; nil when that is unknown. The
+    /// card keeps its inset: separated at both ends of a handoff.
+    private func settledPageCardWidth(chatWidth: CGFloat?) -> CGFloat? {
+        let splitView = contentSplitViewController.splitView
+        guard let chatWidth, let superview = splitView.superview else { return nil }
+        let chat = chatWidth > 0 ? chatWidth + splitView.dividerThickness : 0
+        let inset = appliedPageCardSeparated == true
+            ? CGFloat(WebContentConstant.contentEdgeSpacing) : 0
+        return superview.bounds.width - chat - 2 * inset
+    }
+
+    /// Aims the page / AI Chat split at the view it fills (its superview,
+    /// whatever wraps it), from inside a container side panel slide's group
+    /// after its layout. `NSSplitViewController` keeps the split as an
+    /// autoresizing subview, and a slide animates the split's own frame:
+    /// autoresizing adds each resize of the superview to the split's width
+    /// of the moment, so a second resize while a slide is under way (the
+    /// panel closed or reopened mid-slide) would leave the split wider or
+    /// narrower than its card for good. The new animation replaces the one
+    /// autoresizing just made and heads for the superview's bounds, which is
+    /// where an uninterrupted slide goes anyway.
+    /// A handoff from AI Chat (`collapseAIChatForPanelTransition`), or one
+    /// this slide cut short, holds the page card: it settles with this slide.
+    func retargetContentSplitForPanelTransition() {
+        let splitView = contentSplitViewController.splitView
+        guard let superview = splitView.superview else { return }
+        splitView.animator().frame = superview.bounds
+        if leftContainerWrapper.maxCardWidth != nil {
+            let chatWidth = aiChatSplitViewItem?.isCollapsed == false
+                ? aiChatSplitViewItem?.viewController.view.frame.width : 0
+            capPageCardWidth(settlingAt: settledPageCardWidth(chatWidth: chatWidth),
+                             until: .panelSlide(panelTransitionCount))
         }
+    }
+
+    /// From a side panel slide's completion handler: drops the card style a
+    /// closing panel held, and puts the split on its superview's bounds at
+    /// once, which catches a resize made outside the slide's group (the
+    /// window resized mid-slide), then lays both out, so the page has its
+    /// settled size when the caller lets the content surface go. Only after
+    /// this page's latest slide: AppKit also runs the completion of a slide
+    /// that a newer one replaced, partway through the newer one.
+    func finishPanelTransition(_ transition: Int) {
+        guard transition == panelTransitionCount else { return }
+        isAnimatingPanelSlide = false
+        releasePageCardWidthCap(after: .panelSlide(transition))
+        updateLeftContainerStyleForCurrentAIChatState()
+        let splitView = contentSplitViewController.splitView
+        if let superview = splitView.superview, splitView.frame != superview.bounds {
+            splitView.frame = superview.bounds
+        }
+        view.layoutSubtreeIfNeeded()
     }
 
     /// Detaches an expanded AI Chat from the split layout right before the
@@ -2992,10 +3208,12 @@ class WebContentViewController: NSViewController {
     /// dragged left instead of exiting right. Collapsing the split item
     /// here (state first, no divider animation) removes the chat from the
     /// solution the slide-in animates to; the later model sweep and its
-    /// observers find the item already collapsed and no-op. The flip is
-    /// deliberately not laid out here: the caller's animation group
-    /// materializes it so the page pane's reflow rides the same implicit
-    /// animation as the panel.
+    /// observers find the item already collapsed and no-op. The page card
+    /// keeps its width through the handoff (`capPageCardWidth`), and the
+    /// flip is laid out at once: left to the caller's animation group, it
+    /// would animate the card by Core Animation, while the page follows the
+    /// split frame by frame as in any slide (and the content surface clips
+    /// it to that card).
     func collapseAIChatForPanelTransition(ghostIn coordView: NSView) -> NSView? {
         guard let aiChatSplitViewItem, !aiChatSplitViewItem.isCollapsed else {
             return nil
@@ -3008,9 +3226,11 @@ class WebContentViewController: NSViewController {
             paneView, resolution: .bestResolution)
         let ghostFrame = paneView.convert(paneView.bounds, to: coordView)
 
+        capPageCardWidth(settlingAt: nil, until: nil)
         isUpdatingAIChatState = true
         aiChatSplitViewItem.isCollapsed = true
         isUpdatingAIChatState = false
+        view.layoutSubtreeIfNeeded()
         // The deferred tab observer skips its persist once it finds the
         // item already collapsed; record the closed state here instead.
         persistAIChatSidebarStateIfNeeded(for: associatedTab)
@@ -3315,6 +3535,19 @@ class WebContentViewController: NSViewController {
     }
 }
 
+extension NSView {
+    /// Paints `fill` behind this view's subviews, or nothing while
+    /// `overContentSurface`: the content surface (chromium ADR 0014) draws
+    /// the web views from below the whole page tree, so any fill behind them
+    /// would cover their pixels. Borders and corners are left as they are.
+    func setFill(_ fill: Mapper<CGColor?>, overContentSurface: Bool) {
+        phiLayer?.backgroundColor = overContentSurface ? nil : fill
+        if overContentSurface {
+            layer?.backgroundColor = nil
+        }
+    }
+}
+
 /// Host view for Chromium-rendered content (webContentView, devToolsView).
 ///
 /// **Vibrancy suppression**: Our ancestor `ColoredVisualEffectView`
@@ -3366,9 +3599,17 @@ class WebContentHostView: NSView {
         guard filterObservers[key] == nil else { return }
         subview.wantsLayer = true
         guard let layer = subview.layer else { return }
-        Self.stripVibrancyFilter(on: layer)
-        filterObservers[key] = layer.observe(\.compositingFilter, options: [.new]) { observedLayer, _ in
-            Self.stripVibrancyFilter(on: observedLayer)
+        filterObservers[key] = Self.observeVibrancyFilter(on: layer)
+    }
+
+    /// Strips AppKit's vibrancy filter from `layer` now and whenever AppKit
+    /// re-applies it, for as long as the returned observation lives. Also
+    /// used for the content surface's view, which sits under the same
+    /// visual-effect ancestors outside any host view.
+    static func observeVibrancyFilter(on layer: CALayer) -> NSKeyValueObservation {
+        stripVibrancyFilter(on: layer)
+        return layer.observe(\.compositingFilter, options: [.new]) { observedLayer, _ in
+            stripVibrancyFilter(on: observedLayer)
         }
     }
 
@@ -3415,11 +3656,30 @@ class WebContentHostView: NSView {
             }
         }
     }
+}
 
-    func forceSyncAllSubviewFrames() {
-        let target = bounds
-        for subview in subviews where subview.translatesAutoresizingMaskIntoConstraints {
-            subview.frame = target
+/// The page / AI Chat split's page pane, which holds the page card. While
+/// AI Chat and the extension side panel hand over to each other
+/// (`WebContentViewController.capPageCardWidth`), it keeps the card no wider
+/// than `maxCardWidth`, the rest of the pane showing the frame around the
+/// cards. It moves the card's own trailing edge further in, so it never
+/// asks anything outside the card for room.
+final class PageCardPaneView: NSView {
+    /// The card's edge constraints to this pane, an inset on each side.
+    var cardEdges: [NSLayoutConstraint] = []
+    var maxCardWidth: CGFloat? {
+        didSet { needsLayout = true }
+    }
+
+    override func layout() {
+        if let leading = cardEdges.first(where: { [.leading, .left].contains($0.firstAttribute) }),
+           let trailing = cardEdges.first(where: { [.trailing, .right].contains($0.firstAttribute) }) {
+            let inset = leading.constant
+            let spare = maxCardWidth.map { max(0, bounds.width - 2 * inset - $0) } ?? 0
+            if trailing.constant != -(inset + spare) {
+                trailing.constant = -(inset + spare)
+            }
         }
+        super.layout()
     }
 }

@@ -203,6 +203,10 @@ final class TabStripBarController: NSViewController {
     /// constraints when the master Spaces flag actually flips.
     private var lastSpacesPickerEnabled: Bool?
     private var cancellables = Set<AnyCancellable>()
+    /// Frame observers of this bar and of the zoom button the picker is
+    /// aligned to; see `observeFrameChanges(zoomButton:)`.
+    private var frameObservers: [NSObjectProtocol] = []
+    private weak var observedZoomButton: NSButton?
 
     private lazy var contextMenuHelper = TabAreaContextMenuHelper(browserState: browserState, isHorizontalLayout: true)
 
@@ -252,14 +256,10 @@ final class TabStripBarController: NSViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         setupUI()
-        NotificationCenter.default.publisher(for: NSView.frameDidChangeNotification)
-            .filter { [weak self] notification in
-                guard let self, let window = self.view.window else { return false }
-                return notification.object as? NSView === self.view
-                    || notification.object as? NSView === window.standardWindowButton(.zoomButton)
-            }
-            .sink { [weak self] _ in self?.updateSpacesPickerLeadingInset() }
-            .store(in: &cancellables)
+    }
+
+    deinit {
+        frameObservers.forEach(NotificationCenter.default.removeObserver)
     }
 
     func setActive(_ active: Bool) {
@@ -482,12 +482,37 @@ final class TabStripBarController: NSViewController {
     }
 
     private func updateSpacesPickerLeadingInset() {
-        guard let button = view.window?.standardWindowButton(.zoomButton) else { return }
+        let button = view.window?.standardWindowButton(.zoomButton)
+        observeFrameChanges(zoomButton: button)
+        guard let button else { return }
         let frameInWindow = button.convert(button.bounds, to: nil)
         let inset = view.convert(frameInWindow, from: nil).maxX + 10
         guard abs(spacesPickerLeadingInset - inset) > 0.01 else { return }
         spacesPickerLeadingInset = inset
         spacesPickerLeadingConstraint?.update(inset: inset)
+    }
+
+    /// Realigns the picker when this bar or the zoom button changes frame.
+    /// Both are observed as objects: an observer without one runs for every
+    /// view resized anywhere in the app, which an animation does every frame.
+    /// The block form keeps neither view, and so not the window, alive. The
+    /// observers follow the button the alignment last looked up: they move to
+    /// a button AppKit replaced and go when the bar leaves its window.
+    private func observeFrameChanges(zoomButton: NSButton?) {
+        if let zoomButton, zoomButton === observedZoomButton { return }
+        frameObservers.forEach(NotificationCenter.default.removeObserver)
+        frameObservers = []
+        observedZoomButton = zoomButton
+        guard let zoomButton else { return }
+        frameObservers = [view, zoomButton].map { observed in
+            NotificationCenter.default.addObserver(
+                forName: NSView.frameDidChangeNotification,
+                object: observed,
+                queue: .main
+            ) { [weak self] _ in
+                self?.updateSpacesPickerLeadingInset()
+            }
+        }
     }
 
     /// Re-applies the picker visibility whenever the master Spaces flag flips

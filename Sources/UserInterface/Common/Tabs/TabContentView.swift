@@ -513,7 +513,7 @@ struct UnifiedTabFaviconView: View {
             )
         }
         .overlay(alignment: .topTrailing) {
-            if viewModel.isCapturingMedia {
+            if viewModel.isCapturingMedia && !viewModel.hidesRecordingBadge {
                 UnifiedTabRecordingIcon()
                     .offset(x: 3, y: -3)
             }
@@ -636,5 +636,30 @@ struct UnifiedTabRecordingIcon: View {
                     .animation(.easeInOut(duration: 1).repeatForever(autoreverses: true), value: isAnimating)
             }
             .onAppear { isAnimating = true }
+    }
+}
+
+/// Hosts a `UnifiedTabRecordingIcon` only while the host is shown.
+///
+/// SwiftUI keeps driving the icon's `repeatForever` pulse inside a hidden
+/// `NSHostingView`, so a tab cell that only hid its badge re-rendered it on
+/// every frame for as long as the cell lived. Cells keep this host in their
+/// tree and toggle `isHidden` as before; the host drops the icon on hide and
+/// builds a fresh one on show, which also restarts the pulse. The host owns
+/// `rootView`: callers set `isHidden`, never `rootView`.
+final class TabRecordingIconHostingView: ZeroSafeAreaHostingView<AnyView> {
+    private var makeIcon: () -> AnyView = { AnyView(EmptyView()) }
+
+    convenience init(makeIcon: @escaping () -> AnyView) {
+        self.init(rootView: AnyView(EmptyView()))
+        self.makeIcon = makeIcon
+        isHidden = true
+    }
+
+    override var isHidden: Bool {
+        didSet {
+            guard isHidden != oldValue else { return }
+            rootView = isHidden ? AnyView(EmptyView()) : makeIcon()
+        }
     }
 }

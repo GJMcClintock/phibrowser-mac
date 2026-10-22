@@ -341,6 +341,39 @@ final class ReaderPanelController {
         origin.makeSelfActive()
     }
 
+    /// Uses the same effective key identity as the central dispatcher. The
+    /// configured Close Tab dismisses this surface and protects its origin;
+    /// Close Window and other unmatched keys keep their normal routing.
+    func handleKeyEquivalent(_ event: NSEvent) -> Bool {
+        guard event.type == .keyDown, containerView.isPresented,
+              !isEclipsedByInWindowOverlay,
+              event.window === parentWindow, parentWindow?.isKeyWindow == true,
+              containerView.containsFirstResponder else { return false }
+        let eventKeys = ShortcutsKey.eventKeys(for: event)
+        if eventKeys?.matches(Shortcuts.key(for: .IDC_CLOSE_TAB)) == true {
+            closeHostedReader()
+            return true
+        }
+        guard !PageOverlayDevToolsDock.hasFocus(hostedTab) else { return false }
+        if event.keyCode == 53,
+           event.modifierFlags.intersection(ShortcutsKey.supportedModifierFlags).isEmpty {
+            closeHostedReader()
+            return true
+        }
+        guard let eventKeys else { return false }
+        if eventKeys.matches(Shortcuts.key(for: .PHI_TOGGLE_READER))
+            || eventKeys.matches(Shortcuts.key(for: .IDC_BACK))
+            || eventKeys.matches(Shortcuts.key(for: .IDC_FORWARD)) {
+            closeHostedReader()
+            return true
+        }
+        if eventKeys.matches(Shortcuts.key(for: .IDC_FOCUS_LOCATION)) {
+            browserState?.windowController?.openLocationBar(nil)
+            return true
+        }
+        return false
+    }
+
     private func installEventMonitorIfNeeded() {
         guard eventMonitor == nil else { return }
         eventMonitor = NSEvent.addLocalMonitorForEvents(
@@ -351,54 +384,7 @@ final class ReaderPanelController {
                 self.activateOriginPaneIfClicked(event)
                 return event
             }
-            guard self.containerView.isPresented,
-                  !self.isEclipsedByInWindowOverlay,
-                  event.window === self.parentWindow,
-                  self.parentWindow?.isKeyWindow == true,
-                  self.containerView.containsFirstResponder else { return event }
-            // Cmd-W must be swallowed here: strip-active is the origin while
-            // the overlay is up, so letting it reach Chromium's
-            // IDC_CLOSE_TAB would close the origin.
-            if event.modifierFlags.contains(.command),
-               event.charactersIgnoringModifiers?.lowercased() == "w" {
-                self.closeHostedReader()
-                return nil
-            }
-            // Docked DevTools owns its keys: Esc toggles its console drawer
-            // and Cmd-[ / Cmd-] switch its panels.
-            if PageOverlayDevToolsDock.hasFocus(self.hostedTab) {
-                return event
-            }
-            // Esc closes the reader.
-            if event.keyCode == 53 {
-                self.closeHostedReader()
-                return nil
-            }
-            // The reader's web view holds focus while the overlay is active, so
-            // handle its closing shortcuts before Chromium or the main menu
-            // interprets them as commands for the origin tab:
-            // - Toggle Reader View itself: the same press that opened the
-            //   reader must close it.
-            // - Back/Forward read as "leave the reader" — matching the
-            //   in-place reader, where back left the reading surface.
-            if let eventKeys = ShortcutsKey.eventKeys(for: event) {
-                let closeKeys = [Shortcuts.key(for: .PHI_TOGGLE_READER),
-                                 Shortcuts.key(for: .IDC_BACK),
-                                 Shortcuts.key(for: .IDC_FORWARD)].compactMap { $0 }
-                if eventKeys.matchingKeys.contains(where: closeKeys.contains) {
-                    self.closeHostedReader()
-                    return nil
-                }
-                // Focus Address Bar targets the origin — open the omnibox
-                // (the panel then steps aside for it, see
-                // setConcealedByInWindowOverlay).
-                if let focusLocationKey = Shortcuts.key(for: .IDC_FOCUS_LOCATION),
-                   eventKeys.matchingKeys.contains(focusLocationKey) {
-                    self.browserState?.windowController?.openLocationBar(nil)
-                    return nil
-                }
-            }
-            return event
+            return self.handleKeyEquivalent(event) ? nil : event
         }
     }
 

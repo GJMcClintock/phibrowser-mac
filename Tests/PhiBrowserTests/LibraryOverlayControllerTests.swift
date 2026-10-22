@@ -112,58 +112,6 @@ final class LibraryOverlayControllerTests: XCTestCase {
         XCTAssertNotNil(field.currentEditor())
     }
 
-    func testFolioStaysInsideDetailWhenSidebarResizesAndCollapses() throws {
-        let parent = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 1200, height: 650),
-                              styleMask: [.titled, .resizable], backing: .buffered, defer: false)
-        parent.isReleasedWhenClosed = false
-        defer { parent.close() }
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        self.directory = directory
-        let store = LocalStore(account: Account(userID: UUID().uuidString), storeDirectoryURL: directory)
-        self.store = store
-        let state = BrowserState(windowId: UUID().hashValue, localStore: store, profileId: "Default")
-        let module = LibraryViewModule(browserState: state, presentation: .standalone)
-        module.navigationState.selection = .folio
-        parent.contentViewController = module
-        parent.setContentSize(NSSize(width: 1200, height: 650))
-        parent.makeKeyAndOrderFront(nil)
-        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
-
-        func splits(in view: NSView) -> [NSSplitView] {
-            let current = (view as? NSSplitView).map { [$0] } ?? []
-            return current + view.subviews.flatMap { splits(in: $0) }
-        }
-        let nativeSplits = splits(in: module.view)
-        XCTAssertEqual(nativeSplits.count, 2)
-        let outer = try XCTUnwrap(nativeSplits.first)
-        let folio = try XCTUnwrap(nativeSplits.last)
-        for width: CGFloat in [200, 240, 140, 80] {
-            outer.setPosition(width, ofDividerAt: 0)
-            RunLoop.main.run(until: Date().addingTimeInterval(0.2))
-            XCTAssertEqual(outer.arrangedSubviews.first?.frame.width ?? -1, width, accuracy: 0.5)
-            for collapsed in [false, true, false] {
-                module.navigationState.sidebarCollapsed = collapsed
-                RunLoop.main.run(until: Date().addingTimeInterval(0.2))
-                XCTAssertEqual(outer.arrangedSubviews.count, collapsed ? 1 : 2)
-                XCTAssertTrue(splits(in: module.view).last === folio, "Collapsing must preserve the reader and its split state")
-                let frame = folio.convert(folio.bounds, to: outer)
-                let detail = try XCTUnwrap(outer.arrangedSubviews.last)
-                let detailFrame = detail.convert(detail.bounds, to: outer)
-                XCTAssertEqual(frame.minX, detailFrame.minX, accuracy: 0.01, "Folio must have no extra leading padding")
-                XCTAssertEqual(frame.maxX, outer.bounds.maxX, accuracy: 0.01)
-                if collapsed {
-                    XCTAssertEqual(frame.minX, outer.bounds.minX, accuracy: 0.01)
-                } else {
-                    XCTAssertEqual(outer.arrangedSubviews.first?.frame.width ?? -1, width, accuracy: 0.5)
-                }
-                folio.setPosition(280, ofDividerAt: 0)
-                RunLoop.main.run(until: Date().addingTimeInterval(0.1))
-                XCTAssertEqual(folio.arrangedSubviews.first?.frame.width ?? -1, 280, accuracy: 1)
-            }
-        }
-    }
-
     func testStandaloneSidebarResizesWithoutToolbarOrContentInsets() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)

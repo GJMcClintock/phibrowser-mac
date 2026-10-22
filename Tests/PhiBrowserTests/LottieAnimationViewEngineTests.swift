@@ -1,0 +1,77 @@
+// Copyright 2026 Phinomenon Inc.
+//
+// Use of this source code is governed by an Apache license that can be
+// found in the LICENSE file.
+
+import AppKit
+import Lottie
+import SwiftUI
+import XCTest
+@testable import Phi
+
+@MainActor
+final class LottieAnimationViewEngineTests: XCTestCase {
+    /// Lottie's default engine builds Core Animation animations again each time
+    /// its view rejoins a window. Header, address bar and sidebar buttons built
+    /// on this view rejoin on every tab mount, so that work would hold the main
+    /// thread before the incoming page reaches the screen.
+    func testForwardAndReverseAnimationsRenderOnTheMainThread() {
+        let button = LottieAnimationNSView(config: LottieAnimationViewConfig(
+            animationName: "new-tab",
+            reverseAnimationName: "new-tab-reverse"
+        ))
+
+        let engines = renderingEngines(of: button)
+
+        XCTAssertEqual(engines.count, 2, "Expected the forward and the reverse animation views.")
+        XCTAssertEqual(Set(engines), [.mainThread])
+    }
+
+    /// The sidebar's download button builds its animation view itself, not
+    /// through `LottieAnimationNSView`.
+    func testDownloadButtonRendersOnTheMainThread() {
+        let button = DownloadButtonNSView(onTap: {})
+
+        XCTAssertEqual(renderingEngines(of: button), [.mainThread])
+    }
+
+    /// A bookmark folder's icon builds its animation view itself, both as the
+    /// static snapshot and as the live icon.
+    func testBookmarkFolderIconRendersOnTheMainThread() {
+        for usesStaticSnapshotIcon in [true, false] {
+            let icon = NSHostingView(rootView: BookmarkFolderIconView(
+                icon: .standard,
+                isExpanded: false,
+                usesStaticSnapshotIcon: usesStaticSnapshotIcon
+            ))
+
+            XCTAssertEqual(renderingEngines(of: icon), [.mainThread],
+                           "usesStaticSnapshotIcon: \(usesStaticSnapshotIcon)")
+        }
+    }
+
+    /// The engines of the animation views `view` builds once it is laid out
+    /// in a window.
+    private func renderingEngines(of view: NSView) -> [RenderingEngineOption] {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 24, height: 24),
+            styleMask: .borderless,
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        window.contentView = view
+        view.layoutSubtreeIfNeeded()
+        return lottieViews(in: view).map(\.configuration.renderingEngine)
+    }
+
+    private func lottieViews(in view: NSView) -> [Lottie.LottieAnimationView] {
+        view.subviews.flatMap { subview -> [Lottie.LottieAnimationView] in
+            if let animationView = subview as? Lottie.LottieAnimationView {
+                return [animationView]
+            }
+            return lottieViews(in: subview)
+        }
+    }
+}

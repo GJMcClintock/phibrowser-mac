@@ -8879,20 +8879,6 @@ final class SpaceWindowSlot: ObservableObject {
     /// completion within `duration`, so this margin only ever covers a lost one.
     private static let swapFinalizeFallbackMargin: TimeInterval = 0.5
 
-    /// How long a cold reveal waits for the entering Space's first paint
-    /// before presenting it unpainted. Below the container's cold first-paint
-    /// budget (2s) on purpose: the reveal is the outer gate, and a page slow
-    /// enough to blow this deadline is presented behind the themed page-pane
-    /// mask, which that budget then lifts.
-    static let coldRevealFirstPaintDeadline: TimeInterval = 1.0
-
-    /// Margin between the target's first-paint signal and the present. The
-    /// signal is the renderer's — the composited frame, and whatever theme or
-    /// layout settles right behind it, land a beat later; presenting on the
-    /// signal itself can still swap onto a frame that is not quite the one
-    /// the user should meet.
-    static let coldRevealPostPaintSettle: TimeInterval = 0.1
-
     private weak var manager: SpaceManager?
 
     init(manager: SpaceManager, initialSpaceId: String?) {
@@ -9567,6 +9553,18 @@ final class SpaceWindowSlot: ObservableObject {
         manager?.applyPersistedTheme(to: controller, spaceId: spaceId)
     }
 
+    /// The shell is the window on screen, so it carries the title of
+    /// `controller`, the session it presents, which the Dock menu, the Window
+    /// menu and Mission Control list: its Browser's (the active tab's), or
+    /// the Space name while no tab gives one. A dormant session has no
+    /// Browser yet, and in placeholder mode Chromium leaves the closed last
+    /// tab's title on the window. `inPlaceholderMode` is passed in because
+    /// `BrowserState` publishes that flag before it changes.
+    func retitleShell(presenting controller: SpaceSessionController, inPlaceholderMode: Bool) {
+        shell?.window.title = (inPlaceholderMode ? nil : controller.hostedChromiumWindow?.title)
+            ?? manager?.spaces.first(where: { $0.spaceId == controller.spaceId })?.name ?? "Phi"
+    }
+
     /// Puts `controller`'s content in the shell and makes it the slot's
     /// visible session. The previous session is concealed first so its
     /// window-level surfaces are gone before the entering one takes them.
@@ -9620,7 +9618,8 @@ final class SpaceWindowSlot: ObservableObject {
         }
         visibleController = controller
         restoredSiblingsAwaitingPresent.remove(controller.spaceId)
-        shell.window.title = manager?.spaces.first(where: { $0.spaceId == controller.spaceId })?.name ?? "Phi"
+        retitleShell(presenting: controller,
+                     inPlaceholderMode: controller.browserState.isInPlaceholderMode)
         Self.setRestoredSiblingConcealedIfSupported(false, windowId: Int64(controller.windowId))
         if !awaitsInitialChromiumShow {
             if shell.window.isMiniaturized {
@@ -10376,6 +10375,17 @@ final class SpaceWindowSlot: ObservableObject {
 
     func shellFullScreenWillChange(isFullScreen: Bool) {
         shellFullScreenTransitionTarget = isFullScreen
+        // An enter a session asked for is that session's; one the user
+        // started is no session's. A move to another display passes through
+        // an exit and an enter of its own (`isFullScreen` stays set across
+        // them), which neither give the fullscreen back nor take it over.
+        if isFullScreen {
+            if !self.isFullScreen {
+                shellFullscreenOwner = fullscreenRequestSession
+            }
+        } else if fullscreenTargetDisplayId == nil {
+            shellFullscreenOwner = nil
+        }
         // AppKit must leave its native fullscreen Space to change monitors.
         // That intermediate exit is not a DOM/browser fullscreen exit.
         if fullscreenTargetDisplayId != nil {
@@ -10398,6 +10408,24 @@ final class SpaceWindowSlot: ObservableObject {
 
     func shellFullScreenDidSettle() {
         shellFullScreenTransitionTarget = nil
+        if releasesShellFullscreenAfterTransition {
+            releasesShellFullscreenAfterTransition = false
+            // AppKit drops a toggle sent from inside its did-enter callback,
+            // which is where this runs; the next turn's lands. Leaving that
+            // early, AppKit can bring the window back at the screen's visible
+            // frame instead of where it was, so the exit's settle puts it
+            // back (unless a display move already holds a return frame).
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.shellFullScreenTransitionTarget == nil,
+                      self.fullscreenTargetDisplayId == nil,
+                      self.shellIsOrWillBeFullScreen else { return }
+                AppLogInfo("[SpaceWindowSlot] owner requested shell fullscreen=false: leaving after the transition")
+                if self.fullscreenReturnFrame == nil {
+                    self.fullscreenReturnFrame = self.windowedFrameBeforeFullscreen
+                }
+                self.toggleShellFullScreen()
+            }
+        }
         if let requested = deferredShellFullscreen {
             deferredShellFullscreen = nil
             if requested != shell?.window.styleMask.contains(.fullScreen) {
@@ -10424,16 +10452,42 @@ final class SpaceWindowSlot: ObservableObject {
 
     /// The state a native fullscreen transition announced by will-enter or
     /// will-exit is heading for, until did-enter/did-exit (or a failed
-    /// enter) settles it. Between the two the style mask still shows the
-    /// old state, so a request arriving mid-transition must compare against
-    /// this rather than the mask, or it would toggle the shell straight
-    /// back.
+    /// enter) settles it. On an exit AppKit clears `.fullScreen` from the
+    /// style mask inside the same `toggleFullScreen:` call, right after it
+    /// posts will-exit, so only a will-exit handler still sees the old
+    /// mask. A request arriving mid-transition must compare against this
+    /// rather than the mask, or it would toggle the shell straight back.
     private var shellFullScreenTransitionTarget: Bool?
     private var deferredShellFullscreen: Bool?
+    /// The session whose request put the shell into fullscreen; nil when
+    /// the user did. Chromium asks to leave fullscreen with a Space only
+    /// when that Space's tab brought it (`IsFullscreenCausedByTab`), and the
+    /// shell follows its owner's exit even from the background.
+    private weak var shellFullscreenOwner: SpaceSessionController?
+    /// The owner left fullscreen while a transition ran: the shell follows
+    /// once it settles. Kept apart from `deferredShellFullscreen`, which the
+    /// presented session's echo of the same enter overwrites.
+    private var releasesShellFullscreenAfterTransition = false
     private var fullscreenTargetDisplayId: Int64?
     private weak var fullscreenRequestSession: SpaceSessionController?
     private var fullscreenReturnFrame: NSRect?
     private var windowedFrameBeforeFullscreen: NSRect?
+    /// Stand in for AppKit in tests, which cannot put the shell's style mask
+    /// in fullscreen outside a real transition: `toggleShellFullScreen` (a
+    /// presented session's request, an owner's release) calls the closure
+    /// instead of the shell window, and `shellIsOrWillBeFullScreen` reads
+    /// the flag in place of the mask. The settle's replay and a display move
+    /// still toggle the window directly.
+    var toggleShellFullScreenForTesting: (() -> Void)?
+    var shellIsFullScreenForTesting: Bool?
+
+    private func toggleShellFullScreen() {
+        if let toggleShellFullScreenForTesting {
+            toggleShellFullScreenForTesting()
+        } else {
+            shell?.window.toggleFullScreen(nil)
+        }
+    }
 
     private func screen(forDisplayId displayId: Int64) -> NSScreen? {
         NSScreen.screens.first {
@@ -10470,12 +10524,16 @@ final class SpaceWindowSlot: ObservableObject {
     /// Where the shell is, or is on its way to.
     private var shellIsOrWillBeFullScreen: Bool {
         if let target = shellFullScreenTransitionTarget { return target }
-        return shell?.window.styleMask.contains(.fullScreen) ?? false
+        return shellIsFullScreenForTesting ?? shell?.window.styleMask.contains(.fullScreen) ?? false
     }
 
     /// Hosted mode: Chromium changed the presented Browser's fullscreen
-    /// state — a page's fullscreen request or exit, the fullscreen command,
-    /// press-and-hold Esc — and the shell follows. Chromium's logical state
+    /// state — a page's fullscreen request or exit, a fullscreen change
+    /// Chromium makes itself (the fullscreen command, an extension or agent
+    /// changing the window's state), press-and-hold Esc — and the shell
+    /// follows. View > Enter Full Screen and its Ctrl-Cmd-F are not among
+    /// these: they send AppKit's `toggleFullScreen:` to the shell, which
+    /// arrives as `shellFullScreenWillChange`. Chromium's logical state
     /// is the one source of truth here: it already decides, for instance,
     /// that a page leaving fullscreen inside a window the user had
     /// fullscreened keeps the window fullscreen, so the shell simply takes
@@ -10483,19 +10541,38 @@ final class SpaceWindowSlot: ObservableObject {
     /// (`shellFullScreenWillChange`) come back through here with the state
     /// the shell is already heading for, and are no-ops. A background
     /// session's change waits for its next present, whose
-    /// `applyWindowChrome` pushes the shell's state back to it.
+    /// `applyWindowChrome` pushes the shell's state back to it, with one
+    /// exception: the exit of the session owning the shell's fullscreen
+    /// (`shellFullscreenOwner`). A Space leaving the shell takes its tab out
+    /// of fullscreen (`UnpresentHostedBrowser`), and Chromium asks for the
+    /// window to follow only when that tab put it there, as a real window
+    /// leaves fullscreen when its tab switches away from a fullscreen page;
+    /// the shell follows that, though the Space is in the background by
+    /// then. The user's own fullscreen (the green button, View > Enter
+    /// Full Screen, Ctrl-Cmd-F) has no owner and stays.
     func sessionRequestedShellFullscreen(_ controller: SpaceSessionController,
                                          fullscreen: Bool, targetDisplayId: Int64 = -1) {
         // `isPresented` as well as `visibleController`: a session being
         // concealed has already withdrawn (`concealFromShell`) when Chromium
         // drops its tab fullscreen, but a non-animated switch pushes that
-        // to Chromium before the slot's `visibleController` moves on. The
-        // shell keeps its state for the Space replacing it either way.
+        // to Chromium before the slot's `visibleController` moves on. It is
+        // a background session either way.
         guard let shell, controller === visibleController, controller.isPresented else {
-            // Chromium withholds completion until the shell reports; a
-            // background session's shell never moves, so answer now rather
-            // than leave the transition pending.
+            // Chromium withholds completion until the shell reports; the
+            // shell's own transitions are the presented session's to hear
+            // (`shellFullScreenWillChange`), so answer now rather than leave
+            // this one pending.
             controller.completeShellFullscreenTransition()
+            if !fullscreen, controller === shellFullscreenOwner, shellIsOrWillBeFullScreen {
+                AppLogInfo("[SpaceWindowSlot] owner \(controller.windowId) requested shell fullscreen=false from the background (mid-transition=\(shellFullScreenTransitionTarget != nil))")
+                // Mid-transition the presented session's echo of the enter
+                // would overwrite `deferredShellFullscreen`.
+                if shellFullScreenTransitionTarget != nil {
+                    releasesShellFullscreenAfterTransition = true
+                } else {
+                    toggleShellFullScreen()
+                }
+            }
             // A background Space's page entering fullscreen (an agent pressing
             // "f", a request racing a switch away) has no shell of its own to
             // fill; left on, it would be lifted over the Space on screen. Its
@@ -10540,7 +10617,16 @@ final class SpaceWindowSlot: ObservableObject {
             return
         }
         AppLogInfo("[SpaceWindowSlot] session \(controller.windowId) requested shell fullscreen=\(fullscreen)")
-        shell.window.toggleFullScreen(nil)
+        toggleShellFullScreen()
+    }
+
+    /// A page of `controller` entered or left content fullscreen. For the
+    /// session owning the shell's fullscreen that changes what the restore
+    /// record says (`snapshotIsFullScreen`), and nothing else writes it
+    /// before the shell's next transition.
+    func sessionContentFullscreenDidChange(_ controller: SpaceSessionController) {
+        guard controller === shellFullscreenOwner else { return }
+        manager?.persistSlotsSnapshot()
     }
 
     func shellFrameDidChange() {
@@ -12531,9 +12617,16 @@ final class SpaceWindowSlot: ObservableObject {
     }
 
     /// Whether the slot was in native fullscreen at the last persist, for the
-    /// cross-launch restore record. Read by `SpaceManager.persistSlotsSnapshot`.
-    fileprivate func snapshotIsFullScreen() -> Bool {
-        isFullScreen
+    /// cross-launch restore record. Read by `SpaceManager.persistSlotsSnapshot`
+    /// (and the tests). A page's fullscreen is not a layout to reopen: while the session owning
+    /// the shell's fullscreen still has its page in it, the record says
+    /// windowed. A quit freezes the record (`markTerminating`) before
+    /// Chromium's exit from the page's fullscreen could rewrite it.
+    func snapshotIsFullScreen() -> Bool {
+        if shellFullscreenOwner?.browserState.focusingTab?.isInContentFullscreen == true {
+            return false
+        }
+        return isFullScreen
     }
 
     /// Where this slot should reopen, for the cross-launch restore record. Read

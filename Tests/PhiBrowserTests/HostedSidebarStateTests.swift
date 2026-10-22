@@ -644,6 +644,99 @@ final class HostedSidebarStateTests: XCTestCase {
         bar.view.removeFromSuperview()
     }
 
+    func testSpacePickerAlignmentIgnoresOtherViewsFrameChanges() {
+        let window = ZoomButtonLookupCountingWindow()
+        defer { window.close() }
+        let bar = TabStripBarController(browserState: makeState(spaceId: "picker-other-frames"))
+        bar.view.frame = NSRect(x: 0, y: window.frame.height - 42, width: 1000, height: 36)
+        window.contentView?.addSubview(bar.view)
+        defer { bar.view.removeFromSuperview() }
+        let other = NSView()
+        window.contentView?.addSubview(other)
+
+        window.zoomButtonLookups = 0
+        for width in 1...20 { other.setFrameSize(NSSize(width: CGFloat(width), height: 10)) }
+        XCTAssertEqual(window.zoomButtonLookups, 0,
+            "Another view's frame change must not reach the Space picker's alignment")
+    }
+
+    func testSidebarButtonAlignmentIgnoresOtherViewsFrameChanges() {
+        let window = ZoomButtonLookupCountingWindow()
+        defer { window.close() }
+        let header = SidebarHeaderView(state: makeState(spaceId: "header-other-frames"))
+        header.frame = NSRect(x: 0, y: window.frame.height - 100, width: 300, height: 100)
+        window.contentView?.addSubview(header)
+        defer { header.removeFromSuperview() }
+        let other = NSView()
+        window.contentView?.addSubview(other)
+
+        window.zoomButtonLookups = 0
+        for width in 1...20 { other.setFrameSize(NSSize(width: CGFloat(width), height: 10)) }
+        XCTAssertEqual(window.zoomButtonLookups, 0,
+            "Another view's frame change must not reach the sidebar button's alignment")
+    }
+
+    func testSpacePickerFollowsTheZoomButtonAcrossItsReplacement() throws {
+        let slot = makeSlot()
+        let session = makeSession(in: slot, spaceId: "picker-zoom-replacement")
+        let window = ZoomButtonLookupCountingWindow()
+        defer { window.close() }
+        let bar = TabStripBarController(browserState: session.browserState)
+        bar.view.frame = NSRect(x: 0, y: window.frame.height - 42, width: 1000, height: 36)
+        let picker = try XCTUnwrap(descendants(of: bar.view)
+            .first { $0.accessibilityIdentifier() == "tabStrip.spacePicker" })
+        window.contentView?.addSubview(bar.view)
+        defer { bar.view.removeFromSuperview() }
+
+        func assertGap(_ message: String) throws {
+            let zoom = try XCTUnwrap(window.standardWindowButton(.zoomButton))
+            bar.view.layoutSubtreeIfNeeded()
+            XCTAssertEqual(picker.convert(picker.bounds, to: nil).minX
+                - zoom.convert(zoom.bounds, to: nil).maxX, 10, accuracy: 0.01, message)
+        }
+
+        try assertZoomButtonMovesAreFollowedAcrossReplacement(in: window, assertGap: assertGap)
+    }
+
+    func testSidebarButtonFollowsTheZoomButtonAcrossItsReplacement() throws {
+        let window = ZoomButtonLookupCountingWindow()
+        defer { window.close() }
+        let header = SidebarHeaderView(state: makeState(spaceId: "header-zoom-replacement"))
+        header.frame = NSRect(x: 0, y: window.frame.height - 100, width: 300, height: 100)
+        window.contentView?.addSubview(header)
+        defer { header.removeFromSuperview() }
+        let sidebarButton = try XCTUnwrap(descendants(of: header)
+            .first { $0.accessibilityIdentifier() == "sidebarHeader.sidebarButton" })
+
+        func assertGap(_ message: String) throws {
+            let zoom = try XCTUnwrap(window.standardWindowButton(.zoomButton))
+            header.layoutSubtreeIfNeeded()
+            XCTAssertEqual(sidebarButton.convert(sidebarButton.bounds, to: nil).minX
+                - zoom.convert(zoom.bounds, to: nil).maxX, 10, accuracy: 0.01, message)
+        }
+
+        try assertZoomButtonMovesAreFollowedAcrossReplacement(in: window, assertGap: assertGap)
+    }
+
+    /// Moves the zoom button, has AppKit replace it (toggling `.titled` swaps
+    /// the window's frame view and its buttons), then moves the replacement.
+    private func assertZoomButtonMovesAreFollowedAcrossReplacement(
+        in window: NSWindow, assertGap: (String) throws -> Void
+    ) throws {
+        let original = try XCTUnwrap(window.standardWindowButton(.zoomButton))
+        try assertGap("on entering the window")
+        original.setFrameOrigin(NSPoint(x: original.frame.minX + 5, y: original.frame.minY))
+        try assertGap("after the zoom button moved")
+
+        window.styleMask.remove(.titled)
+        window.styleMask.insert(.titled)
+        let replacement = try XCTUnwrap(window.standardWindowButton(.zoomButton))
+        XCTAssertFalse(replacement === original, "AppKit kept the zoom button; the replacement went untested")
+        try assertGap("after AppKit replaced the zoom button")
+        replacement.setFrameOrigin(NSPoint(x: replacement.frame.minX + 7, y: replacement.frame.minY))
+        try assertGap("after the replacement zoom button moved")
+    }
+
     func testHostedTitlebarGapsReachWindowWithoutDiscardingContentHits() throws {
         for mode: LayoutMode in [.performance, .balanced, .comfortable] {
             PhiPreferences.GeneralSettings.saveLayoutMode(mode)
@@ -1353,5 +1446,25 @@ private final class HostedCommandRecordingWindow: NSWindow {
     @objc func commandDispatch(_ sender: Any?) {
         commandCount += 1
         onCommand?()
+    }
+}
+
+/// Counts zoom button lookups. A frame observer that filters every view's
+/// frame change for the zoom button looks it up once per change anywhere in
+/// the app; one that observes the button itself never has to.
+@MainActor
+private final class ZoomButtonLookupCountingWindow: NSWindow {
+    var zoomButtonLookups = 0
+
+    init() {
+        super.init(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 700),
+                   styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+                   backing: .buffered, defer: false)
+        isReleasedWhenClosed = false
+    }
+
+    override func standardWindowButton(_ b: NSWindow.ButtonType) -> NSButton? {
+        if b == .zoomButton { zoomButtonLookups += 1 }
+        return super.standardWindowButton(b)
     }
 }

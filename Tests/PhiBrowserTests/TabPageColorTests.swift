@@ -266,6 +266,7 @@ final class PageColorTestWebContentWrapper: NSObject, WebContentWrapper {
     func restoreFocus() {}
     func updateSecurityState(_ securityState: [AnyHashable: Any]) {}
     func updateIsPeekSurface(_ isPeekSurface: Bool) {}
+    func updateIsPeekPresented(_ presented: Bool) {}
     func toggleAudioMuted() { toggleAudioMutedCallCount += 1 }
     func setAudioMuted(_ muted: Bool) { audioMuteRequests.append(muted) }
     func muteAudio() {}

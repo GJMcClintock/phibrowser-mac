@@ -27,6 +27,13 @@ class WebContentContainerViewController: NSViewController {
     /// Currently focused tab identifier
     private var currentTabIdentifier: String?
     
+    /// Whether a tab has been mounted here yet; the first mount is the cold
+    /// one (see `switchToWebContentController`).
+    private var hasMountedTab = false
+    /// Called with the controller being mounted, right before the mount
+    /// decides whether its content joins the window in this turn.
+    var willMountControllerForTesting: ((WebContentViewController) -> Void)?
+
     /// Currently displayed WebContentViewController
     /// Hands keyboard focus to the presented tab. Hosted-window mode calls
     /// this after a Space switch installs the session's view tree: the
@@ -74,13 +81,6 @@ class WebContentContainerViewController: NSViewController {
     /// in contentContainer at a time).
     private var placeholderShell: PlaceholderShellViewController?
 
-    /// Static snapshot of the closing active tab, laid over the content area to hide
-    /// the flash during the view swap. Single slot; independent of `placeholderShell`.
-    private var closePlaceholder: NSImageView?
-
-    /// Fallback that clears `closePlaceholder` if no swap-completion signal arrives.
-    private var closePlaceholderTimeout: DispatchWorkItem?
-
     /// Shared bookmark bar owned once per window and moved between controllers.
     private var sharedBookmarkBar: BookmarkBar?
     /// Current host for the shared bookmark bar.
@@ -96,120 +96,38 @@ class WebContentContainerViewController: NSViewController {
     }
 
     // =========================================================================
-    // Tab switch
-    // Purpose: avoid flicker by delaying SetHidden(old) until Mac finishes view switch.
+    // Tab switch: the mount is the switch (chromium ADR 0015, mac ADR 0011)
     //
-    // Chromium                    Bridge                      Mac
-    //      │                          │                          │
-    //      │ DeferHide(old)           │                          │
-    //      │─────────────────────────▶│                          │
-    //      │                          │                          │ Defer cleanup
-    //      │                          │                          │
-    //      │◀─────────────────────────│◀─────────────────────────│ notifyViewSwitchCompleted
-    //      │ ConfirmViewSwitchCompleted                          │
-    //      │ SetHidden(old)           │                          │
-    //      │─────────────────────────▶│─────────────────────────▶│
-    //      │ OnPreviousTabReadyForCleanup                          │
-    //      │─────────────────────────▶│─────────────────────────▶│ handlePreviousTabReadyForCleanup
-    //      │                          │                          │ remove old NSView
+    // Chromium                               Mac
+    //      │ activate tab: new VISIBLE,         │
+    //      │ old OCCLUDED                       │
+    //      │ OnActiveTabChanged                 │
+    //      │───────────────────────────────────▶│ handleFocusingTabChanged
+    //      │                                    │ switchToWebContentController:
+    //      │                                    │   mount the new tab's view,
+    //      │                                    │   remove every other tab view
+    //      │ old NSView left the window:        │
+    //      │ old tab HIDDEN                     │
     //
-    // New tab (first paint gating)
-    //
-    // Chromium                    Bridge                      Mac
-    //      │                          │                          │
-    //      │ OnTabCreated             │                          │ newTabCreated
-    //      │─────────────────────────▶│                          │
-    //      │ OnActiveTabChanged       │                          │ activeTabChanged
-    //      │─────────────────────────▶│─────────────────────────▶│ handleFocusingTabChanged
-    //      │                          │                          │ hasFirstPaint? no
-    //      │                          │                          │ switchToNewUnpaintedTab
-    //      │ FirstPaint               │                          │
-    //      │ OnTabReadyToDisplay      │                          │ tabReadyToDisplay
-    //      │─────────────────────────▶│─────────────────────────▶│ handleTabReadyToDisplay
-    //      │                          │                          │ bring new view to front
-    //      │◀─────────────────────────│◀─────────────────────────│ notifyViewSwitchCompleted
-    //      │ ConfirmViewSwitchCompleted                          │
-    //      │ SetHidden(old)            │                          │
-    //      │ OnPreviousTabReadyForCleanup                          │
-    //      │─────────────────────────▶│─────────────────────────▶│ handlePreviousTabReadyForCleanup
-    //      │                          │                          │ remove old NSView
+    // Every focus change takes this one path, whether or not the tab has
+    // painted, whether or not a content surface is installed, and into, out
+    // of or within a split; nothing waits for a first paint and nothing is
+    // confirmed back to Chromium. A new view not at the page area's size is
+    // laid out at that size before it joins the window; one already at it
+    // joins without that layout. Kiosk's `mountFocusedTab` has the same
+    // shape, though it removes the other views before mounting and does not
+    // lay the new view out first. The container's first mount (cold) leaves
+    // a never-shown tab's web view to the controller's deferred content
+    // update, one turn later. Over a
+    // content surface (chromium ADR 0014) the swap is one frame there: the
+    // incoming web views are attached and the outgoing ones hidden in this
+    // turn, and viz keeps the previous frame up until the incoming tab's
+    // surface is ready or four frames pass, then shows the page-area
+    // backdrop. Without a surface the tabs draw themselves, so a tab that
+    // has no compositor of its own shows blank until its first frame. The one
+    // wait is on the model: a tab opened into a new split is mounted once its
+    // split lands (`BrowserState.tabsAwaitingSplit`).
     // =========================================================================
-
-    // =========================================================================
-    // Flicker fix: Pending state for tab visibility synchronization
-    // =========================================================================
-
-    /// Scenario 1: Previous controller/view waiting to be cleaned up after Chromium confirms hiding.
-    /// We defer cleanup until Chromium sends previousTabReadyForCleanup notification.
-    private var pendingViewCleanup: (controller: WebContentViewController, view: NSView)?
-
-    /// Scenario 2: New tab controller waiting for first paint before being shown.
-    /// The new controller's view is added below the current view until first paint completes.
-    /// Structure: (controller, tabId, identifier)
-    private var pendingNewTabSwitch: (controller: WebContentViewController, tabId: Int, identifier: String)?
-
-    /// Timeout work item for scenario 2 - fallback if first paint notification doesn't arrive
-    private var pendingNewTabTimeoutWorkItem: DispatchWorkItem?
-
-    /// Timeout duration for waiting for first paint (in seconds)
-    private static let firstPaintTimeoutSeconds: Double = 0.05
-
-    /// First-paint budget for a mount with no outgoing tab underneath it — the
-    /// first tab of a Space window surfaced by a cold Space switch (a spawn, or
-    /// a parked ghost materialized by `SpaceWindowSlot.activate`).
-    ///
-    /// The 50ms above is calibrated for a warm in-window tab switch, where the
-    /// outgoing tab's pixels stay on screen until the promotion, so expiring
-    /// early costs at most a flash. A cold window has nothing on screen but
-    /// `pageAreaBackdrop`, and its tab has usually not begun loading: a
-    /// materialized Space's tab starts its navigation only when the reveal
-    /// un-defers it (`Browser::SetRestoredSiblingConcealed(false)`), which
-    /// happens AFTER this mount runs. 50ms therefore always expires first and
-    /// force-promotes a view with no frame over the themed backdrop, exposing
-    /// Chromium's white pre-paint background — the white blink on the first
-    /// switch to each Space, visible only in dark mode.
-    ///
-    /// Waiting longer costs nothing here. The promotion being delayed would
-    /// have put a blank view on screen anyway, and the cleanup it gates
-    /// (`notifyViewSwitchCompleted`) has no previous tab to release — which is
-    /// exactly the condition this budget is selected on.
-    private static let coldFirstPaintTimeoutSeconds: Double = 2.0
-
-    /// Fallback duration to clear the close-snapshot placeholder when no swap signal arrives (in seconds)
-    private static let closeSnapshotTimeoutSeconds: Double = 0.8
-
-    /// Opaque themed cover held over the page area across a cold Space reveal.
-    /// A spawned or materialized Space window is fronted before its tab has
-    /// painted (a materialized Space does not even begin its navigation until
-    /// the reveal un-defers it), and what Chromium leaves in the page rect
-    /// until its first frame lands is not ours to colour. `pageAreaBackdrop`
-    /// covers the same gap from BELOW and stops covering it the moment the
-    /// tab's view is promoted above it; this covers it from above, and is
-    /// committed to the WindowServer before the window is fronted so it cannot
-    /// arrive a frame late.
-    private var coldRevealMask: NSView?
-
-    /// Fallback that lifts `coldRevealMask` if no promotion ever arrives.
-    private var coldRevealMaskTimeout: DispatchWorkItem?
-
-    /// One-shot hook a cold Space reveal arms to be told when this window's
-    /// content has actually painted (`SpaceWindowSlot`'s reveal waits on it
-    /// before fronting the window). Fired and cleared at first-paint
-    /// promotion; the reveal side pairs it with its own deadline, so a page
-    /// that never paints still presents.
-    var onColdContentReady: (() -> Void)?
-
-    /// Deliberately longer than `coldFirstPaintTimeoutSeconds` so the
-    /// first-paint promotion always wins the race — the mask should lift on
-    /// real content, and fall back to a deadline only when there will never be
-    /// any (a tab that closes mid-load, a page that never paints).
-    private static let coldRevealMaskTimeoutSeconds: Double = 3.0
-
-    /// How long the cover takes to cross-fade into the page it was covering.
-    /// Kept just under the vertical Space-switch slide (0.15s) so the reveal
-    /// reads as part of the same gesture rather than as a separate event
-    /// afterwards.
-    private static let coldRevealMaskFadeDuration: TimeInterval = 0.12
 
     // MARK: - UI Components
 
@@ -260,12 +178,15 @@ class WebContentContainerViewController: NSViewController {
     /// NTP-colored backdrop pinned under every other subview of
     /// `contentContainer`, tracing the page panel's exact geometry
     /// (`WebContentViewController.splitViewContainer`: same insets, corner
-    /// radius, and `.contentOverlayBackground` fill). Only visible while no
-    /// tab content is mounted above it — the zero-tab gap of a freshly
-    /// spawned Space window whose seed NTP hasn't mounted yet. Without it
-    /// that gap shows the window background, so the page area pops from
-    /// window color to NTP color when the tab lands; with it the page area
-    /// reads as an NTP from the first frame.
+    /// radius, and `.contentOverlayBackground` fill). Visible in the
+    /// zero-tab gap of a freshly spawned Space window whose seed NTP hasn't
+    /// mounted yet: without it that gap shows the window background, so the
+    /// page area pops from window color to NTP color when the tab lands; with
+    /// it the page area reads as an NTP from the first frame. Once a content
+    /// surface is installed the page card above it is clear, and this
+    /// backdrop shows through wherever the page has not painted: before a
+    /// cold page's first frame, under an evicted frame, in a split's gap
+    /// (`updatePageAreaBackdropCorners` squares its corners to match).
     private var pageAreaBackdropLeadingConstraint: Constraint?
     private lazy var pageAreaBackdrop: NSView = {
         let view = NSView()
@@ -380,6 +301,10 @@ class WebContentContainerViewController: NSViewController {
     /// synchronously and layout tests can assert the end state.
     static var panelSlideAnimationsDisabledForTesting = false
 
+    /// Test seam: the panel slides' duration, so a test can keep a slide
+    /// running while it cuts it short, or see it end; nil keeps AppKit's.
+    static var panelSlideDurationForTesting: TimeInterval?
+
     /// True when a panel attach/detach should settle immediately instead of
     /// sliding: the test seam is on, or there is no window to animate in.
     private var skipsPanelSlideAnimation: Bool {
@@ -421,15 +346,23 @@ class WebContentContainerViewController: NSViewController {
     /// ramp it as one surface. The pages this container mounts follow it:
     /// each spans the margins around its card, and one painting its own
     /// backdrop there keeps the leaving Space's color until the switch lands.
+    /// They also stop painting it once a content surface is installed
+    /// (`pagesPaintOwnBackdrop`).
     var paintsOwnBackdrop = true {
         didSet { applyBackdropPainting() }
     }
 
+    /// Whether the pages and the placeholder shell paint their own backdrop:
+    /// only while this container does and no content surface is installed. A
+    /// page's root view lies above the surface's view and would cover it;
+    /// this container's own root view lies below it and keeps painting.
+    private var pagesPaintOwnBackdrop: Bool { paintsOwnBackdrop && !hasContentSurface }
+
     private func applyBackdropPainting() {
         for controller in webContentControllers.values {
-            controller.paintsOwnBackdrop = paintsOwnBackdrop
+            controller.paintsOwnBackdrop = pagesPaintOwnBackdrop
         }
-        placeholderShell?.paintsOwnBackdrop = paintsOwnBackdrop
+        placeholderShell?.paintsOwnBackdrop = pagesPaintOwnBackdrop
         guard isViewLoaded else { return }
         (view as? ColoredVisualEffectView)?.suppressesBackdrop = !paintsOwnBackdrop
     }
@@ -464,9 +397,11 @@ class WebContentContainerViewController: NSViewController {
             make.edges.equalToSuperview()
         }
 
-        // First child of contentContainer, so every later subview (the tab's
-        // WebContentViewController, placeholder shell, close snapshot) stacks
-        // above it and covers it whenever real content is mounted.
+        // First child of contentContainer, so every later subview (the content
+        // surface's view, the tab's WebContentViewController, placeholder
+        // shell) stacks above it. Without a content surface, mounted content
+        // covers it; with one, the page card is clear and this backdrop shows
+        // through wherever the page has not painted.
         contentContainer.addSubview(pageAreaBackdrop)
         pageAreaBackdrop.snp.makeConstraints { make in
             pageAreaBackdropLeadingConstraint = make.leading.equalToSuperview().constraint
@@ -595,8 +530,8 @@ class WebContentContainerViewController: NSViewController {
 
     /// The visible address bar owns page-color eligibility, compositing,
     /// contrast, and fallback. The horizontal tab strip mirrors that resolved
-    /// presentation unless AI Chat separates the page into its own card or
-    /// Reader View covers the focused page.
+    /// presentation unless AI Chat or the extension side panel separates the
+    /// page into its own card, or Reader View covers the focused page.
     private func bindCurrentHeaderPageColorPresentation() {
         currentHeaderPageColorCancellable = nil
         guard let controller = currentWebContentController else {
@@ -800,6 +735,18 @@ class WebContentContainerViewController: NSViewController {
             }
             .store(in: &cancellables)
         
+        // Mount a focused tab that was waiting for its split, once it lands.
+        // Asynchronous on purpose: @Published sends in willSet, so a
+        // synchronous sink would still find the tab waiting.
+        browserState?.$tabsAwaitingSplit
+            .dropFirst()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                guard let self, let tab = self.browserState?.focusingTab else { return }
+                self.handleFocusingTabChanged(tab)
+            }
+            .store(in: &cancellables)
+
         // Listen to tabs changes to detect tab closures
         browserState?.$tabs
             .receive(on: DispatchQueue.main)
@@ -847,6 +794,17 @@ class WebContentContainerViewController: NSViewController {
                 } else {
                     self.detachExtensionSidePanel()
                 }
+                self.updatePageAreaBackdropCorners(panelDocked: panel != nil)
+            }
+            .store(in: &cancellables)
+
+        // Content surface install. SYNCHRONOUS (no `.receive(on:)`): in the
+        // turn Chromium hands the view over, or, if it arrived before this
+        // subscription, right here, as @Published replays it.
+        browserState?.$contentSurfaceView
+            .compactMap { $0 }
+            .sink { [weak self] hostingView in
+                self?.installContentSurface(hostingView)
             }
             .store(in: &cancellables)
 
@@ -855,14 +813,6 @@ class WebContentContainerViewController: NSViewController {
             .sink { [weak self] _ in
                 self?.updateLayoutForMode()
                 self?.updateContentOuterBorder()
-            }
-            .store(in: &cancellables)
-
-        // Listen to layout mode changes
-        NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in
-                self?.updateLayoutForMode()
             }
             .store(in: &cancellables)
 
@@ -905,8 +855,12 @@ class WebContentContainerViewController: NSViewController {
         }
     }
     
+    /// Relays out on a layout mode change only. `BrowserState` publishes
+    /// `layoutMode` only when the mode changes, though the defaults
+    /// notification behind it fires for a write to any key.
     private func setupConfigObserver() {
-        NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)
+        browserState?.$layoutMode
+            .dropFirst()
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
                 self?.updateLayoutForMode()
@@ -969,9 +923,8 @@ class WebContentContainerViewController: NSViewController {
         let bottomY = r.minY
 
         // Tie the gap to the *visible* controller's tab rather than
-        // browserState.focusingTab. During the deferred-first-paint switch
-        // path, focusingTab updates before currentWebContentController is
-        // promoted; using the visible tab keeps the outline attached to the
+        // browserState.focusingTab, which changes a main-queue hop before
+        // the mount; using the visible tab keeps the outline attached to the
         // tab whose page is actually onscreen. The notch only exists in
         // comfortable — the vertical layouts (reachable here with a panel
         // mounted) have no horizontal chips, so their frame is the plain
@@ -1222,56 +1175,29 @@ class WebContentContainerViewController: NSViewController {
         let alreadyShowingExactTab = identifier == currentTabIdentifier
             && currentWebContentController?.associatedTab?.guid == tab.guid
 
-        // Cancel a stale unpainted-tab switch BEFORE the early return below.
-        // Focus can bounce back to the already-mounted tab while a pending
-        // switch for another tab is still armed — e.g. the space-routing
-        // throttle closes a target=_blank popup right after it was activated.
-        // Returning without cancelling would let the first-paint timeout
-        // promote the dead popup's view over the live tab, blanking the
-        // content area until the user manually switches tabs.
-        cancelPendingNewTabSwitchIfNeeded(nextTabId: tab.guid, nextIdentifier: identifier)
-
         guard !alreadyShowingExactTab else { return }
+
+        // Mounted alone, a tab still waiting for its split would take its
+        // partner, the current tab, out of the window (see
+        // `BrowserState.tabsAwaitingSplit`).
+        guard !state.tabsAwaitingSplit.contains(tab.guid) else { return }
 
         // Any move to a different tab invalidates a flying chat ghost. The
         // per-controller drop sites below miss the identifier-collision
         // case above, where the SAME controller is rebound to a different
         // Chromium tab and swaps its content without a controller switch.
         dropClosingAIChatGhost()
+        // The incoming page is laid out at the narrowed size and has to be
+        // told where it is, what of it shows, its corners and its stacking now.
+        releaseContentSurfaceHold()
 
         // Clear status URL when switching tabs
         state.targetURL = ""
 
         // Get or create WebContentViewController for this tab
         let controller = getOrCreateWebContentController(for: tab, identifier: identifier)
-
-        // =========================================================================
-        // Flicker fix: Choose switch strategy based on whether tab has painted
-        // =========================================================================
-
-        let leavingSplit = currentWebContentController?.associatedTab.map {
-            state.splitGroup(forTabId: $0.guid) != nil
-        } ?? false
-        let enteringSplit = state.splitGroup(forTabId: tab.guid) != nil
-
-        if tab.isReadyToDisplay {
-            // Scenario 1: Tab has already painted (or paints natively — the
-            // incognito NTP, see `Tab.isReadyToDisplay`), switch immediately
-            // (bring to front)
-            // AppLogDebug("[FlickerFix][Mac] Tab has first paint, using immediate switch (scenario 1)")
-            switchToWebContentController(controller)
-            currentTabIdentifier = identifier
-        } else if leavingSplit && !enteringSplit {
-            // Leaving a split for a non-split tab — the split's pane host
-            // shouldn't linger via the flicker-fix deferral. Force the
-            // immediate switch so the new tab takes over.
-            switchToWebContentController(controller)
-            currentTabIdentifier = identifier
-        } else {
-            // Scenario 2: New tab hasn't painted yet, add view below current and wait for first paint
-            // AppLogDebug("[FlickerFix][Mac] 📤 New tab hasn't painted, deferring display until first paint (scenario 2)")
-            switchToNewUnpaintedTab(controller: controller, tab: tab, identifier: identifier)
-        }
+        switchToWebContentController(controller)
+        currentTabIdentifier = identifier
     }
     
     /// Drive the active tab's content mount after the window is restored from
@@ -1345,7 +1271,8 @@ class WebContentContainerViewController: NSViewController {
             return byGuid
         }
         let controller = WebContentViewController(state: state, tab: tab)
-        controller.paintsOwnBackdrop = paintsOwnBackdrop
+        controller.paintsOwnBackdrop = pagesPaintOwnBackdrop
+        controller.hasContentSurface = hasContentSurface
         webContentControllers[identifier] = controller
         return controller
     }
@@ -1386,7 +1313,8 @@ class WebContentContainerViewController: NSViewController {
         
         // Create new controller with the associated tab
         let controller = WebContentViewController(state: browserState, tab: tab)
-        controller.paintsOwnBackdrop = paintsOwnBackdrop
+        controller.paintsOwnBackdrop = pagesPaintOwnBackdrop
+        controller.hasContentSurface = hasContentSurface
         webContentControllers[identifier] = controller
         AppLogInfo("🆕 [WebContent] Created new controller for identifier '\(identifier)', tab.guid: \(tab.guid)")
         
@@ -1436,6 +1364,140 @@ class WebContentContainerViewController: NSViewController {
         controller.updateBookmarkBarVisibility(bookmarkCount: bookmarkBar.bookmarkCount)
     }
     
+    // MARK: - Content surface
+
+    /// The window's content surface view (chromium ADR 0014), once installed
+    /// by `installContentSurface`.
+    private var contentSurfaceView: NSView?
+    private var contentSurfaceFilterObservation: NSKeyValueObservation?
+    private var contentSurfaceHosting: ContentSurfaceHosting?
+    var contentSurfaceHostingForTesting: ContentSurfaceHosting? { contentSurfaceHosting }
+
+    /// Whether the pages here draw through a content surface. Pushed to every
+    /// page and the placeholder shell the way `paintsOwnBackdrop` is.
+    var hasContentSurface: Bool { contentSurfaceView != nil }
+
+    /// Installs the content surface's view just above `pageAreaBackdrop` and
+    /// below every tab's view, which makes `contentContainer` its hosting
+    /// container: every web view mounted below it (pages, split panes, the AI
+    /// Chat panel, docked DevTools, the placeholder shell) draws through it,
+    /// so the fills behind them go clear. Installed once; a page lifted into
+    /// content fullscreen borrows the view (`lendContentSurface(to:)`) and it
+    /// comes back here (`reclaimContentSurface`). Moving the view does not
+    /// take the web views still in `contentContainer` off the surface:
+    /// Chromium judges a web view's surface when that web view moves, and
+    /// the web views below the surface's view's new superview when that
+    /// view moves, so lending judges only the overlay's. One mounted here
+    /// while the view is lent draws itself until the view comes back.
+    ///
+    /// Chromium creates one for every browser window whose page area the Mac
+    /// client hosts: a Space instance, whose pages paint no backdrop of their
+    /// own anyway, and a standalone Incognito window (chromium ADR 0016). A
+    /// page painting its vibrancy backdrop would cover the surface, so once
+    /// it is installed the pages and the placeholder shell paint none
+    /// (`pagesPaintOwnBackdrop`); this container's own root view, below the
+    /// surface, keeps painting where it does.
+    private func installContentSurface(_ hostingView: NSView) {
+        guard contentSurfaceView == nil else { return }
+        contentSurfaceView = hostingView
+        placeContentSurface(hostingView)
+        // It sits under the same visual-effect views as the pages' own
+        // Chromium views; see WebContentHostView.
+        if let layer = hostingView.layer {
+            contentSurfaceFilterObservation = WebContentHostView.observeVibrancyFilter(on: layer)
+        }
+        for controller in webContentControllers.values {
+            controller.hasContentSurface = true
+        }
+        placeholderShell?.hasContentSurface = true
+        applyBackdropPainting()
+        updatePageAreaBackdropCorners(panelDocked: browserState?.extensionSidePanel != nil)
+        contentSurfaceHosting = ContentSurfaceHosting(container: contentContainer,
+                                                      surfaceView: hostingView,
+                                                      browserState: browserState)
+        AppLogInfo("[ContentSurface] [Container] installed windowId=\(browserState?.windowId ?? -1)")
+    }
+
+    /// Just above `pageAreaBackdrop`, below every tab's view.
+    private func placeContentSurface(_ hostingView: NSView) {
+        contentContainer.addSubview(hostingView, positioned: .above, relativeTo: pageAreaBackdrop)
+        hostingView.snp.remakeConstraints { make in
+            make.edges.equalToSuperview()
+        }
+    }
+
+    /// Lends the surface's view to the page entering content fullscreen
+    /// (`WebContentViewController.applyContentFullscreenState`): it goes to
+    /// the bottom of `overlay` before the page's host view joins, so the
+    /// lifted web views find it in their ancestry and keep drawing through
+    /// it. Lifted alone they left the surface for a compositor of their own
+    /// and showed nothing until its first frame, with the AppKit fullscreen
+    /// transition holding the main thread meanwhile. The web views left here
+    /// (the AI Chat panel, the placeholder page, a split partner) stay on the
+    /// surface, below the lifted page.
+    func lendContentSurface(to overlay: NSView) {
+        guard let contentSurfaceView, contentSurfaceView.superview === contentContainer else { return }
+        releaseContentSurfaceHold()
+        contentSurfaceView.removeFromSuperview()
+        overlay.addSubview(contentSurfaceView, positioned: .below, relativeTo: nil)
+        contentSurfaceView.snp.remakeConstraints { make in
+            make.edges.equalToSuperview()
+        }
+        AppLogInfo("[ContentSurface] [Container] lent to content fullscreen windowId=\(browserState?.windowId ?? -1)")
+    }
+
+    /// Takes the surface's view back above `pageAreaBackdrop` when the page
+    /// leaves content fullscreen, or its controller goes away up there. Done
+    /// before the host view comes back, so its web views rejoin a tree the
+    /// surface is already under.
+    func reclaimContentSurface() {
+        guard let contentSurfaceView, contentSurfaceView.superview !== contentContainer else { return }
+        contentSurfaceView.removeFromSuperview()
+        placeContentSurface(contentSurfaceView)
+        AppLogInfo("[ContentSurface] [Container] reclaimed from content fullscreen windowId=\(browserState?.windowId ?? -1)")
+    }
+
+    /// Holds the surface's view at its current frame while the extension
+    /// side panel slides in. That slide is a Core Animation one, which sets
+    /// `contentContainer` to its end frame at once; the surface would shrink
+    /// with it and cut the page short while its card still narrows, leaving
+    /// the backdrop between the page and the incoming panel. Held, it keeps
+    /// room for the page, which follows its card on every frame
+    /// (`ContentSurfaceHosting.isHeld`). Does nothing while already held.
+    private func holdContentSurfaceForPanelSlide() {
+        guard let contentSurfaceView, let contentSurfaceHosting, !contentSurfaceHosting.isHeld,
+              contentSurfaceView.superview === contentContainer else { return }
+        let frame = contentSurfaceView.frame
+        contentSurfaceView.snp.removeConstraints()
+        contentSurfaceView.translatesAutoresizingMaskIntoConstraints = true
+        contentSurfaceView.frame = frame
+        contentSurfaceHosting.isHeld = true
+    }
+
+    /// Lets the surface's view go once the slide ends, or
+    /// sooner when a tab switch, the current tab's close, the panel's close or
+    /// content fullscreen cuts it short. Does nothing unless held.
+    private func releaseContentSurfaceHold() {
+        guard let contentSurfaceHosting, contentSurfaceHosting.isHeld else { return }
+        contentSurfaceHosting.isHeld = false
+        guard let contentSurfaceView, contentSurfaceView.superview === contentContainer else { return }
+        contentSurfaceView.snp.remakeConstraints { make in
+            make.edges.equalToSuperview()
+        }
+    }
+
+    /// Over a content surface the page card is clear and this backdrop shows
+    /// through it, so it squares its right corners with the card's while the
+    /// extension side panel is docked (see
+    /// `WebContentViewController.updateLeftContainerStyle`).
+    private func updatePageAreaBackdropCorners(panelDocked: Bool) {
+        guard hasContentSurface else { return }
+        pageAreaBackdrop.layer?.maskedCorners = panelDocked
+            ? [.layerMinXMinYCorner, .layerMinXMaxYCorner]
+            : [.layerMinXMinYCorner, .layerMinXMaxYCorner,
+               .layerMaxXMinYCorner, .layerMaxXMaxYCorner]
+    }
+
     // MARK: - Placeholder Shell
 
     /// Mount the placeholder shell inside `contentContainer` and ask it to
@@ -1454,7 +1516,8 @@ class WebContentContainerViewController: NSViewController {
             shell = existing
         } else {
             shell = PlaceholderShellViewController(browserState: browserState)
-            shell.paintsOwnBackdrop = paintsOwnBackdrop
+            shell.paintsOwnBackdrop = pagesPaintOwnBackdrop
+            shell.hasContentSurface = hasContentSurface
             addChild(shell)
             contentContainer.addSubview(shell.view)
             shell.view.snp.remakeConstraints { make in
@@ -1571,7 +1634,7 @@ class WebContentContainerViewController: NSViewController {
     /// Settle a freshly opened panel into the right slot, animating it in
     /// from the window's right edge while the page area shrinks in the same
     /// animation group (matching the AI Chat expand: default
-    /// NSAnimationContext duration, page frame sync paused for the ride).
+    /// NSAnimationContext duration).
     /// The panel starts frame-driven just off-screen; re-installing its
     /// constraints inside the group makes the implicit animation
     /// interpolate every affected frame to the settled layout.
@@ -1652,15 +1715,25 @@ class WebContentContainerViewController: NSViewController {
             width: panelView.frame.width + panelInset,
             height: panelView.frame.height + panelInset * 2)
 
-        let pausedController = currentWebContentController
-        pausedController?.setContentFrameSyncPausedForPanelTransition(true)
+        let pageController = currentWebContentController
+        holdContentSurfaceForPanelSlide()
+        let transition = pageController?.beginPanelTransition()
         NSAnimationContext.runAnimationGroup({ context in
+            if let duration = Self.panelSlideDurationForTesting {
+                context.duration = duration
+            }
             context.allowsImplicitAnimation = true
             panelView.translatesAutoresizingMaskIntoConstraints = false
             remakeContentLayout()
             view.layoutSubtreeIfNeeded()
-        }, completionHandler: { [weak self, weak pausedController] in
-            pausedController?.setContentFrameSyncPausedForPanelTransition(false)
+            // A slide-out this one cut short left the page split mid-flight.
+            pageController?.retargetContentSplitForPanelTransition()
+        }, completionHandler: { [weak self, weak pageController] in
+            // First, so the surface below is let go at the aligned size.
+            if let transition {
+                pageController?.finishPanelTransition(transition)
+            }
+            self?.releaseContentSurfaceHold()
             // Settle on completion only: during the slide the stale outline
             // still traces the full-width card the panel is covering, while
             // an immediate snap would draw the narrow outline across the
@@ -1671,10 +1744,9 @@ class WebContentContainerViewController: NSViewController {
 
     /// Drops a mid-flight AI Chat ghost. The snapshot belongs to the pane
     /// it was captured from: once another controller takes over the
-    /// content area (tab switch, current-tab close, deferred first-paint
-    /// promotion) the afterglow would parade the previous tab's chat
-    /// pixels over the new content, so it goes down with its pane instead
-    /// of finishing the slide.
+    /// content area (tab switch, current-tab close) the afterglow would
+    /// parade the previous tab's chat pixels over the new content, so it
+    /// goes down with its pane instead of finishing the slide.
     private func dropClosingAIChatGhost() {
         closingAIChatGhostView?.removeFromSuperview()
         closingAIChatGhostView = nil
@@ -1703,11 +1775,12 @@ class WebContentContainerViewController: NSViewController {
         // panel: when this close comes from the AI Chat mutex the real
         // chat is about to re-expand exactly where the ghost still flies.
         dropClosingAIChatGhost()
+        releaseContentSurfaceHold()
 
-        // Window-server snapshot of the closing content (maskClosingTab's
-        // capture path — local snapshot APIs return blank for the remote
-        // Chromium layer). Best effort: without it the card slides out
-        // with its header over an empty background.
+        // Window-server snapshot of the closing content (`WebContentSnapshotter`
+        // — local snapshot APIs return blank for the remote Chromium layer).
+        // Best effort: without it the card slides out with its header over
+        // an empty background.
         let snapshot = WebContentSnapshotter.captureOnScreen(
             panelView.contentHostView, resolution: .bestResolution)
         for subview in panelView.contentHostView.subviews {
@@ -1730,9 +1803,12 @@ class WebContentContainerViewController: NSViewController {
             remakeContentLayout()
         } else {
             closingExtensionSidePanelView = panelView
-            let pausedController = currentWebContentController
-            pausedController?.setContentFrameSyncPausedForPanelTransition(true)
+            let pageController = currentWebContentController
+            let transition = pageController?.beginPanelTransition()
             NSAnimationContext.runAnimationGroup({ context in
+                if let duration = Self.panelSlideDurationForTesting {
+                    context.duration = duration
+                }
                 context.allowsImplicitAnimation = true
                 // Freeze the card at its current frame, then slide it off
                 // the right edge; the layout funnel (no-panel solution now)
@@ -1762,8 +1838,12 @@ class WebContentContainerViewController: NSViewController {
                 panelView.frame.origin.x =
                     view.bounds.maxX + WebContentConstant.edgesSpacing
                 view.layoutSubtreeIfNeeded()
-            }, completionHandler: { [weak self, weak pausedController] in
-                pausedController?.setContentFrameSyncPausedForPanelTransition(false)
+                // A slide-in this one cut short left the page split mid-flight.
+                pageController?.retargetContentSplitForPanelTransition()
+            }, completionHandler: { [weak self, weak pageController] in
+                if let transition {
+                    pageController?.finishPanelTransition(transition)
+                }
                 self?.settlePanelTransitionOuterBorder()
                 guard let self, self.closingExtensionSidePanelView === panelView
                 else { return }
@@ -1810,160 +1890,16 @@ class WebContentContainerViewController: NSViewController {
         updateContentOuterBorder()
     }
 
-    // MARK: - Close Snapshot Placeholder
-    //
-    // Hides the gray/black flash when closing the ACTIVE tab. Must run SYNCHRONOUSLY
-    // from PhiChromiumCoordinator.tabWillBeRemove — the async EventBus close fires
-    // only after Chromium destroys the WebContents, too late to capture pixels.
-
-    /// Lay a static snapshot of the closing active tab over the content area.
-    /// No-op (degrades to today's flash) if the closing tab isn't on-screen or capture fails.
-    @MainActor
-    func maskClosingTab(tabId: Int) {
-        guard let controller = currentWebContentController,
-              controller.associatedTab?.guid == tabId else {
-            return
-        }
-        // Single slot: clear any prior snapshot before capturing (rapid close).
-        clearClosePlaceholder()
-
-        // Snapshot only the inset web-content region, not the side margins: covering
-        // them makes AppKit additively re-tint that vibrancy strip, and it flickers.
-        let contentView = controller.closeSnapshotSourceView
-        // Comfortable draws a 1pt active-tab outline (outerBorderLayer) ABOVE this
-        // snapshot and re-morphs it on close; inset past it so the live layer owns it.
-        let borderInset: CGFloat = outerBorderLayer.path == nil ? 0 : outerBorderLayer.lineWidth
-        guard let image = WebContentSnapshotter.captureOnScreen(contentView, resolution: .bestResolution, insetBy: borderInset) else {
-            AppLogDebug("[CloseSnapshot] capture failed for tab \(tabId) — falling back to flash")
-            return
-        }
-
-        let imageView = NSImageView()
-        imageView.image = image
-        imageView.imageScaling = .scaleAxesIndependently
-        // Mirror the source's rounded corners (shrunk by the inset) so it lines up.
-        imageView.wantsLayer = true
-        if let sourceLayer = contentView.layer {
-            imageView.layer?.cornerCurve = sourceLayer.cornerCurve
-            imageView.layer?.cornerRadius = max(0, sourceLayer.cornerRadius - borderInset)
-            imageView.layer?.masksToBounds = true
-        }
-        // Cover only the inset content region; margins (and the outline) stay live.
-        imageView.frame = contentView.convert(contentView.bounds, to: contentContainer).insetBy(dx: borderInset, dy: borderInset)
-        contentContainer.addSubview(imageView)
-        // Commit the snapshot to the WindowServer synchronously, before this bridge
-        // callback returns and Chromium destroys the closing tab. Otherwise its CA
-        // commit can land a frame AFTER the remote layer has blanked (async, on the
-        // GPU/WindowServer side) → a 1-frame blank that then "recovers" = the flicker.
-        imageView.display()
-        CATransaction.flush()
-        closePlaceholder = imageView
-
-        let timeout = DispatchWorkItem { [weak self] in
-            self?.clearClosePlaceholder()
-        }
-        closePlaceholderTimeout = timeout
-        DispatchQueue.main.asyncAfter(deadline: .now() + Self.closeSnapshotTimeoutSeconds, execute: timeout)
-    }
-
-    /// Cover the page area with the themed backdrop colour for the duration of
-    /// a cold Space reveal. Called by `SpaceWindowSlot` immediately before the
-    /// entering window is fronted.
-    ///
-    /// No-op once a tab is mounted, which is every warm switch: there the
-    /// target's content is already on screen and a cover would be the only
-    /// thing anyone saw change.
-    @MainActor
-    func maskPageAreaForColdReveal() {
-        guard currentWebContentController == nil, coldRevealMask == nil else { return }
-
-        let mask = NSView()
-        mask.wantsLayer = true
-        mask.layer?.cornerCurve = .continuous
-        mask.layer?.cornerRadius = LiquidGlassCompatible.webContentContainerCornerRadius
-        mask.phiLayer?.setBackgroundColor(ThemedColor.contentOverlayBackground)
-        // Above every sibling, and on the same rect as `pageAreaBackdrop` — the
-        // inset content region only. Covering the side margins too would make
-        // AppKit additively re-tint that vibrancy strip, which is its own
-        // flicker (see `maskClosingTab`).
-        contentContainer.addSubview(mask, positioned: .above, relativeTo: nil)
-        mask.snp.makeConstraints { make in
-            make.leading.equalToSuperview().inset(pageAreaLeadingInset)
-            make.trailing.bottom.equalToSuperview().inset(WebContentConstant.edgesSpacing)
-            make.top.equalToSuperview()
-        }
-        coldRevealMask = mask
-
-        // Laid out and drawn now so the cover has real content in the same
-        // turn, but deliberately NOT `CATransaction.flush()`ed the way
-        // `maskClosingTab` does. That flush commits app-wide, synchronously,
-        // mid-turn — ahead of the `beforeWaiting` observer
-        // `TrafficLightPositioner` uses to correct the discs before AppKit
-        // presents. Forcing the frame out early presents an uncorrected
-        // placement and the traffic lights are left off the chrome row. No
-        // flush is needed here anyway: this runs in the same run-loop turn as
-        // `revealConcealedWindow`, so the cover is in the transaction that
-        // carries the un-conceal.
-        view.layoutSubtreeIfNeeded()
-        mask.display()
-
-        let timeout = DispatchWorkItem { [weak self] in
-            self?.clearColdRevealMask()
-        }
-        coldRevealMaskTimeout = timeout
-        DispatchQueue.main.asyncAfter(deadline: .now() + Self.coldRevealMaskTimeoutSeconds,
-                                      execute: timeout)
-    }
-
-    /// Lift the cold-reveal mask and cancel its timeout. Idempotent.
-    ///
-    /// The cover cross-fades into the page rather than being cut away: the
-    /// content under it has just arrived, and swapping a flat colour for a
-    /// rendered page in one frame reads as a second flash — the opposite of
-    /// what the cover is for.
-    private func clearColdRevealMask() {
-        guard coldRevealMask != nil || coldRevealMaskTimeout != nil else { return }
-        coldRevealMaskTimeout?.cancel()
-        coldRevealMaskTimeout = nil
-        guard let mask = coldRevealMask else { return }
-
-        // Give up the slot before the fade starts, so a cold reveal arriving
-        // mid-fade installs its own cover instead of being turned away by the
-        // guard in `maskPageAreaForColdReveal`. The outgoing one owns itself
-        // from here and tears itself down when the fade lands.
-        coldRevealMask = nil
-        NSAnimationContext.runAnimationGroup({ context in
-            context.duration = Self.coldRevealMaskFadeDuration
-            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
-            mask.animator().alphaValue = 0
-        }, completionHandler: {
-            mask.removeFromSuperview()
-        })
-    }
-
-    /// Remove the close snapshot placeholder and cancel its timeout. Idempotent.
-    @MainActor
-    private func clearClosePlaceholder() {
-        guard closePlaceholder != nil || closePlaceholderTimeout != nil else { return }
-        closePlaceholderTimeout?.cancel()
-        closePlaceholderTimeout = nil
-        closePlaceholder?.removeFromSuperview()
-        closePlaceholder = nil
-    }
-
-    /// Scenario 1: Switch to an already-painted tab (immediate switch, bring to front)
+    /// Mounts `controller`'s view as the current tab and removes every other
+    /// tab view in the same turn (see "Tab switch" above).
     private func switchToWebContentController(_ controller: WebContentViewController) {
-        // Flicker fix: Don't remove old view immediately, defer until Chromium confirms.
-        // Save old controller/view for later cleanup.
         if let current = currentWebContentController, current !== controller {
-            pendingViewCleanup = (controller: current, view: current.view)
             // Outgoing focused VC no longer owns the split host — drop its
             // partner-crash subscription (its own observers won't re-run).
             current.cancelPartnerCrashSubscription()
             // A chat ghost snapped from the outgoing pane must not slide
             // over the incoming tab's content.
             dropClosingAIChatGhost()
-            AppLogDebug("[WebContent] Deferring cleanup of previous controller, waiting for Chromium confirmation")
         }
 
         // Add new controller
@@ -1974,8 +1910,29 @@ class WebContentContainerViewController: NSViewController {
         let controllerView = controller.view
         prepareSharedBookmarkBarSlot(for: controller)
 
-        // Add new view on top (old view stays underneath until cleanup)
+        // Add new view on top
         if controllerView.superview !== contentContainer {
+            // A view not at the page area's size (never shown, so 0x0, or
+            // away while the window was resized) is laid out at that size
+            // while it is still out of the window, so its web view joins the
+            // window at its final size. A web view resized after joining gets
+            // its new size embedded with a zero deadline, and the grown strip
+            // shows the gutter until the page's next frame (mac ADR 0011). A
+            // view already at that size skips the layout: it costs about 3 ms
+            // even when nothing changes, and a rapid close's successor that
+            // joins that much later mostly reaches the screen two frames
+            // later. Its subtree's dirty flags cannot stand in for the size
+            // check: a split view in it always reports pending constraints.
+            // As before the off-window layout, a layout change made inside it
+            // while away at the same size (the bookmark bar toggled on a new
+            // tab page) lands after it joins. A pending window layout is
+            // settled first, or the bounds read here are stale (see the sweep
+            // at the end).
+            view.layoutSubtreeIfNeeded()
+            if controllerView.frame.size != contentContainer.bounds.size {
+                controllerView.frame = contentContainer.bounds
+                controllerView.layoutSubtreeIfNeeded()
+            }
             contentContainer.addSubview(controllerView)
             controllerView.snp.remakeConstraints { make in
                 make.edges.equalToSuperview()
@@ -1987,6 +1944,7 @@ class WebContentContainerViewController: NSViewController {
 
         attachSharedBookmarkBar(to: controller)
 
+        willMountControllerForTesting?(controller)
         // Re-mount content before we mark this controller as current.
         // For split tabs, the partner's webContentView may have been
         // reparented into another controller's split host. For tabs whose
@@ -1998,7 +1956,26 @@ class WebContentContainerViewController: NSViewController {
         // until the assignment below. Today the reachable code stays inside
         // the controller's own host; if you add a container-level lookup,
         // consult the `controller` parameter explicitly instead.
-        controller.refreshContentForCurrentTab()
+        //
+        // The container's first mount, the cold one (a Space's first reveal,
+        // a new window), leaves a never-shown tab's content to the
+        // controller's deferred update, so its web view joins the window one
+        // turn later, after the Chromium work queued behind this turn. When it
+        // joined here, the main-thread work that follows the join held up the
+        // tab's navigation commit and first frame (mac ADR 0011). With nothing
+        // mounted before there is no outgoing page or split to move in this
+        // turn. A later mount with nothing current, such as the successor of
+        // a closed tab, joins at once: that tab can already draw, and a turn
+        // later only shows the backdrop longer.
+        if hasMountedTab || !controller.hasDeferredContentUpdate {
+            controller.refreshContentForCurrentTab()
+        }
+        hasMountedTab = true
+
+        // Unmount only now, unlike Kiosk: a split's two pages and its shared
+        // AI Chat panel have just moved over from the outgoing view while it
+        // was still in the window, which spares them a windowless transition.
+        unmountTabViews(except: controller)
 
         currentWebContentController = controller
         // Now the focused split host (if in a split) — watch the partner pane's
@@ -2012,169 +1989,23 @@ class WebContentContainerViewController: NSViewController {
         // previous size until the next viewDidLayout corrects it.
         view.layoutSubtreeIfNeeded()
         updateContentOuterBorder()
-
-        // Notify Chromium that view switch is complete, it can now hide the old WebContents
-        notifyViewSwitchCompleted()
-
-        // Settled successor is now painted on top — drop the close snapshot (if any).
-        clearClosePlaceholder()
-
-        // A cold Space reveal waiting on this window's content is answered by
-        // a ready tab landing on top — the spawned Incognito Space's native
-        // NTP mounts here under the cold-reveal mask, and no first-paint
-        // promotion will ever follow to lift it. Same one-turn deferral as
-        // the promotion path: the content reaches the WindowServer on this
-        // turn's commit.
-        if let ready = onColdContentReady {
-            onColdContentReady = nil
-            ready()
-        }
-        DispatchQueue.main.async { [weak self] in
-            self?.clearColdRevealMask()
-        }
-
-        cleanUpPendingSplitPartnerViewIfNeeded(incoming: controller)
     }
 
-    /// A focus trade between the two panes of one split never gets the
-    /// "previous tab hidden" confirmation from Chromium — the outgoing tab
-    /// stays visible as the other pane — so the flicker-fix deferral above
-    /// would leave the outgoing controller's view mounted behind the incoming
-    /// one for the life of the split. NSTrackingAreas ignore sibling
-    /// occlusion, so that buried view's header keeps reacting to hover (e.g.
-    /// a ghost Reader View shortcut tooltip at the buried reader button's
-    /// spot). Both panes' web content was already reparented into the
-    /// incoming controller's split host by refreshContentForCurrentTab, so
-    /// removing the buried view immediately is visually a no-op.
-    private func cleanUpPendingSplitPartnerViewIfNeeded(incoming controller: WebContentViewController) {
-        guard let pending = pendingViewCleanup,
-              let state = browserState,
-              let outgoingTabId = pending.controller.associatedTab?.guid,
-              let incomingTabId = controller.associatedTab?.guid,
-              let group = state.splitGroup(forTabId: incomingTabId),
-              group.partnerTabId(of: incomingTabId) == outgoingTabId else { return }
-
-        detachSharedBookmarkBar(from: pending.controller)
-        pending.view.removeFromSuperview()
-        pending.controller.removeFromParent()
-        pendingViewCleanup = nil
-
-        AppLogDebug("[WebContent] Cleaned up split-partner view immediately (no Chromium hide expected for a visible pane)")
-    }
-
-    /// Scenario 2: Switch to a new unpainted tab (add view below, wait for first paint)
-    private func switchToNewUnpaintedTab(controller: WebContentViewController, tab: Tab, identifier: String) {
-        // Defensive: a live host controller can be handed back here when a
-        // controller is reused for a colliding bookmark/pinned identifier.
-        // Re-pointing the current live host into the unpainted-pending slot
-        // would later trip the bookmark-bar host assertion in
-        // cancelPendingNewTabSwitchIfNeeded. If this controller is already the
-        // live host, switch to it synchronously instead of pending it. The
-        // duplicate-binding root cause is fixed Chromium-side at restore; this
-        // guard remains as a second layer.
-        if controller === currentWebContentController {
-            switchToWebContentController(controller)
-            currentTabIdentifier = identifier
-            return
-        }
-
-        // Cancel any existing timeout
-        pendingNewTabTimeoutWorkItem?.cancel()
-        pendingNewTabTimeoutWorkItem = nil
-
-        // Add new controller
-        if controller.parent !== self {
-            addChild(controller)
-        }
-
-        let controllerView = controller.view
-        prepareSharedBookmarkBarSlot(for: controller)
-
-        // Add new view BELOW the current view (old view stays on top and visible)
-        if controllerView.superview !== contentContainer {
-            // Insert at the bottom of the subview stack
-            contentContainer.addSubview(controllerView, positioned: .below, relativeTo: currentWebContentController?.view)
-            controllerView.snp.remakeConstraints { make in
-                make.edges.equalToSuperview()
-            }
-        }
-
-        // Save pending state - we'll complete the switch when first paint arrives
-        pendingNewTabSwitch = (controller: controller, tabId: tab.guid, identifier: identifier)
-
-        // AppLogDebug("[FlickerFix][Mac] New tab view added below current, waiting for tabReadyToDisplay, tabId=\(tab.guid)")
-
-        // Start timeout timer as fallback in case first paint notification doesn't arrive
-        let tabId = tab.guid
-        let timeoutWorkItem = DispatchWorkItem { [weak self] in
-            self?.handleFirstPaintTimeout(tabId: tabId)
-        }
-        pendingNewTabTimeoutWorkItem = timeoutWorkItem
-        // Nothing mounted and no close snapshot standing in means the page area
-        // is showing `pageAreaBackdrop` alone: there are no pixels to protect,
-        // so this mount gets the cold budget rather than the warm-switch one.
-        let firstPaintBudget = currentWebContentController == nil && closePlaceholder == nil
-            ? Self.coldFirstPaintTimeoutSeconds
-            : Self.firstPaintTimeoutSeconds
-        DispatchQueue.main.asyncAfter(
-            deadline: .now() + firstPaintBudget,
-            execute: timeoutWorkItem
-        )
-
-        // AppLogDebug("[FlickerFix][Mac] Started \(Self.firstPaintTimeoutSeconds)s timeout for first paint")
-
-        // Note: We do NOT call notifyViewSwitchCompleted() here.
-        // We'll call it after we receive tabReadyToDisplay and bring the new view to front.
-    }
-
-    /// Timeout handler for scenario 2 - force switch if first paint doesn't arrive in time
-    private func handleFirstPaintTimeout(tabId: Int) {
-        guard let pending = pendingNewTabSwitch, pending.tabId == tabId else {
-            // Pending state was cleared (first paint arrived or tab changed)
-            return
-        }
-
-        // Force the switch using the same logic as handleTabReadyToDisplay
-        handleTabReadyToDisplay(tabId: tabId)
-    }
-
-    private func cancelPendingNewTabSwitchIfNeeded(nextTabId: Int, nextIdentifier: String) {
-        guard let pending = pendingNewTabSwitch else { return }
-        guard pending.tabId != nextTabId else { return }
-
-        // AppLogDebug("[FlickerFix][Mac] Cancelling pending new tab switch (pendingTabId=\(pending.tabId), nextTabId=\(nextTabId), nextIdentifier=\(nextIdentifier))")
-
-        // Delayed-first-paint tabs keep the shared bookmark bar on the visible controller
-        // until promotion. If this ever fires while the pending controller owns it, the
-        // promotion/detach ordering has regressed.
-        assert(sharedBookmarkBarHostController !== pending.controller, "Pending unpainted tab must not host the shared bookmark bar yet")
-
-        pendingNewTabTimeoutWorkItem?.cancel()
-        pendingNewTabTimeoutWorkItem = nil
-        pendingNewTabSwitch = nil
-
-        if pending.controller.view.superview === contentContainer {
-            pending.controller.view.removeFromSuperview()
-            // AppLogDebug("[FlickerFix][Mac] Removed pending new tab view from hierarchy")
+    /// Removes every tab view except `controller`'s from `contentContainer`.
+    /// An outgoing tab's web views leave the window here, so Chromium hides
+    /// that tab in this turn.
+    private func unmountTabViews(except controller: WebContentViewController) {
+        for case let other as WebContentViewController in children where other !== controller {
+            detachSharedBookmarkBar(from: other)
+            other.view.removeFromSuperview()
+            other.removeFromParent()
         }
     }
-    
+
     private func removeWebContentController(for identifier: String) {
         guard let controller = webContentControllers[identifier] else { return }
 
         detachSharedBookmarkBar(from: controller)
-
-        // If this tab closed while still waiting for its first paint, drop the
-        // pending switch too — otherwise the first-paint timeout would promote
-        // the dead controller's view over the live tab.
-        if let pending = pendingNewTabSwitch, pending.controller === controller {
-            pendingNewTabTimeoutWorkItem?.cancel()
-            pendingNewTabTimeoutWorkItem = nil
-            pendingNewTabSwitch = nil
-            if pending.controller.view.superview === contentContainer {
-                pending.controller.view.removeFromSuperview()
-            }
-        }
 
         // If this is the current controller, remove from view
         if controller === currentWebContentController {
@@ -2184,6 +2015,7 @@ class WebContentContainerViewController: NSViewController {
             currentTabIdentifier = nil
             // A chat ghost snapped from the removed pane dies with it.
             dropClosingAIChatGhost()
+            releaseContentSurfaceHold()
             // Clear the unified outline so it doesn't linger over the now
             // detached content area until the next focus/layout pass.
             updateContentOuterBorder()
@@ -2260,138 +2092,6 @@ class WebContentContainerViewController: NSViewController {
                 tab.toggleAIChat()
             }
         }
-    }
-
-    // =========================================================================
-    // Flicker fix: Tab visibility synchronization
-    // =========================================================================
-
-    /// Notify Chromium that view switch has completed.
-    /// Chromium will then hide the previous WebContents and send cleanup notification.
-    private func notifyViewSwitchCompleted() {
-        guard let windowId = browserState?.windowId else {
-            AppLogDebug("[WebContent] Cannot notify view switch: no windowId")
-            return
-        }
-        AppLogDebug("[WebContent] Notifying Chromium: view switch completed, windowId=\(windowId)")
-        ChromiumLauncher.sharedInstance().bridge?.confirmViewSwitchCompleted(Int64(windowId))
-    }
-
-    /// Called when Chromium has hidden the previous tab and it's ready for cleanup.
-    /// Now we can safely remove the old view from the view hierarchy.
-    func handlePreviousTabReadyForCleanup(tabId: Int) {
-        AppLogDebug("[WebContent] Received cleanup notification for tabId=\(tabId)")
-
-        guard let pending = pendingViewCleanup else {
-            AppLogDebug("[WebContent] No pending view to cleanup")
-            return
-        }
-
-        guard pending.controller.associatedTab?.guid == tabId else {
-            AppLogDebug("[WebContent] Ignoring cleanup for mismatched tabId=\(tabId), pendingTabId=\(pending.controller.associatedTab?.guid ?? -1)")
-            return
-        }
-
-        detachSharedBookmarkBar(from: pending.controller)
-
-        // Remove the old view and controller
-        pending.view.removeFromSuperview()
-        pending.controller.removeFromParent()
-        pendingViewCleanup = nil
-
-        AppLogDebug("[WebContent] Cleaned up previous view after Chromium confirmation")
-    }
-
-    /// Called when a new tab has completed its first visually non-empty paint.
-    /// If there's a pending new tab waiting to be shown, bring it to the front now.
-    func handleTabReadyToDisplay(tabId: Int) {
-        // AppLogDebug("[FlickerFix][Mac] ⬅️ tabReadyToDisplay received, tabId=\(tabId)")
-
-        // A cold reveal waiting on this window's first paint is answered by
-        // ANY paint arriving — with or without a pending switch (the mounted
-        // view painting in place has no pending entry, but the content is
-        // just as real).
-        if let ready = onColdContentReady {
-            onColdContentReady = nil
-            ready()
-        }
-
-        // Check if we have a pending new tab switch waiting for this tab
-        guard let pending = pendingNewTabSwitch else {
-            // AppLogDebug("[FlickerFix][Mac] No pending new tab switch (first paint for already-visible tab)")
-            return
-        }
-
-        // Verify it's the tab we're waiting for
-        guard pending.tabId == tabId else {
-            // AppLogDebug("[FlickerFix][Mac] tabReadyToDisplay for different tab (pending=\(pending.tabId), received=\(tabId))")
-            return
-        }
-
-        // Cancel timeout since we received the notification
-        pendingNewTabTimeoutWorkItem?.cancel()
-        pendingNewTabTimeoutWorkItem = nil
-
-        // AppLogDebug("[FlickerFix][Mac] ✅ Bringing new tab to front after first paint, tabId=\(tabId)")
-
-        // Save old view for cleanup (scenario 1 logic)
-        if let current = currentWebContentController, current !== pending.controller {
-            pendingViewCleanup = (controller: current, view: current.view)
-            current.cancelPartnerCrashSubscription()
-            // Same as switchToWebContentController: a chat ghost snapped
-            // from the outgoing pane must not slide over the promoted tab.
-            dropClosingAIChatGhost()
-        }
-
-        // Bring new view to front
-        contentContainer.addSubview(pending.controller.view, positioned: .above, relativeTo: nil)
-
-        // The promotion inserts above every sibling, which buries the
-        // cold-reveal mask a turn before it is lifted. Put it back on top; the
-        // lift below is what ends it.
-        if let coldRevealMask {
-            contentContainer.addSubview(coldRevealMask, positioned: .above, relativeTo: nil)
-        }
-
-        attachSharedBookmarkBar(to: pending.controller)
-
-        // Update current controller and identifier
-        currentWebContentController = pending.controller
-        currentTabIdentifier = pending.identifier
-        // Same partner-crash subscription handoff as switchToWebContentController
-        // — this deferred first-paint promotion is the other path that swaps the
-        // focused split host.
-        pending.controller.updatePartnerCrashSubscription()
-        // Same reason as switchToWebContentController: force layout so the
-        // splitViewContainer frame chain is fresh before computing the path.
-        view.layoutSubtreeIfNeeded()
-        updateContentOuterBorder()
-
-        // Clear pending state
-        pendingNewTabSwitch = nil
-
-        // Now notify Chromium that view switch is complete
-        // This triggers the old tab to be hidden and cleanup flow
-        notifyViewSwitchCompleted()
-
-        // New view is on top now — real first paint, or forced by the first-paint
-        // timeout (successor may still be blank, accepted). Drop the close snapshot.
-        clearClosePlaceholder()
-
-        // The promoted view is in the hierarchy, but its content reaches the
-        // WindowServer on this turn's commit — lifting the cold-reveal mask
-        // inline would uncover the very frame it exists to cover, so it goes
-        // one turn later. Idempotent, so the timeout racing it is harmless.
-        DispatchQueue.main.async { [weak self] in
-            self?.clearColdRevealMask()
-        }
-
-        // "Open as Split" promotes the freshly-painted pane over its still-
-        // visible partner — same no-Chromium-hide situation as a same-split
-        // focus trade, so the deferred cleanup must not wait either.
-        cleanUpPendingSplitPartnerViewIfNeeded(incoming: pending.controller)
-
-        // AppLogDebug("[FlickerFix][Mac] ➡️ Sent confirmViewSwitchCompleted after new tab first paint")
     }
 
     // =========================================================================

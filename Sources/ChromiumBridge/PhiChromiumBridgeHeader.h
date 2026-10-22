@@ -301,18 +301,13 @@ typedef NS_ENUM(NSInteger, PhiGhostMaterializeOutcome) {
                                 sessionId:(int64_t)sessionId;
 
 // ==========================================================================
-// Flicker fix: Tab visibility synchronization (Chromium → Mac notification)
+// First paint (Chromium -> Mac notification)
 // ==========================================================================
 
-/// Called after Chromium has hidden the previous WebContents.
-/// Mac should remove the previous tab's NSView from the view hierarchy.
-/// @param tabId The Chromium tab ID that was hidden
-/// @param windowId The window ID containing the tab
-- (void)previousTabReadyForCleanup:(int64_t)tabId windowId:(int64_t)windowId;
-
-/// Called when a new tab has completed its first visually non-empty paint.
-/// Mac should bring the new tab's view to the front when receiving this.
-/// This is used for scenario 2: switching to a newly created tab that hasn't rendered yet.
+/// Called when a tab has completed its first visually non-empty paint.
+/// Kiosk windows remount their focused tab and finish opening on it (traffic
+/// lights, kiosk-opened capture, profile replacement); the page container of
+/// a normal window does not wait for it.
 /// @param tabId The Chromium tab ID that is ready to display
 /// @param windowId The window ID containing the tab
 - (void)tabReadyToDisplay:(int64_t)tabId windowId:(int64_t)windowId;
@@ -732,7 +727,8 @@ typedef NS_ENUM(NSInteger, PhiGhostMaterializeOutcome) {
 /// call when the replay produced one.
 - (void)restoredWindowSnapshot:(NSDictionary<NSString *, id> *)snapshot
                       windowId:(int64_t)windowId;
-// Returns a custom shortcut override, or nil to use Chromium defaults.
+// Returns keyEquivalent/modifierFlags to replace all bindings, or
+// excludedKeyEquivalents to remove matching defaults only. Nil inherits defaults.
 - (nullable NSDictionary<NSString*, id>*)keyEquivalentOverrideForCommand:
     (int)commandId;
 
@@ -981,6 +977,25 @@ typedef NS_ENUM(NSInteger, PhiGhostMaterializeOutcome) {
 /// status (active / building / degraded / disabled). Re-read the settings
 /// with -getContentBlockingSettings:completion:. UI thread.
 - (void)contentBlockingStatusChanged:(NSString *)profileId;
+
+/// The content surface of browser window `windowId` (chromium ADR 0014): a
+/// window whose page area the client hosts, a Space instance or a standalone
+/// Incognito window (chromium ADR 0016). `hostingView` shows the pixels of
+/// every web view mounted below the view it is added to, which becomes the
+/// hosting container; web views already mounted there switch over as it is
+/// added. Sent once, right after mainBrowserWindowCreated for the same
+/// `windowId`, and only while the PhiContentSurface feature is on: without it
+/// every web view draws itself as before. Add the view to the window's page
+/// area, above the backdrop and below every tab's view, and leave it there,
+/// except that a page lifted into content fullscreen takes it along into the
+/// fullscreen overlay and gives it back on exit (mac ADR 0010); moving it out
+/// of its container does not take the web views still in that container off
+/// the surface. It draws only while shown in a window, so hiding it, or an
+/// ancestor, stops a background window drawing. Chromium
+/// owns the surface and tears it down with the window's browser; the view
+/// then draws nothing until the client drops it.
+- (void)contentSurfaceCreated:(int64_t)windowId
+                  hostingView:(NSView *)hostingView;
 
 @end
 
@@ -1434,16 +1449,6 @@ typedef NS_ENUM(NSInteger, PhiGhostMaterializeOutcome) {
                     disposition:(PhiOmniboxSuggestionDisposition)disposition;
 - (void)deleteSuggestionAtLine:(size_t)line windowId:(int64_t)windowId;
 
-// ==========================================================================
-// Flicker fix: Tab visibility synchronization (Mac → Chromium confirmation)
-// ==========================================================================
-
-/// Called by Mac to confirm that the view switch has completed.
-/// After receiving this, Chromium will hide the previous WebContents
-/// and send previousTabReadyForCleanup notification.
-/// @param windowId The window ID where the view switch occurred
-- (void)confirmViewSwitchCompleted:(int64_t)windowId;
-
 /// Execute a Chromium command on the specified window.
 /// Goes through Chromium's internal command handling (e.g. chrome::ExecuteCommand),
 /// which includes beforeunload checks and proper lifecycle management.
@@ -1704,6 +1709,10 @@ typedef NS_ENUM(NSInteger, PhiGhostMaterializeOutcome) {
 
 // Asks Chromium to rebuild the main menu after shortcut settings change.
 - (void)requestRebuildMainMenu;
+
+// Main thread only. Effective hidden aliases, including WebContents-only ones.
+// Each entry contains commandId, keyEquivalent, modifierFlags, and source.
+- (NSArray<NSDictionary<NSString*, id>*>*)shortcutBindings;
 
 /// Whether UMA metrics + crash reporting is enabled — the state of the
 /// "Help improve Phi's features and performance" toggle in chrome://settings.
@@ -2211,6 +2220,68 @@ typedef NS_ENUM(NSInteger, PhiGhostMaterializeOutcome) {
                             userInitiated:(BOOL)userInitiated
     NS_SWIFT_NAME(notifyPhiSyncInvalidation(forAccount:profileUUID:dataTypeIds:excludingClientId:userInitiated:));
 
+/// Rounds the corners of `webContent`'s pixels and stacks them among the other
+/// web views drawn by the same content surface (chromium ADR 0014): a higher
+/// `zOrder` draws above a lower one, and a web view the surface has just
+/// attached draws above all the others until this stacks it. The Mac client
+/// decides both, as views does for a WebView upstream; Chromium only applies
+/// them. Does nothing while `webContent` draws itself, and nothing carries
+/// over to a later attach (a cross-window drag, a hosting view installed over
+/// mounted web views), so call it again whenever the web view is mounted or
+/// laid out below the hosting container. Optional so an older framework
+/// without content surfaces ignores it.
+- (void)setContentHosting:(id<WebContentWrapper>)webContent
+            topLeftRadius:(CGFloat)topLeftRadius
+           topRightRadius:(CGFloat)topRightRadius
+        bottomRightRadius:(CGFloat)bottomRightRadius
+         bottomLeftRadius:(CGFloat)bottomLeftRadius
+                   zOrder:(NSInteger)zOrder;
+
+/// As setContentHosting: above, for a web view with no WebContentWrapper,
+/// addressed by its NSView instead. Only docked DevTools needs it, as the
+/// client gets nothing for it but the NSView in
+/// devToolsDidAttachToTab:windowId:devToolsView:. Address every web view that
+/// has a wrapper by its wrapper. Optional so an older framework ignores it.
+- (void)setContentHostingForWebView:(NSView *)webView
+                      topLeftRadius:(CGFloat)topLeftRadius
+                     topRightRadius:(CGFloat)topRightRadius
+                  bottomRightRadius:(CGFloat)bottomRightRadius
+                   bottomLeftRadius:(CGFloat)bottomLeftRadius
+                             zOrder:(NSInteger)zOrder
+    NS_SWIFT_NAME(setContentHosting(forWebView:topLeftRadius:topRightRadius:bottomRightRadius:bottomLeftRadius:zOrder:));
+
+/// As setContentHosting: above, and also tells where the web view is and the
+/// part of it that shows, as views places and clips a WebView upstream: on
+/// every layout, including one that moves only an ancestor, which the web
+/// view's own views do not see, and to what a sliding panel leaves visible.
+/// Both rects are in the window's coordinates, in points, flipped to a
+/// top-left origin by the window's height, as Chromium keeps a view's bounds
+/// in its window. `clipInWindow` is the part of `frameInWindow` its clipping
+/// ancestors leave visible, empty when none is. Optional so an older
+/// framework ignores it; call setContentHosting: above when it does.
+- (void)setContentHosting:(id<WebContentWrapper>)webContent
+            frameInWindow:(NSRect)frameInWindow
+             clipInWindow:(NSRect)clipInWindow
+            topLeftRadius:(CGFloat)topLeftRadius
+           topRightRadius:(CGFloat)topRightRadius
+        bottomRightRadius:(CGFloat)bottomRightRadius
+         bottomLeftRadius:(CGFloat)bottomLeftRadius
+                   zOrder:(NSInteger)zOrder;
+
+/// As setContentHosting:frameInWindow:clipInWindow: above, for a web view
+/// addressed by its NSView, as setContentHostingForWebView: is. Optional so
+/// an older framework ignores it; call setContentHostingForWebView: when it
+/// does.
+- (void)setContentHostingForWebView:(NSView *)webView
+                      frameInWindow:(NSRect)frameInWindow
+                       clipInWindow:(NSRect)clipInWindow
+                      topLeftRadius:(CGFloat)topLeftRadius
+                     topRightRadius:(CGFloat)topRightRadius
+                  bottomRightRadius:(CGFloat)bottomRightRadius
+                   bottomLeftRadius:(CGFloat)bottomLeftRadius
+                             zOrder:(NSInteger)zOrder
+    NS_SWIFT_NAME(setContentHosting(forWebView:frameInWindow:clipInWindow:topLeftRadius:topRightRadius:bottomRightRadius:bottomLeftRadius:zOrder:));
+
 @end
 
 typedef NS_ENUM(NSInteger, PhiMediaControlAction) {
@@ -2311,8 +2382,11 @@ typedef NS_ENUM(NSInteger, PhiMediaControlAction) {
 
 /// The representative color of the page's top visual region, computed by
 /// Phi's main-frame JavaScript detector. KVO-observable. Nil before the script
-/// reports a color, after ordinary cross-document navigation, or renderer loss.
-/// Successful reloads retain the previous color until the new document reports.
+/// reports a color, after a navigation commits an error page or a document the
+/// script does not run on (such as chrome:// and view-source pages), or
+/// renderer loss. Any other cross-document navigation keeps the previous color
+/// until the new document reports, and drops it if no report arrives within 3
+/// seconds.
 @property(nonatomic, strong, readonly, nullable) NSColor* pageColor;
 
 /// DevTools page target id for this tab, or nil when the contents are gone.
@@ -2386,6 +2460,13 @@ typedef NS_ENUM(NSInteger, PhiMediaControlAction) {
 /// normally hosted pane (split view via context menu or Option-click,
 /// nested Peek). Callers must guard with respondsToSelector: (skew).
 - (void)updateIsPeekSurface:(BOOL)isPeekSurface;
+/// Tells Chromium whether the Peek panel shows this tab's page right now.
+/// The peek tab is never strip-active (its opener is), so while presented
+/// Chromium's page commands — Reload, Stop, Zoom, Print, Save Page, View
+/// Source, DevTools, Find — act on it instead of the active tab. Hidden
+/// peeks of unfocused openers stay marked as peek surfaces but are not
+/// presented. Callers must guard with respondsToSelector: (skew).
+- (void)updateIsPeekPresented:(BOOL)presented;
 - (void)focus;
 - (void)restoreFocus;
 - (void)updateSecurityState:(NSDictionary *)securityState;

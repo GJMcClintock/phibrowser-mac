@@ -484,7 +484,7 @@ final class WebContentPanelSeparationStyleTests: XCTestCase {
         PhiPreferences.GeneralSettings.saveLayoutMode(mode)
         let (state, controller) = try makeController()
         let pageCard = controller.leftContainerViewForTesting
-        let pageContainer = controller.closeSnapshotSourceView
+        let pageContainer = controller.pageCardView
         XCTAssertEqual(pageCard.layer?.borderWidth, 0, file: file, line: line)
 
         state.updateExtensionSidePanel(makePanel())
@@ -591,6 +591,7 @@ private final class ExtensionSidePanelTestWebContentWrapper: NSObject, WebConten
     func restoreFocus() {}
     func updateSecurityState(_ securityState: [AnyHashable: Any]) {}
     func updateIsPeekSurface(_ isPeekSurface: Bool) {}
+    func updateIsPeekPresented(_ presented: Bool) {}
     func toggleAudioMuted() {}
     func setAudioMuted(_ muted: Bool) {}
     func muteAudio() {}

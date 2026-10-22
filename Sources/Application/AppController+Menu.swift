@@ -281,7 +281,6 @@ extension AppController {
     static let manageUserDataHelpSeparatorTag = 500012
     static let manageUserDataParentItemTag = 500013
     static let timeMachineBackupsParentItemTag = 500014
-    static let toggleBookmarkBarItemTag = 500003
     static let toggleBookmarkBarOnNewTabItemTag = 500004
     static let layoutModeDefaultItemTag = 500005
     static let layoutModeNavigationAtTopItemTag = 500006
@@ -324,6 +323,7 @@ extension AppController {
             AppLogWarn("⚠️ NSApp is nil — startObservingMainMenu() called too early.")
             return
         }
+        startObservingServiceShortcuts()
         menuObservation = app.observe(\.mainMenu, options: [.new, .old]) { [weak self] app, change in
             AppLogDebug("Main menu changed: \(change)")
             self?.hookAndRebuildMainMenu()
@@ -344,6 +344,52 @@ extension AppController {
                 self.refreshPrefGatedMenuItems()
             }
         }
+    }
+
+    /// Reserve Tab Search's default chord within Phi, without changing the
+    /// user's Services preferences or removing the service's menu action.
+    func startObservingServiceShortcuts() {
+        let center = NotificationCenter.default
+        for name in [NSMenu.didAddItemNotification, NSMenu.didChangeItemNotification, NSMenu.didRemoveItemNotification,
+                     NSMenu.didBeginTrackingNotification, NSMenu.didEndTrackingNotification] {
+            center.removeObserver(self, name: name, object: nil)
+            center.addObserver(self, selector: #selector(serviceMenuItemsDidChange(_:)),
+                               name: name, object: nil)
+        }
+        if let menu = NSApp.mainMenu { Self.suppressReservedServiceShortcut(in: menu) }
+        if let menu = NSApp.servicesMenu { Self.suppressReservedServiceShortcut(in: menu) }
+    }
+
+    @objc private func serviceMenuItemsDidChange(_ notification: Notification) {
+        guard let menu = notification.object as? NSMenu else { return }
+        if let index = notification.userInfo?["NSMenuItemIndex"] as? Int,
+           menu.items.indices.contains(index) {
+            Self.suppressReservedServiceShortcut(on: menu.items[index])
+        } else {
+            Self.suppressReservedServiceShortcut(in: menu)
+        }
+        ShortcutMenuPresentation.handle(notification)
+    }
+
+    static func suppressReservedServiceShortcut(in menu: NSMenu) {
+        menu.items.forEach { suppressReservedServiceShortcut(on: $0) }
+    }
+
+    private static func suppressReservedServiceShortcut(on item: NSMenuItem) {
+        if let submenu = item.submenu { suppressReservedServiceShortcut(in: submenu) }
+        // AppKit dispatches Services through this selector, including items in
+        // replacement menus that no longer equal NSApp.servicesMenu.
+        guard item.action == NSSelectorFromString("_processRequest:") else { return }
+        let declared = item.keyEquivalent.isEmpty && item.view == nil
+            ? (item.copy() as? NSMenuItem ?? item) : item
+        let key = ShortcutsKey(characters: declared.keyEquivalent,
+                               modifiers: declared.keyEquivalentModifierMask)
+        let reserved = ShortcutsKey(characters: "a", modifiers: [.command, .shift])
+        guard key.menuKeyEquivalent == reserved.menuKeyEquivalent else { return }
+        // Explicitly clear the declared key too, so detached inventory copies
+        // cannot restore it. Reentrant change notifications see an empty key.
+        item.keyEquivalent = ""
+        item.keyEquivalentModifierMask = []
     }
     
     /// Schedules the main-menu hook so pref-gated items appear or disappear
@@ -370,6 +416,7 @@ extension AppController {
         guard let mainMenu = NSApp.mainMenu else {
             return
         }
+        Self.suppressReservedServiceShortcut(in: mainMenu)
 
         var hasBookmarksMenu = false
         for menuItem in mainMenu.items {
@@ -390,7 +437,7 @@ extension AppController {
                     item.tag == CommandWrapper.PHI_TOGGLE_READER.rawValue ||
                     item.tag == AppController.viewLibraryItemTag ||
                     item.tag == AppController.viewMenuPhiSectionSeparatorTag ||
-                    item.tag == AppController.toggleBookmarkBarItemTag ||
+                    item.tag == CommandWrapper.IDC_SHOW_BOOKMARK_BAR.rawValue ||
                     item.tag == AppController.toggleBookmarkBarOnNewTabItemTag ||
                     item.tag == AppController.layoutModeDefaultItemTag ||
                     item.tag == AppController.layoutModeNavigationAtTopItemTag ||
@@ -456,9 +503,8 @@ extension AppController {
                 submenu.addItem(bookmarkBarSeparator)
                 let toggleBookmarkBarItem = NSMenuItem(title: NSLocalizedString("app.viewMenu.alwaysShowBookmarkBar", value: "Always Show Bookmark Bar", comment: "View menu - Menu item to always show the bookmark bar"),
                                                    action: #selector(toggleBookmarkBar(_:)),
-                                                   keyEquivalent: "b")
-                toggleBookmarkBarItem.keyEquivalentModifierMask = [.command, .shift]
-                toggleBookmarkBarItem.tag = AppController.toggleBookmarkBarItemTag
+                                                   keyEquivalent: "")
+                applyEffectiveShortcut(.IDC_SHOW_BOOKMARK_BAR, to: toggleBookmarkBarItem)
                 toggleBookmarkBarItem.target = self
                 submenu.addItem(toggleBookmarkBarItem)
                 let toggleBookmarkBarOnNewTabItem = NSMenuItem(title: NSLocalizedString("app.viewMenu.showBookmarkBarOnNewTab", value: "Show Bookmark Bar on New Tab", comment: "View menu - Menu item to show the bookmark bar on new tab pages"),
@@ -592,6 +638,7 @@ extension AppController {
             
             if menuRole == .edit, let subMenu = menuItem.submenu {
                 installOrUpdateCopyURLMenuItem(in: subMenu)
+                installOrUpdateSelectionShortcuts(in: subMenu)
             } else
 
             if menuRole == .file, let subMenu = menuItem.submenu {
@@ -797,6 +844,7 @@ extension AppController {
             if item.tag == CommandWrapper.IDC_SAVE_PAGE.rawValue {
                 item.keyEquivalent = ""
                 item.keyEquivalentModifierMask = .init(rawValue: 0)
+                Shortcuts.updateShortcut(for: item)
             }
         }
 
@@ -839,6 +887,7 @@ extension AppController {
                 || item.tag == CommandWrapper.PHI_NEW_INCOGNITO_SPACE.rawValue
                 || item.tag == CommandWrapper.PHI_SHARE_PAGE.rawValue
                 || item.action == #selector(AppController.copyFullPageScreenshotFromMenu(_:))
+                || item.action == #selector(AppController.capturePageAreaFromMenu(_:))
                 || item.tag == CommandWrapper.PHI_SAVE_FOR_LATER.rawValue
                 || item.tag == AppController.fileSaveForLaterLibraryItemTag
         }
@@ -900,16 +949,28 @@ extension AppController {
             action: #selector(AppController.copyFullPageScreenshotFromMenu(_:)),
             keyEquivalent: ""
         )
+        screenshotItem.tag = CommandWrapper.PHI_CAPTURE_FULL_PAGE.rawValue
+        Shortcuts.updateShortcut(for: screenshotItem)
         screenshotItem.target = target
+
+        let areaScreenshotItem = NSMenuItem(
+            title: NSLocalizedString("app.fileMenu.capturePageArea", value: "Capture Area…",
+                                     comment: "File menu - Select a visible webpage area to capture and edit"),
+            action: #selector(AppController.capturePageAreaFromMenu(_:)), keyEquivalent: "")
+        areaScreenshotItem.tag = CommandWrapper.PHI_CAPTURE_AREA.rawValue
+        Shortcuts.updateShortcut(for: areaScreenshotItem)
+        areaScreenshotItem.target = target
 
         // Same slot Safari uses: directly above Print.
         if let printIndex = subMenu.items.firstIndex(where: {
             $0.tag == CommandWrapper.IDC_PRINT.rawValue
         }) {
             subMenu.insertItem(screenshotItem, at: printIndex)
-            subMenu.insertItem(sharePageItem, at: printIndex + 1)
+            subMenu.insertItem(areaScreenshotItem, at: printIndex + 1)
+            subMenu.insertItem(sharePageItem, at: printIndex + 2)
         } else {
             subMenu.addItem(screenshotItem)
+            subMenu.addItem(areaScreenshotItem)
             subMenu.addItem(sharePageItem)
         }
 
@@ -1126,7 +1187,7 @@ extension AppController {
         guard let state = SpaceSessionControllersManager.shared
             .activeWindowController?.browserState,
               !state.isInPlaceholderMode,
-              let tab = state.focusingTab,
+              let tab = state.pageCommandTarget,
               let url = tab.url, !url.isEmpty else {
             return false
         }
@@ -1152,6 +1213,24 @@ extension AppController {
         return BookmarkHTMLExporter.hasExportableContent(
             bookmarks: state.bookmarkManager.rootFolder.children,
             pinnedTabs: state.pinnedTabs)
+    }
+
+    private func installOrUpdateSelectionShortcuts(in menu: NSMenu) {
+        for item in menu.items {
+            if let submenu = item.submenu {
+                installOrUpdateSelectionShortcuts(in: submenu)
+            }
+            // These native actions arrive without command tags. Keep their
+            // responder-chain routing while sharing configuration and inventory.
+            switch item.action {
+            case NSSelectorFromString("copyToFindPboard:"):
+                applyEffectiveShortcut(.IDS_EDIT_USE_SELECTION_MAC, to: item)
+            case NSSelectorFromString("centerSelectionInVisibleArea:"):
+                applyEffectiveShortcut(.IDS_EDIT_JUMP_TO_SELECTION_MAC, to: item)
+            default:
+                break
+            }
+        }
     }
 
     private func installOrUpdateCopyURLMenuItem(in menu: NSMenu) {
@@ -1212,7 +1291,7 @@ extension AppController {
     @MainActor
     @objc func saveTabForLater(_ sender: Any?) {
         guard let state = SpaceSessionControllersManager.shared.activeWindowController?.browserState,
-              let tab = state.focusingTab else {
+              let tab = state.pageCommandTarget else {
             return
         }
         SaveForLaterService.save(tab: tab, in: state)
@@ -1238,6 +1317,12 @@ extension AppController {
     @objc func copyFullPageScreenshotFromMenu(_ sender: Any?) {
         guard let state = SpaceSessionControllersManager.shared.getActiveWindowState() else { return }
         PageScreenshotService.shared.capture(in: state)
+    }
+
+    @MainActor
+    @objc func capturePageAreaFromMenu(_ sender: Any?) {
+        guard let state = SpaceSessionControllersManager.shared.getActiveWindowState() else { return }
+        PageScreenshotService.shared.capture(in: state, area: true)
     }
 
     @MainActor
@@ -1344,7 +1429,7 @@ extension AppController {
     }
 
     /// Bookmark-export writes still running on the background queue, and
-    /// whether app termination is parked on them (`.terminateLater`).
+    /// whether app termination is parked on confirmed bookmark or screenshot writes (`.terminateLater`).
     /// Main-thread only.
     static var inFlightBookmarkExportWrites = 0
     static var bookmarkExportTerminationPending = false
@@ -1399,10 +1484,10 @@ extension AppController {
                     // quit is parked on this write, a failure is deliberately
                     // silent (log only) — quitting must not stay blocked on
                     // an alert nobody will see.
-                    if AppController.bookmarkExportTerminationPending,
-                       AppController.inFlightBookmarkExportWrites == 0 {
-                        AppController.bookmarkExportTerminationPending = false
-                        NSApp.reply(toApplicationShouldTerminate: true)
+                    if AppController.bookmarkExportTerminationPending {
+                        MainActor.assumeIsolated {
+                            AppController.shared.resumeTerminationAfterConfirmedExports()
+                        }
                     }
                     if case .failure(let error) = result {
                         AppLogError("Bookmark export failed: \(error.localizedDescription)")
@@ -3167,7 +3252,7 @@ extension AppController {
             let canSave = MainActor.assumeIsolated {
                 SaveForLaterService.canSave(
                     SpaceSessionControllersManager.shared
-                        .activeWindowController?.browserState.focusingTab)
+                        .activeWindowController?.browserState.pageCommandTarget)
             }
             return canSave && ApplicationState.shared.canUseBrowser
         }
@@ -3335,11 +3420,11 @@ extension AppController {
             }
             return state.hasCopyableSelectedTabURLs
         }
-        if item.action == #selector(copyFullPageScreenshotFromMenu(_:)) {
+        if item.action == #selector(copyFullPageScreenshotFromMenu(_:)) || item.action == #selector(capturePageAreaFromMenu(_:)) {
             return MainActor.assumeIsolated {
                 guard ApplicationState.shared.canUseBrowser,
                       let state = SpaceSessionControllersManager.shared.getActiveWindowState() else { return false }
-                return PageScreenshotService.shared.canCapture(in: state)
+                return PageScreenshotService.shared.canCapture(in: state, area: item.action == #selector(capturePageAreaFromMenu(_:)))
             }
         }
         if item.action == #selector(sharePageFromMenu(_:)) {
@@ -3347,7 +3432,7 @@ extension AppController {
                 return false
             }
             return MainActor.assumeIsolated {
-                PageSharingPresenter.canShare(tab: state.focusingTab)
+                PageSharingPresenter.canShare(tab: state.pageCommandTarget)
             }
         }
         if item.action == #selector(bookmarkThisTab(_:)) {

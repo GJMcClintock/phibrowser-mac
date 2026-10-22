@@ -76,16 +76,36 @@ struct SidebarBottomBarSwiftUI: View {
     let onDownloadTap: () -> Void
     
     var body: some View {
-        regularLayout
-            .frame(height: SidebarBottomBarState.singleRowHeight)
-            .accessibilityElement(children: .contain)
-            .accessibilityIdentifier("sidebar.footer")
+        GeometryReader { geometry in
+            regularLayout(availableWidth: geometry.size.width)
+        }
+        .frame(height: SidebarBottomBarState.singleRowHeight)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("sidebar.footer")
     }
     
     // MARK: - Regular Layout
     
-    private var regularLayout: some View {
-        HStack(spacing: 4) {
+    private var widthWithFeedback: CGFloat {
+        let iconCount = 3 + (state.isMemoryHidden ? 0 : 1) + (showCardEntry ? 1 : 0)
+        let chatCount = state.isChatHidden ? 0 : 1
+        // Include both gaps around the zero-length spacer.
+        return CGFloat(iconCount) * 24 + CGFloat(iconCount + chatCount) * 4
+            + (state.isChatHidden ? 0 : ChatButton.preferredContentWidth)
+            + 2 * WebContentConstant.edgesSpacing
+    }
+
+    private func regularLayout(availableWidth: CGFloat) -> some View {
+        let showsFeedback = !state.isFeedbackHidden && availableWidth >= widthWithFeedback
+        let iconCount = 2 + (state.isMemoryHidden ? 0 : 1) + (showCardEntry ? 1 : 0)
+            + (showsFeedback ? 1 : 0)
+        let gapCount = iconCount + (state.isChatHidden ? 0 : 1)
+        let controlsWidth = CGFloat(iconCount) * 24
+            + (state.isChatHidden ? 0 : ChatButton.preferredContentWidth)
+        // Hide Feedback first, then compress only the gaps if the remaining row cannot fit.
+        let spacing = min(4, max(0, (availableWidth - controlsWidth
+            - 2 * WebContentConstant.edgesSpacing) / CGFloat(gapCount)))
+        return HStack(spacing: spacing) {
             ProfileButton(surface: .sidebar)
                 .frame(width: 24, height: 24)
 
@@ -97,7 +117,7 @@ struct SidebarBottomBarSwiftUI: View {
 
             Spacer(minLength: 0)
 
-            if !state.isFeedbackHidden {
+            if showsFeedback {
                 FeedbackButtonSwiftUI(action: onFeedbackTap)
                     .layoutPriority(1)
             }

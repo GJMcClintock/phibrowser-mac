@@ -435,7 +435,7 @@ private enum FeedbackAttachmentPreviewer {
     }
 }
 
-private struct FeedbackPasteImageMonitor: NSViewRepresentable {
+struct FeedbackPasteImageMonitor: NSViewRepresentable {
     let onPasteImage: (NSImage) -> Void
 
     func makeCoordinator() -> Coordinator {
@@ -471,20 +471,20 @@ private struct FeedbackPasteImageMonitor: NSViewRepresentable {
         func installIfNeeded() {
             guard monitor == nil else { return }
             monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-                guard let self,
-                      self.isCommandPaste(event),
-                      event.window === self.view?.window,
-                      let image = NSImage(pasteboard: .general) else {
-                    return event
-                }
-                onPasteImage(image)
-                return nil
+                guard let self else { return event }
+                return self.handleKeyDown(event)
             }
         }
 
-        private func isCommandPaste(_ event: NSEvent) -> Bool {
-            event.charactersIgnoringModifiers?.lowercased() == "v" &&
-            event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command
+        func handleKeyDown(_ event: NSEvent, pasteboard: NSPasteboard = .general) -> NSEvent? {
+            guard let window = view?.window, event.window === window,
+                  let shortcut = ShortcutsKey.eventKeys(for: event)?.canonical,
+                  shortcut.characters == "v", shortcut.modifiers == .command,
+                  let image = NSImage(pasteboard: pasteboard) else {
+                return event
+            }
+            onPasteImage(image)
+            return nil
         }
     }
 }

@@ -28,6 +28,9 @@ class SpaceSessionController: NSWindowController {
     /// slot's shared `ShellWindow`, which every session of the slot presents
     /// into in turn. nil in legacy mode, where `window` IS the Chromium window.
     private(set) var hostedChromiumWindow: NSWindow?
+    /// Hosted mode: hands the hidden Chromium window's title on to the shell
+    /// while this session is presented; see `observeChromiumWindowTitle()`.
+    private var chromiumTitleObservation: NSKeyValueObservation?
     /// Hosted mode: a session built ahead of its Browser. The slot creates
     /// one per Space it presents, keyed by a window id reserved from
     /// Chromium's session-id generator, so the Swift side of the Space —
@@ -387,6 +390,7 @@ class SpaceSessionController: NSWindowController {
     /// presented, and the content tree, which `presentInShell()` installs.
     private func setupHostedSession() {
         observeChromiumWindowClose()
+        observeChromiumWindowTitle()
         browserState.themeContext.themeAppearancePublisher
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _, _ in
@@ -413,6 +417,36 @@ class SpaceSessionController: NSWindowController {
                                                selector: #selector(myWindowWillClose(_:)),
                                                name: NSWindow.willCloseNotification,
                                                object: chromiumWindow)
+    }
+
+    /// Chromium titles the hidden window after its active tab, but only the
+    /// shell is on screen, and the shell is what the Dock menu, the Window
+    /// menu and Mission Control list. The slot sets the title when it
+    /// presents a session; this keeps it current through tab switches,
+    /// navigations and placeholder mode, and catches up a dormant session
+    /// presented before its Browser arrived. Leaving placeholder mode reads
+    /// the window's title again: Chromium does not set it again when the new
+    /// tab's title matches the one it left there.
+    private func observeChromiumWindowTitle() {
+        guard let chromiumWindow = hostedChromiumWindow else { return }
+        chromiumTitleObservation = chromiumWindow.observe(\.title, options: [.initial]) {
+            [weak self] _, _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.retitleShell(inPlaceholderMode: self.browserState.isInPlaceholderMode)
+            }
+        }
+        browserState.$isInPlaceholderMode
+            .dropFirst()
+            .sink { [weak self] inPlaceholderMode in
+                self?.retitleShell(inPlaceholderMode: inPlaceholderMode)
+            }
+            .store(in: &cancellables)
+    }
+
+    private func retitleShell(inPlaceholderMode: Bool) {
+        guard isPresented else { return }
+        slot?.retitleShell(presenting: self, inPlaceholderMode: inPlaceholderMode)
     }
 
     /// Builds and hosts the dormant session's tree hidden, so a first switch
@@ -443,6 +477,7 @@ class SpaceSessionController: NSWindowController {
         ChromiumLauncher.sharedInstance().bridge?
             .setWebContentsOwnsMouseDown(true, windowId: Int64(windowId))
         observeChromiumWindowClose()
+        observeChromiumWindowTitle()
         SpaceSessionControllersManager.shared.noteChromiumWindowAttached(self)
         if isPresented {
             (window as? ShellWindow)?.commandTargetWindow = chromiumWindow
@@ -1183,13 +1218,17 @@ class SpaceSessionController: NSWindowController {
     }
 
     /// Content fullscreen (video, `requestFullscreen`) on one of this
-    /// session's tabs. Nothing to do for the window here in either mode:
+    /// session's tabs. The window is not driven from here in either mode:
     /// Chromium fullscreens a legacy window itself, and in hosted mode its
     /// change to the hidden window's fullscreen state reaches the shell
     /// through `windowRequestedFullscreen:` (`requestShellFullscreen`) —
     /// which also carries the cases a content notification cannot, such as
     /// a page leaving fullscreen inside a window the user had fullscreened.
-    func handleTabContentFullscreen(isFullscreen: Bool) {}
+    /// The slot's restore record leaves a page's fullscreen out, so it is
+    /// rewritten here (`SpaceWindowSlot.snapshotIsFullScreen`).
+    func handleTabContentFullscreen(isFullscreen: Bool) {
+        slot?.sessionContentFullscreenDidChange(self)
+    }
 
     /// Hosted mode: Chromium changed this session's Browser fullscreen
     /// state; the shell follows while this session is presented.
@@ -1508,6 +1547,9 @@ class SpaceSessionController: NSWindowController {
     }
 
     @objc private func myWindowWillClose(_ notification: Notification) {
+        // Before the Library leaves: its Folio pane closes the pane tab when
+        // it leaves its window, and the tab is torn down with the strip.
+        browserState.teardownLibraryPaneForWindowClose()
         libraryWindowController?.close()
         libraryWindowController = nil
         // Defensive teardown for placeholder mode. In practice Chromium's
@@ -1597,29 +1639,14 @@ class SpaceSessionController: NSWindowController {
     }
 
     // =========================================================================
-    // Flicker fix: Tab visibility synchronization
+    // Tab first paint
     // =========================================================================
 
-    /// Called when Chromium has hidden the previous tab and it's ready for cleanup.
-    /// Forwards to WebContentContainerViewController to remove the old NSView.
-    func handlePreviousTabReadyForCleanup(tabId: Int) {
-        if let kioskContentViewController {
-            kioskContentViewController.handlePreviousTabReadyForCleanup(tabId: tabId)
-            return
-        }
-        mainSplitViewController.webContentContainerViewController
-            .handlePreviousTabReadyForCleanup(tabId: tabId)
-    }
-
-    /// Called when a new tab has completed its first visually non-empty paint.
-    /// Forwards to WebContentContainerViewController to bring the new tab's view to front.
+    /// Called when a tab has completed its first visually non-empty paint.
+    /// Only Kiosk's content uses it: the page container mounts a tab
+    /// without waiting for its first paint (mac ADR 0011).
     func handleTabReadyToDisplay(tabId: Int) {
-        if let kioskContentViewController {
-            kioskContentViewController.handleTabReadyToDisplay(tabId: tabId)
-            return
-        }
-        mainSplitViewController.webContentContainerViewController
-            .handleTabReadyToDisplay(tabId: tabId)
+        kioskContentViewController?.handleTabReadyToDisplay(tabId: tabId)
     }
 
     // =========================================================================

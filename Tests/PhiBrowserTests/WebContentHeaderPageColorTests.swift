@@ -11,8 +11,11 @@ import XCTest
 final class WebContentHeaderPageColorTests: XCTestCase {
     private var directories: [URL] = []
     private var stores: [LocalStore] = []
+    private var windows: [NSWindow] = []
 
     override func tearDown() async throws {
+        windows.forEach { $0.close() }
+        windows.removeAll()
         for store in stores { try await store.closeForAccountDirectoryRemoval() }
         stores.removeAll()
         for directory in directories { try FileManager.default.removeItem(at: directory) }
@@ -40,11 +43,19 @@ final class WebContentHeaderPageColorTests: XCTestCase {
         let originalMode = UserDefaults.standard.object(forKey: key)
         UserDefaults.standard.set(LayoutMode.comfortable.rawValue, forKey: key)
         defer { UserDefaults.standard.set(originalMode, forKey: key) }
+        // Expanding the chat is gated on the AI switch.
+        let aiKey = PhiPreferences.AISettings.phiAIEnabled.rawValue
+        let originalAI = UserDefaults.standard.object(forKey: aiKey)
+        UserDefaults.standard.set(true, forKey: aiKey)
+        defer { UserDefaults.standard.set(originalAI, forKey: aiKey) }
 
         let state = try makeState()
+        state.aiChatTabCreationGateOverrideForTesting = false
         let (tab, wrapper) = makeTab(color: .black)
+        state.tabs = [tab]
+        state.focusingTab = tab
         let controller = WebContentViewController(state: state, tab: tab)
-        controller.view.frame = NSRect(x: 0, y: 0, width: 1000, height: 700)
+        showInWindow(controller)
         let header = try XCTUnwrap(controller.leftContainerViewForTesting.subviews
             .compactMap { $0 as? WebContentHeader }.first)
         header.currentTab = tab
@@ -64,8 +75,10 @@ final class WebContentHeaderPageColorTests: XCTestCase {
         XCTAssertEqual(presentation, header.pageColorPresentation)
         XCTAssertEqual(presentation.appearance, .dark)
 
-        chat.isCollapsed = false
-        XCTAssertEqual(presentation, .inherited)
+        // The tab strip follows the page card, which separates once the
+        // chat's split item expands.
+        state.toggleAIChat(false)
+        waitUntil { !chat.isCollapsed && presentation == .inherited }
         XCTAssertEqual(controller.tabStripPageColorPresentation, .inherited)
         assertBackground(header, .black)
         assertBackground(bookmarkBar, .black)
@@ -83,7 +96,10 @@ final class WebContentHeaderPageColorTests: XCTestCase {
         defer { restoredSubscription.cancel() }
         XCTAssertEqual(restoredPresentation, .inherited)
 
-        chat.isCollapsed = true
+        // The card, and the tab strip with it, rejoins the header once the
+        // collapse animation ends.
+        state.toggleAIChat(true)
+        waitUntil { presentation != .inherited }
         XCTAssertEqual(presentation, header.pageColorPresentation)
         XCTAssertEqual(controller.tabStripPageColorPresentation, presentation)
         XCTAssertEqual(presentation.appearance, .light)
@@ -144,6 +160,53 @@ final class WebContentHeaderPageColorTests: XCTestCase {
         state.readerOverlayState.present(reader, originTabId: otherTab.guid)
         XCTAssertEqual(presentation, header.pageColorPresentation)
         XCTAssertEqual(controller.tabStripPageColorPresentation, presentation)
+    }
+
+    func testTabStripInheritsWhileExtensionSidePanelIsOpenAndRestoresLatestPageColor() throws {
+        let key = PhiPreferences.GeneralSettings.layoutModeKey
+        let originalMode = UserDefaults.standard.object(forKey: key)
+        UserDefaults.standard.set(LayoutMode.comfortable.rawValue, forKey: key)
+        defer { UserDefaults.standard.set(originalMode, forKey: key) }
+
+        let state = try makeState()
+        let (tab, wrapper) = makeTab(color: .black)
+        let controller = WebContentViewController(state: state, tab: tab)
+        showInWindow(controller)
+        let header = try XCTUnwrap(controller.leftContainerViewForTesting.subviews
+            .compactMap { $0 as? WebContentHeader }.first)
+        header.currentTab = tab
+
+        var presentation = WebContentHeaderPageColorPresentation.inherited
+        let subscription = controller.tabStripPageColorPresentationPublisher.sink { presentation = $0 }
+        defer { subscription.cancel() }
+        XCTAssertEqual(presentation, header.pageColorPresentation)
+        XCTAssertEqual(presentation.appearance, .dark)
+
+        state.updateExtensionSidePanel(BrowserState.ExtensionSidePanelState(
+            extensionId: "test-extension", displayName: "Test Extension", iconPNG: nil,
+            wrapper: PageColorTestWebContentWrapper(urlString: "chrome-extension://test/panel.html")
+        ))
+        // The page card separates on the next turn; the tab strip follows it.
+        drainPageColorUpdates()
+        XCTAssertEqual(presentation, .inherited)
+        XCTAssertEqual(controller.tabStripPageColorPresentation, .inherited)
+        assertBackground(header, .black)
+
+        wrapper.pageColor = .white
+        drainPageColorUpdates()
+        XCTAssertEqual(presentation, .inherited)
+        assertBackground(header, .white)
+        var openPresentation: WebContentHeaderPageColorPresentation?
+        let openSubscription = controller.tabStripPageColorPresentationPublisher
+            .sink { openPresentation = $0 }
+        defer { openSubscription.cancel() }
+        XCTAssertEqual(openPresentation, .inherited)
+
+        state.updateExtensionSidePanel(nil)
+        drainPageColorUpdates()
+        XCTAssertEqual(presentation, header.pageColorPresentation)
+        XCTAssertEqual(controller.tabStripPageColorPresentation, presentation)
+        XCTAssertEqual(presentation.appearance, .light)
     }
 
     func testSharedBookmarkBarSwitchesPageSubscriptionAndRestoresThemeFallback() throws {
@@ -334,6 +397,30 @@ final class WebContentHeaderPageColorTests: XCTestCase {
         state.themeContext.setTheme(.pure)
         state.themeContext.setUserAppearanceChoice(.light)
         return state
+    }
+
+    /// Puts the controller on screen. It installs its AI Chat and extension
+    /// side panel subscriptions on first appearance, and those drive the page
+    /// card the tab strip follows.
+    private func showInWindow(_ controller: WebContentViewController) {
+        controller.view.frame = NSRect(x: 0, y: 0, width: 1000, height: 700)
+        let window = NSWindow(contentRect: controller.view.frame, styleMask: [.titled],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentViewController = controller
+        window.orderFront(nil)
+        windows.append(window)
+    }
+
+    /// Runs the run loop until `condition` holds (the AI Chat animations
+    /// included), for at most two seconds.
+    private func waitUntil(_ condition: () -> Bool,
+                           file: StaticString = #filePath, line: UInt = #line) {
+        let deadline = Date().addingTimeInterval(2)
+        while !condition(), Date() < deadline {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.01))
+        }
+        XCTAssertTrue(condition(), "condition never held", file: file, line: line)
     }
 
     private func makeTab(guid: Int = 1, color: NSColor?) -> (Tab, PageColorTestWebContentWrapper) {

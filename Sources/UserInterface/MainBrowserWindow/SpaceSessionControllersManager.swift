@@ -31,6 +31,11 @@ struct DanglingWindow {
     /// tabs in `processDanglingWindow` so kCreated handlers find the
     /// already-arrived members.
     var pendingGroupActions: [TabGroupEvent.TabGroupAction] = []
+    /// The content surface Chromium sent for this window (chromium ADR 0014).
+    /// It arrives once per Space instance, right after the window and so
+    /// before browser access; `processDanglingWindow` hands it to the new
+    /// `BrowserState` ahead of the pending tabs.
+    var contentSurfaceView: NSView?
 }
 
 class SpaceSessionControllersManager: MainBrowserWindowLookup {
@@ -71,7 +76,7 @@ class SpaceSessionControllersManager: MainBrowserWindowLookup {
     private var windowControllers: Set<SpaceSessionController> = []
     
     /// Windows waiting to be converted to SpaceSessionController.
-    private var danglingWindows: [DanglingWindow] = []
+    private(set) var danglingWindows: [DanglingWindow] = []
 
     /// Original per-window interaction state captured while Guest-to-account
     /// migration temporarily freezes browser input.
@@ -151,6 +156,14 @@ class SpaceSessionControllersManager: MainBrowserWindowLookup {
         return danglingWindows.contains { $0.windowId == windowId }
     }
 
+    /// Drops the records of `ids`. A record processed on its own stays
+    /// registered (only `materializeDanglingWindows` clears the registry), so
+    /// a test removes the records it added.
+    func removeDanglingWindowsForTesting(ids: [Int]) {
+        assert(Thread.isMainThread)
+        danglingWindows.removeAll { ids.contains($0.windowId) }
+    }
+
     /// Buffer a tab-group action for a dangling window so it can be
     /// replayed once the window's BrowserState comes up. Without this,
     /// any group event (kCreated/kClosed/kJoined/kLeft/kVisualsChanged)
@@ -169,6 +182,19 @@ class SpaceSessionControllersManager: MainBrowserWindowLookup {
             "🪟 [WindowManager] Buffered group action for dangling window " +
             "windowId=\(windowId) total=\(danglingWindows[index].pendingGroupActions.count)"
         )
+        return true
+    }
+
+    /// Keep the content surface Chromium sent for a dangling window; see
+    /// `DanglingWindow.contentSurfaceView`.
+    @discardableResult
+    func addContentSurfaceToDanglingWindow(_ hostingView: NSView, windowId: Int) -> Bool {
+        assert(Thread.isMainThread)
+        guard let index = danglingWindows.firstIndex(where: { $0.windowId == windowId }) else {
+            return false
+        }
+        danglingWindows[index].contentSurfaceView = hostingView
+        AppLogInfo("[ContentSurface] [WindowManager] kept for dangling windowId=\(windowId)")
         return true
     }
     
@@ -251,6 +277,18 @@ class SpaceSessionControllersManager: MainBrowserWindowLookup {
         removeEmptyDanglingSlots(danglingSlots)
         AppLogInfo("🪟 [WindowManager] All dangling windows processed")
     }
+
+    /// Runs `processDanglingWindow` outside `materializeDanglingWindows`. The
+    /// test host starts without browser access and holds a real dangling
+    /// window of its own, which that would process too.
+    @MainActor
+    func processDanglingWindowForTesting(
+        _ danglingWindow: DanglingWindow,
+        account: Account,
+        migrationReceipt: GuestDataMigrationReceipt?
+    ) {
+        processDanglingWindow(danglingWindow, account: account, migrationReceipt: migrationReceipt)
+    }
     
     /// Restore a dangling window, or close it if no tabs arrived before access.
     @MainActor
@@ -319,6 +357,11 @@ class SpaceSessionControllersManager: MainBrowserWindowLookup {
             slot: slot,
             chromiumWindow: hosted ? danglingWindow.window : nil
         )
+        // The surface before the tabs: the replayed tabs mount into a
+        // container that already hosts it.
+        if let hostingView = danglingWindow.contentSurfaceView {
+            windowController.browserState.adoptContentSurface(hostingView)
+        }
         
         // Process pending tabs that were created before browser access.
         for tab in danglingWindow.pendingTabs {
@@ -614,6 +657,18 @@ class SpaceSessionControllersManager: MainBrowserWindowLookup {
         }
     }
 
+    /// Runs `rebindWindowController` outside `rebindWindowControllers(to:)`,
+    /// which would rebind every other live controller in the test host too
+    /// and block input on every window while it runs.
+    @MainActor
+    func rebindWindowControllerForTesting(
+        _ oldController: SpaceSessionController,
+        to account: Account,
+        migrationReceipt: GuestDataMigrationReceipt?
+    ) {
+        rebindWindowController(oldController, to: account, migrationReceipt: migrationReceipt)
+    }
+
     @MainActor
     private func rebindWindowController(
         _ oldController: SpaceSessionController,
@@ -709,6 +764,12 @@ class SpaceSessionControllersManager: MainBrowserWindowLookup {
             chromiumWindow: oldController.hostedChromiumWindow
         )
         let newState = replacement.browserState
+        // The content surface is sent once per Space instance (chromium ADR
+        // 0014): the replacement takes it over from the old state before the
+        // tabs are replayed into it.
+        if let hostingView = oldState.contentSurfaceView {
+            newState.adoptContentSurface(hostingView)
+        }
 
         for split in splits where split.isPinned {
             newState.pendingPinnedSplitMarkByCreateId.insert(split.id)
@@ -1111,6 +1172,33 @@ class SpaceSessionControllersManager: MainBrowserWindowLookup {
         return danglingWindows.first?.windowId
     }
     
+    /// Closes auxiliary UI before logout presents the login window.
+    @MainActor
+    func closeNonBrowserWindows() {
+        let browserWindows = windowControllers.compactMap(\.window)
+            + windowControllers.compactMap(\.lifecycleWindow)
+            + danglingWindows.map(\.window)
+        Self.closeNonBrowserWindows(in: NSApp.windows, excluding: browserWindows)
+    }
+
+    @MainActor
+    static func closeNonBrowserWindows(in windows: [NSWindow], excluding browserWindows: [NSWindow]) {
+        let browserWindowIDs = Set(browserWindows.map(ObjectIdentifier.init))
+        // Snapshot before closing: delegates can release controllers and mutate NSApp.windows.
+        let auxiliaryWindows = windows.filter {
+            !browserWindowIDs.contains(ObjectIdentifier($0))
+                && !($0 is ShellWindow)
+                && !($0.windowController is SpaceSessionController)
+        }
+        for window in auxiliaryWindows {
+            if let parent = window.sheetParent {
+                parent.endSheet(window, returnCode: .cancel)
+            }
+            // Logout has already been confirmed; non-closable panels must also disappear.
+            window.close()
+        }
+    }
+
     /// Closes every browser window, for example during logout flows.
     @MainActor
     func closeAllWindows() {

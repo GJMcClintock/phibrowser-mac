@@ -93,6 +93,8 @@ struct ChatButton: View {
         }
         .buttonStyle(.plain)
         .fixedSize(horizontal: true, vertical: false)
+        .help(Self.localizedTitle)
+        .accessibilityLabel(Self.localizedTitle)
         .onHover { hovering in
             isHovering = hovering
         }

@@ -1933,11 +1933,18 @@ extension PhiChromiumCoordinator: PhiChromiumBridgeDelegate {
     func keyEquivalentOverride(forCommand commandId: Int32) -> [String : Any]? {
         let id = Int(commandId)
 
-        guard let state = Shortcuts.overrideState(for: id) else {
+        guard let state = Shortcuts.chromiumOverrideState(for: id) else {
             return nil
         }
         
-        if let key = state {
+        if state.inheritsDefaults {
+            return ["excludedKeyEquivalents": state.excludedKeys.map { key in
+                let equivalent = key.menuKeyEquivalent
+                return ["keyEquivalent": equivalent.characters,
+                        "modifierFlags": equivalent.modifiers.rawValue] as [String: Any]
+            }]
+        }
+        if let key = state.key {
             let menuKey = key.menuKeyEquivalent
             return [
                 "keyEquivalent": menuKey.characters,
@@ -3048,36 +3055,35 @@ extension PhiChromiumCoordinator: PhiChromiumBridgeDelegate {
     
     func tabWillBeRemove(_ tabId: Int64, windowId: Int64) {
         AppLogDebug("tabWillBeRemove: \(tabId)")
-        // Snapshot the closing active tab SYNCHRONOUSLY, before the async EventBus
-        // close dispatch. This bridge callback runs on the UI/main thread inside
-        // Chromium's synchronous close turn while the WebContents is still alive;
-        // the EventBus close (Task { @MainActor }) runs only AFTER Chromium has
-        // destroyed it, when CGWindowList would capture blank. MainActor.assumeIsolated
-        // mirrors windowDidEnterPlaceholderMode's synchronous-detach pattern.
+        // Detach the closing tab's native view from Peek or Reader SYNCHRONOUSLY,
+        // before the async EventBus close dispatch. This bridge callback runs on
+        // the UI/main thread inside Chromium's synchronous close turn while the
+        // WebContents is still alive; the EventBus close (Task { @MainActor }) runs
+        // only AFTER Chromium has destroyed it. MainActor.assumeIsolated mirrors
+        // windowDidEnterPlaceholderMode's synchronous-detach pattern.
         // The contract above holds today (BrowserThread::UI = the AppKit main thread =
         // MainActor), but it isn't type-enforced. Assert it; if Chromium ever delivers
-        // this off-main, skip the best-effort mask rather than trapping — the EventBus
-        // close below must still fire.
+        // this off-main, skip the detach rather than trapping — the EventBus close
+        // below must still fire.
         if Thread.isMainThread {
             MainActor.assumeIsolated {
-                // nil window (already torn down) → skip silently; the mask is best-effort.
+                // nil window (already torn down) → nothing to detach.
                 let controller = SpaceSessionControllersManager.shared
                     .controller(for: windowId.intValue)
-                if !(controller is KioskBrowserWindowController) {
-                    controller?.mainSplitViewController.webContentContainerViewController
-                        .maskClosingTab(tabId: tabId.intValue)
-                    // If the closing tab is hosted by the Peek panel, detach its
-                    // native view now, while the WebContents is still alive — the
-                    // async EventBus close below runs after Chromium destroyed it.
-                    controller?.peekPanelControllerIfLoaded?
-                        .detachContentIfHosting(tabId: tabId.intValue)
-                    // Same rule for a closing reader-overlay surface tab.
-                    controller?.readerPanelControllersIfLoaded
-                        .forEach { $0.detachContentIfHosting(tabId: tabId.intValue) }
-                }
+                // If the closing tab is hosted by the Peek panel, detach its
+                // native view now, while the WebContents is still alive — the
+                // async EventBus close below runs after Chromium destroyed it.
+                controller?.peekPanelControllerIfLoaded?
+                    .detachContentIfHosting(tabId: tabId.intValue)
+                // Same rule for a closing reader-overlay surface tab.
+                controller?.readerPanelControllersIfLoaded
+                    .forEach { $0.detachContentIfHosting(tabId: tabId.intValue) }
+                // And for the Library's Folio pane tab: dropping it from the
+                // state detaches its native view from the pane now.
+                controller?.browserState.libraryPaneTabWillBeRemoved(tabId.intValue)
             }
         } else {
-            assertionFailure("tabWillBeRemove off the main thread; skipping best-effort close mask")
+            assertionFailure("tabWillBeRemove off the main thread; skipping the synchronous detach")
         }
         if Thread.isMainThread {
             MainActor.assumeIsolated {
@@ -3224,22 +3230,11 @@ extension PhiChromiumCoordinator: PhiChromiumBridgeDelegate {
     }
 
     // =========================================================================
-    // Flicker fix: Tab visibility synchronization
+    // Tab first paint
     // =========================================================================
 
-    /// Called by Chromium after hiding the previous WebContents.
-    /// Mac should clean up the previous tab's NSView from the view hierarchy.
-    func previousTabReady(forCleanup tabId: Int64, windowId: Int64) {
-        AppLogDebug("[Tab] previousTabReadyForCleanup: tabId=\(tabId), windowId=\(windowId)")
-        EventBus.shared
-            .send(TabEvent(browserId: windowId.intValue,
-                           action: .previousTabReadyForCleanup(tabId.intValue)))
-    }
-
-    /// Called by Chromium when a new tab has completed its first visually non-empty paint.
-    /// Mac should bring the new tab's view to the front.
+    /// Called by Chromium when a tab has completed its first visually non-empty paint.
     func tabReady(toDisplay tabId: Int64, windowId: Int64) {
-        // AppLogDebug("[FlickerFix][Coordinator] tabReadyToDisplay: tabId=\(tabId), windowId=\(windowId)")
         EventBus.shared
             .send(TabEvent(browserId: windowId.intValue,
                            action: .tabReadyToDisplay(tabId.intValue)))
@@ -3357,6 +3352,32 @@ extension PhiChromiumCoordinator: PhiChromiumBridgeDelegate {
         // is out of the hierarchy before returning to Chromium.
         MainActor.assumeIsolated {
             windowController.browserState.updateExtensionSidePanel(panelState)
+        }
+    }
+
+    // =========================================================================
+    // Content surface (Chromium → Mac)
+    //
+    // Same addressing and synchronous hop as the extension side panel: sent
+    // right after mainBrowserWindowCreated for the same windowId, once per
+    // Space instance and only while PhiContentSurface is on.
+    // =========================================================================
+
+    func contentSurfaceCreated(_ windowId: Int64, hostingView: NSView) {
+        let manager = SpaceSessionControllersManager.shared
+        guard let windowController = manager.getAllWindows()
+                .first(where: { $0.windowId == Int(windowId) }) else {
+            // Sent once per Space instance: a window created before browser
+            // access keeps it until it is materialized, as it keeps its tabs.
+            if manager.hasDanglingWindow(for: Int(windowId)) {
+                manager.addContentSurfaceToDanglingWindow(hostingView, windowId: Int(windowId))
+                return
+            }
+            AppLogWarn("[ContentSurface] [Coordinator] no controller for windowId=\(windowId)")
+            return
+        }
+        MainActor.assumeIsolated {
+            windowController.browserState.adoptContentSurface(hostingView)
         }
     }
 

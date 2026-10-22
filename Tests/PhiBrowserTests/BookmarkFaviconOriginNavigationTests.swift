@@ -381,6 +381,7 @@ private final class BookmarkOriginTestWebContentWrapper: NSObject, WebContentWra
     func restoreFocus() {}
     func updateSecurityState(_ securityState: [AnyHashable: Any]) {}
     func updateIsPeekSurface(_ isPeekSurface: Bool) {}
+    func updateIsPeekPresented(_ presented: Bool) {}
     func toggleAudioMuted() {}
     func setAudioMuted(_ muted: Bool) {}
     func muteAudio() {}

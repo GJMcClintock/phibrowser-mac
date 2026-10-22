@@ -200,6 +200,14 @@ class BrowserState {
     /// side the *new* tab takes (the partner takes the other slot).
     var pendingSplitPartnerByCustomGuid: [String: PendingSplitPartner] = [:]
 
+    /// Tabs `openNewTabAsSplit` focuses before their split exists, from
+    /// their arrival until Chromium's split echo reaches `splits`
+    /// (`handleSplitCreated`) or `createSplit` fails. Their partner is the
+    /// tab that had focus, so the page container mounts such a tab only with
+    /// its split: mounted alone, it would take the partner's page out of the
+    /// window (mac ADR 0011).
+    @Published var tabsAwaitingSplit: Set<Int> = []
+
     /// customGuid → target URLs. The tab is initially opened as NTP (to keep
     /// `CrossDomainNewTabNavigationThrottle` from intercepting the initial
     /// load while the customGuid marker is set); once Chromium echoes the
@@ -380,6 +388,15 @@ class BrowserState {
     /// SYNCHRONOUS subscription (no async hop — see the close contract on
     /// `ExtensionSidePanelState`).
     @Published private(set) var extensionSidePanel: ExtensionSidePanelState? = nil
+
+    /// The view of this Space instance's content surface (chromium ADR 0014),
+    /// which draws the pixels of every web view mounted below the view it is
+    /// added to. Set once, right after the window is created, and only while
+    /// Chromium's PhiContentSurface feature is on; nil means every web view
+    /// draws itself. Chromium owns it; the container view controller installs
+    /// it from a SYNCHRONOUS subscription. Driven by
+    /// PhiChromiumCoordinator.contentSurfaceCreated.
+    @Published private(set) var contentSurfaceView: NSView? = nil
 
     @Published var isDraggingTab = false
 
@@ -1451,6 +1468,11 @@ class BrowserState {
         }
     }
 
+    @MainActor
+    func adoptContentSurface(_ hostingView: NSView) {
+        contentSurfaceView = hostingView
+    }
+
     /// Asks Chromium to close the extension side panel of this window (the
     /// Mac-side close entry point; the panel header's close button lands
     /// here). Routes through SidePanelUI::Close so the extension observes
@@ -1840,7 +1862,7 @@ class BrowserState {
         if multiSelection.isActive {
             return copyableURLStringsForCurrentMultiSelection()
         }
-        return focusingTab.map { copyableURLStrings(from: [$0]) } ?? []
+        return pageCommandTarget.map { copyableURLStrings(from: [$0]) } ?? []
     }
 
     private func copyableURLStrings(from tabs: [Tab]) -> [String] {
@@ -3306,7 +3328,8 @@ class BrowserState {
 
         // Reader View: the reader extension answers a reader-open request by
         // creating a tab on its reading surface; host it as a full-pane
-        // overlay over the origin tab instead of a normal tab. Same
+        // overlay over the origin tab instead of a normal tab. The Library's
+        // Folio pane tab takes the same divert, hosted by the Library. Same
         // before-the-defer reasoning as the peek divert above.
         if maybeDivertReaderOverlayTab(tab, context: context) {
             return
@@ -4248,16 +4271,35 @@ class BrowserState {
             || peekState.peekTab(withId: originTabId) != nil
     }
 
-    /// The tab Reader View commands (shortcut, View menu) act on. A peek is
-    /// the page in front of its opener, so it is the target — unless the
-    /// opener's own reader is up, which covers the peek and is what a toggle
-    /// must close.
+    /// The page that page-scoped commands act on — Reload, Bookmark, Share,
+    /// Save to Folio, Copy URL, full-page screenshot: the peek on screen in
+    /// front of `focusingTab`, else `focusingTab` itself. A peek's tab is
+    /// never the focused strip tab (its opener stays focused beneath the
+    /// panel), so a command that reads `focusingTab` directly acts on the
+    /// page hidden behind the panel. Every native handler of such a command
+    /// resolves its tab here; Chromium's own page commands (Reload, Stop,
+    /// Zoom, Print, Save Page, View Source, DevTools, Find) get the same
+    /// answer from the presented-peek marker the panel keeps for them
+    /// (`WebContentWrapper.updateIsPeekPresented`). Toolbar controls that
+    /// describe the strip tab (the address bar's reload button) are not
+    /// page commands and keep acting on `focusingTab`.
+    var pageCommandTarget: Tab? {
+        pageCommandTarget(focusingTab: focusingTab)
+    }
+
+    func pageCommandTarget(focusingTab: Tab?) -> Tab? {
+        visiblePeek(focusingTab: focusingTab)?.tab ?? focusingTab
+    }
+
+    /// The tab Reader View commands (shortcut, View menu) act on: the page
+    /// command target — unless the opener's own reader is up, which covers
+    /// the peek and is what a toggle must close.
     func readerViewTarget(focusingTab: Tab?) -> Tab? {
         guard let focusingTab else { return nil }
         if readerOverlayState.reader(forOrigin: focusingTab.guid) != nil {
             return focusingTab
         }
-        return visiblePeek(focusingTab: focusingTab)?.tab ?? focusingTab
+        return pageCommandTarget(focusingTab: focusingTab)
     }
 
     /// The peek on screen for `focusingTab`: its own, else its split
@@ -4340,6 +4382,13 @@ class BrowserState {
         showReaderOverlayPreparingToast(forOrigin: originTabId)
     }
 
+    /// The origin tab a page-overlay surface URL is bound to: a reader
+    /// surface (`reader.html#tab=`), the Mirage page the reader overlay
+    /// hosts over that tab; nil for every other URL.
+    static func pageOverlaySurfaceOriginTabId(_ urlString: String) -> Int? {
+        ReaderExtensionBridge.originTabId(fromReaderPageURL: urlString)
+    }
+
     private func showReaderOverlayPreparingToast(forOrigin originTabId: Int) {
         dismissReaderOverlayPreparingToast(forOrigin: originTabId)
         // Lives as long as the request itself: an open the extension never
@@ -4395,12 +4444,13 @@ class BrowserState {
         dismissReaderOverlayPreparingToast(forOrigin: originTabId)
     }
 
-    /// A tab that arrived while a reader-open was in flight but before its
-    /// first URL was known. The reading surface tab is browser-initiated
-    /// (`chrome.tabs.create`) and should carry its URL at insert, but the
-    /// divert must not silently degrade if it ever does not — the tab is
-    /// held out of `tabs` until its first URL decides overlay vs normal tab
-    /// (the peek candidate pattern).
+    /// A tab that arrived while a reader-open or a Library pane request was
+    /// in flight but before its first URL was known. The reading surface
+    /// tab is browser-initiated (`chrome.tabs.create`) and should carry its
+    /// URL at insert, as the pane's tab does, but the divert must not
+    /// silently degrade if it ever does not — the tab is held out of `tabs`
+    /// until its first URL decides overlay, pane or normal tab (the peek
+    /// candidate pattern).
     private struct ReaderOverlayCandidate {
         let tab: Tab
         let context: NativeTabCreationContext?
@@ -4411,14 +4461,16 @@ class BrowserState {
 
     /// Diverts a freshly arrived Chromium tab into the reader overlay when
     /// it is the reading surface the extension created for a pending
-    /// reader-open. Returns true when the tab was taken over (kept out of
-    /// `tabs`). A reader page with no pending request (a session-restored
-    /// surface tab) is closed by the resolve step; anything else continues
-    /// as a normal tab.
+    /// reader-open, or into the Library's Folio pane when it is the library
+    /// page the Library asked for. Returns true when the tab was taken over
+    /// (kept out of `tabs`). A surface with no pending request (a
+    /// session-restored surface tab) is closed by the resolve step;
+    /// anything else continues as a normal tab.
     private func maybeDivertReaderOverlayTab(_ tab: Tab,
                                              context: NativeTabCreationContext?) -> Bool {
         if let url = tab.url, Self.isUsablePeekDecisionURL(url) {
-            guard ReaderExtensionBridge.originTabId(fromReaderPageURL: url) != nil else {
+            guard Self.pageOverlaySurfaceOriginTabId(url) != nil
+                    || SaveForLaterService.libraryPaneToken(fromLibraryPageURL: url) != nil else {
                 return false
             }
             _ = PhiChromiumCoordinator.shared.drainPendingCrash(tabId: tab.guid)
@@ -4435,11 +4487,12 @@ class BrowserState {
             return true
         }
 
-        // No URL yet: only hold the tab when a reader-open is actually in
-        // flight — everything else keeps stock new-tab behavior.
+        // No URL yet: only hold the tab when a reader-open or a Library pane
+        // request is actually in flight — everything else keeps stock
+        // new-tab behavior.
         guard pendingReaderOverlayOrigins.contains(where: {
             Date().timeIntervalSince($0.value) < Self.readerOverlayOpenTTLSeconds
-        }) else { return false }
+        }) || hasPendingLibraryPaneRequest else { return false }
         _ = PhiChromiumCoordinator.shared.drainPendingCrash(tabId: tab.guid)
         if readerOverlayCandidate != nil {
             finishReaderOverlayCandidate(adopt: true)
@@ -4470,7 +4523,8 @@ class BrowserState {
     }
 
     /// Completes the pending candidate's decision: the reading surface of a
-    /// pending open → present the overlay; a reader page with no open in
+    /// pending open → present the overlay; the library page of a pending
+    /// Library pane request → the pane's tab; a surface with no request in
     /// flight → close it (a restored surface tab); anything else → adopt as
     /// a normal tab. Always entered on a clean main turn.
     private func resolveReaderOverlayCandidate(urlString: String) {
@@ -4479,8 +4533,12 @@ class BrowserState {
         candidate.timeoutWorkItem?.cancel()
         readerOverlayCandidate = nil
 
-        guard let originTabId = ReaderExtensionBridge.originTabId(fromReaderPageURL: urlString) else {
-            // The held tab turned out not to be a reader surface at all —
+        if let token = SaveForLaterService.libraryPaneToken(fromLibraryPageURL: urlString) {
+            resolveLibraryPaneCandidate(candidate.tab, context: candidate.context, token: token)
+            return
+        }
+        guard let originTabId = Self.pageOverlaySurfaceOriginTabId(urlString) else {
+            // The held tab turned out not to be an overlay surface at all —
             // continue as a normal arrival.
             adoptPeekTabIntoStrip(candidate.tab, context: candidate.context, activate: true)
             return
@@ -4563,7 +4621,7 @@ class BrowserState {
             .compactMap { $0 }
             .filter { url in
                 !url.isEmpty && url != "about:blank"
-                    && ReaderExtensionBridge.originTabId(fromReaderPageURL: url) == nil
+                    && Self.pageOverlaySurfaceOriginTabId(url) == nil
             }
             .first()
             .sink { [weak self] _ in
@@ -4641,6 +4699,162 @@ class BrowserState {
         presentedReaderOverlayContexts.removeAll()
         readerOverlayNavigationWatches.removeAll()
         readerOverlayState.clear()
+    }
+
+    // MARK: - Library pane (Folio)
+
+    /// Mirage's Folio library page hosted inside the Library — the in-window
+    /// overlay or the standalone Library window — as its Folio pane. A live
+    /// strip tab of this window kept out of `tabs`, the off-strip pattern of
+    /// a reader surface: Chromium owns its WebContents and the extension
+    /// sees an ordinary tab (its broker calls name it, links open from it),
+    /// while the pane mounts its native view in whichever window the
+    /// Library is in. A web view mounted outside the page container draws
+    /// itself, as Peek's and Reader's do. One per window: the pane closes it
+    /// when it leaves its window, and a link followed inside it adopts the
+    /// tab into the strip (`libraryPaneTabAdopted`).
+    @Published private(set) var libraryPaneTab: Tab?
+
+    /// The pane's tab navigated away from the library page and joined the
+    /// strip as a normal tab (its guid): the Library yields to the browser
+    /// window, which now shows that page.
+    let libraryPaneTabAdopted = PassthroughSubject<Int, Never>()
+
+    /// The request the next library-page arrival must answer (the token
+    /// `SaveForLaterService.libraryPaneURL(token:)` carries), armed by
+    /// `requestLibraryPaneTab` and consumed by the arrival; dies with the
+    /// reader-open TTL.
+    private var pendingLibraryPaneRequest: (token: String, requestedAt: Date)?
+    /// Creation context of the pane's tab, kept so adopting it into the
+    /// strip places the tab where a normal arrival would have.
+    private var libraryPaneContext: NativeTabCreationContext?
+    /// The library page's links are plain links, so a click navigates the
+    /// pane's tab away from `library.html` — it is then adopted into the
+    /// strip instead of showing an arbitrary site inside the Library.
+    private var libraryPaneNavigationWatch: AnyCancellable?
+
+    private var hasPendingLibraryPaneRequest: Bool {
+        guard let pending = pendingLibraryPaneRequest else { return false }
+        return Date().timeIntervalSince(pending.requestedAt) < Self.readerOverlayOpenTTLSeconds
+    }
+
+    /// Asks Chromium for the Library's Folio pane tab; `libraryPaneTab`
+    /// publishes it once it arrives. Nothing happens while one is up or on
+    /// its way.
+    func requestLibraryPaneTab() {
+        guard SaveForLaterService.featureEnabled, libraryPaneTab == nil,
+              !hasPendingLibraryPaneRequest else { return }
+        let token = UUID().uuidString
+        pendingLibraryPaneRequest = (token, Date())
+        AppLogInfo("📚 [LibraryPane] requesting the library page windowId=\(windowId)")
+        // In the background: a foreground insert activates the tab, and in
+        // hosted mode that raises the shell window and takes key status
+        // from the Library window or panel the pane sits in. The exemption
+        // set on arrival keeps the inactive tab painting.
+        createTab(SaveForLaterService.libraryPaneURL(token: token),
+                  customGuid: nil, focusAfterCreate: false)
+    }
+
+    /// Settles a held library-page arrival (`resolveReaderOverlayCandidate`):
+    /// the answer to the pending request becomes the pane's tab; any other
+    /// (a session-restored pane surface, or one answering a request the
+    /// pane has since withdrawn) is closed rather than left in the strip.
+    private func resolveLibraryPaneCandidate(_ tab: Tab,
+                                             context: NativeTabCreationContext?,
+                                             token: String) {
+        guard let pending = pendingLibraryPaneRequest, pending.token == token,
+              hasPendingLibraryPaneRequest, libraryPaneTab == nil else {
+            AppLogInfo("📚 [LibraryPane] library page tabId=\(tab.guid) answers no pending request — closing it")
+            tab.webContentWrapper?.close()
+            return
+        }
+        pendingLibraryPaneRequest = nil
+        libraryPaneContext = context
+        // Keep the pane's WebContents painting while strip-active goes back
+        // to the focused tab — the visibility exemption the peek panel and
+        // the reader overlay use (see presentReaderOverlay).
+        ChromiumLauncher.sharedInstance().bridge?
+            .markPendingSplitPartner(withTabId: Int64(tab.guid),
+                                     windowId: Int64(windowId))
+        // Same Chromium-side marker as a peeked page: a link from here has
+        // no strip opener, so it opens as a new tab rather than a split or
+        // peek surface.
+        if let wrapper = tab.webContentWrapper,
+           wrapper.responds(to: #selector(WebContentWrapper.updateIsPeekSurface(_:))) {
+            wrapper.updateIsPeekSurface(true)
+        }
+        installLibraryPaneNavigationWatch(for: tab)
+        AppLogInfo("📚 [LibraryPane] tabId=\(tab.guid) presenting in the Library")
+        // The tab was inserted in the background, so strip-active stays with
+        // the focused tab and nothing is handed back: re-activating it would
+        // pull focus into the browser window, out of the Library.
+        libraryPaneTab = tab
+    }
+
+    private func installLibraryPaneNavigationWatch(for tab: Tab) {
+        let paneTabId = tab.guid
+        libraryPaneNavigationWatch = tab.$url
+            .receive(on: DispatchQueue.main)
+            .compactMap { $0 }
+            .filter { url in
+                Self.isUsablePeekDecisionURL(url)
+                    && SaveForLaterService.libraryPaneToken(fromLibraryPageURL: url) == nil
+            }
+            .first()
+            .sink { [weak self] _ in
+                AppLogInfo("📚 [LibraryPane] tabId=\(paneTabId) navigated away — adopting as a normal tab")
+                self?.expandLibraryPaneIntoTab()
+            }
+    }
+
+    /// The pane's tab left the library page (a link followed inside it): it
+    /// joins the strip as a normal, focused tab, and the Library yields.
+    func expandLibraryPaneIntoTab() {
+        guard let tab = libraryPaneTab else { return }
+        let context = libraryPaneContext
+        libraryPaneContext = nil
+        libraryPaneNavigationWatch = nil
+        libraryPaneTab = nil
+        // Hand visibility management back to the normal active-tab path —
+        // the marker never auto-clears for a tab that stays in the strip.
+        ChromiumLauncher.sharedInstance().bridge?
+            .clearPendingSplitPartner(withTabId: Int64(tab.guid),
+                                      windowId: Int64(windowId))
+        adoptPeekTabIntoStrip(tab, context: context, activate: true)
+        libraryPaneTabAdopted.send(tab.guid)
+    }
+
+    /// Closes the pane's tab (the pane left its window) and withdraws a
+    /// request still in flight, whose answer is then closed on arrival.
+    func closeLibraryPane() {
+        pendingLibraryPaneRequest = nil
+        guard let tab = libraryPaneTab else { return }
+        libraryPaneContext = nil
+        libraryPaneNavigationWatch = nil
+        libraryPaneTab = nil
+        // Straight WebContentWrapper.close(), never Tab.close(): the tab is
+        // not active on the Mac side and IDC_CLOSE_TAB would close whatever
+        // Chromium considers active (peek rule).
+        tab.webContentWrapper?.close()
+    }
+
+    /// `tabWillBeRemove` for the pane's tab: drop it now, while the
+    /// WebContents is still alive, so the pane detaches its native view
+    /// before Chromium destroys it (the Peek and Reader detach rule).
+    func libraryPaneTabWillBeRemoved(_ tabId: Int) {
+        guard libraryPaneTab?.guid == tabId else { return }
+        libraryPaneContext = nil
+        libraryPaneNavigationWatch = nil
+        libraryPaneTab = nil
+    }
+
+    /// Window teardown: drop the pane bookkeeping without closing the
+    /// wrapper — Chromium tears the strip down with the window.
+    func teardownLibraryPaneForWindowClose() {
+        pendingLibraryPaneRequest = nil
+        libraryPaneContext = nil
+        libraryPaneNavigationWatch = nil
+        libraryPaneTab = nil
     }
 
     /// Reattaches an arriving live tab to its pinned record when the local
@@ -5203,6 +5417,13 @@ class BrowserState {
             finishReaderOverlayCandidate(adopt: false)
             return
         }
+        // The Library's Folio pane tab closed by Chromium (teardown, or our
+        // closeLibraryPane round-trip): the pane already detached the native
+        // view in tabWillBeRemove; this is the backstop for its bookkeeping.
+        if libraryPaneTab?.guid == tabId {
+            libraryPaneTabWillBeRemoved(tabId)
+            return
+        }
 
         // Resolve the normal tab after AI Chat-tab handling has been ruled out.
         guard let closedTab = tabs.first(where: { $0.guid == tabId }) else { return }
@@ -5548,27 +5769,11 @@ class BrowserState {
     }
 
     // =========================================================================
-    // Flicker fix: Tab visibility synchronization
+    // Tab first paint
     // =========================================================================
 
-    /// Called when Chromium has hidden the previous WebContents and it's ready for cleanup.
-    /// This is part of the flicker fix - we defer cleanup until Chromium confirms the old tab is hidden.
-    func handlePreviousTabReadyForCleanup(tabId: Int) {
-        AppLogDebug("[Tab] handlePreviousTabReadyForCleanup: tabId=\(tabId)")
-        windowController?.handlePreviousTabReadyForCleanup(tabId: tabId)
-    }
-
-    /// Called when a new tab has completed its first visually non-empty paint.
-    /// Mac should bring the new tab's view to the front.
+    /// Called when a tab has completed its first visually non-empty paint.
     func handleTabReadyToDisplay(tabId: Int) {
-        // AppLogDebug("[FlickerFix][BrowserState] handleTabReadyToDisplay: tabId=\(tabId)")
-
-        // Mark the tab as having completed first paint
-        if let tab = tabs.first(where: { $0.guid == tabId }) {
-            tab.hasFirstPaint = true
-            // AppLogDebug("[FlickerFix][BrowserState] Set hasFirstPaint=true for tabId=\(tabId)")
-        }
-
         windowController?.handleTabReadyToDisplay(tabId: tabId)
     }
 
@@ -5732,6 +5937,10 @@ class BrowserState {
                 readerTab.title = newTitle
             } else if let candidateTab = readerOverlayCandidate?.tab, candidateTab.guid == tabId {
                 candidateTab.title = newTitle
+            } else if let paneTab = libraryPaneTab, paneTab.guid == tabId {
+                // The Library's Folio pane tab too: current when adopted
+                // (link click inside the library page).
+                paneTab.title = newTitle
             } else {
                 AppLogWarn("tab not found for id: \(tabId)")
             }

@@ -30,6 +30,10 @@ an older session.
 
 ## App-hosted Reader overlay
 
+The Library's Folio pane tab (`library.html#pane=<token>`, see
+[Folio library](folio-native-library.md)) takes the same arrival hold but is
+diverted to the Library, not to the overlay.
+
 Opening Reader asks the extension to create a separate Reader surface tab. The
 native app keeps the article's origin tab in its tab list and presents that
 surface over the full browser pane. It recognizes the new surface only when its

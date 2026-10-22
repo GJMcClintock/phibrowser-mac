@@ -529,8 +529,8 @@ class SidebarSplitPairCellView: SidebarCellView, TabPreviewInteractionCancelling
     /// Per-pane recording badge overlaid on each pane's favicon. Mirrors the
     /// corner badge `UnifiedTabFaviconView` draws on a normal tab so a split
     /// pane using the microphone / camera / screen share reads the same.
-    private var leftRecordingHost: ZeroSafeAreaHostingView<AnyView>!
-    private var rightRecordingHost: ZeroSafeAreaHostingView<AnyView>!
+    private var leftRecordingHost: TabRecordingIconHostingView!
+    private var rightRecordingHost: TabRecordingIconHostingView!
     private var leftMuteWidth: Constraint?
     private var rightMuteWidth: Constraint?
     private var leftTitlePaneTrailing: Constraint?
@@ -653,12 +653,17 @@ class SidebarSplitPairCellView: SidebarCellView, TabPreviewInteractionCancelling
         leftMuteHost.isHidden = true
         rightMuteHost.isHidden = true
 
-        // Recording badges. Static content (the pulsing red dot); only their
-        // visibility is toggled, so the root view is built once here.
-        leftRecordingHost = ZeroSafeAreaHostingView(rootView: AnyView(
-            UnifiedTabRecordingIcon().phiThemeObserver(themeObserver)))
-        rightRecordingHost = ZeroSafeAreaHostingView(rootView: AnyView(
-            UnifiedTabRecordingIcon().phiThemeObserver(themeObserver)))
+        // Recording badges (the pulsing red dot). Only their visibility is
+        // toggled here; the host builds the dot on each show and drops it
+        // on hide. The observer is captured by value so the hosts' closures
+        // do not retain the cell.
+        let recordingThemeObserver = themeObserver
+        leftRecordingHost = TabRecordingIconHostingView {
+            AnyView(UnifiedTabRecordingIcon().phiThemeObserver(recordingThemeObserver))
+        }
+        rightRecordingHost = TabRecordingIconHostingView {
+            AnyView(UnifiedTabRecordingIcon().phiThemeObserver(recordingThemeObserver))
+        }
         leftRecordingHost.isHidden = true
         rightRecordingHost.isHidden = true
 
