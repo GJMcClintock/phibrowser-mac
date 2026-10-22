@@ -562,8 +562,9 @@ class SidebarTabListViewController: NSViewController {
             }
         }
         timing?.mark("rows.realize.end")
-        outlineView.displayIfNeeded()
-        timing?.mark("rows.display.end")
+        // The owning sidebar displays the prepared band after its final layout.
+        // Displaying here forces a window-wide layout while the parent is
+        // still being prepared, then repeats it at the sidebar boundary.
     }
 
     private func deactivate() {

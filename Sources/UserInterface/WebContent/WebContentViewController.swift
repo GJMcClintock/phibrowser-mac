@@ -405,6 +405,7 @@ class WebContentViewController: NSViewController {
     override func loadView() {
         let view = ColoredVisualEffectView()
         view.themedBackgroundColor = .windowOverlayBackground
+        view.usesThemePalette = true
         view.material = .fullScreenUI
         view.wantsLayer = true
         view.suppressesBackdrop = !paintsOwnBackdrop

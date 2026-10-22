@@ -341,6 +341,9 @@ extension AccountUserDefaults {
         /// Per-Space Pure-theme slider value. The shared position maps to
         /// separate light and dark brightness ranges.
         case spacePureThemeSliderValues
+        /// Local per-Space linked color palettes, encoded using the shared
+        /// account-preference transport rather than changing the Space schema.
+        case spaceThemePalettes
         /// Snapshot of the slot/window/Space layout written on every
         /// `SpaceWindowSlot.registerWindow`. Read on the next launch by
         /// `SpaceManager` so Chromium-restored windows reattach to the
@@ -438,6 +441,16 @@ extension AccountUserDefaults {
     /// Persists the per-Space Pure-theme slider-value map verbatim.
     func setSpacePureThemeSliderValues(_ map: [String: Double]) {
         set(map, forKey: DefaultsKey.spacePureThemeSliderValues.rawValue)
+    }
+
+    func spaceThemePalettes() -> [String: ThemePalette] {
+        guard let data = data(forKey: DefaultsKey.spaceThemePalettes.rawValue) else { return [:] }
+        return (try? JSONDecoder().decode([String: ThemePalette].self, from: data)) ?? [:]
+    }
+
+    @discardableResult
+    func setSpaceThemePalettes(_ map: [String: ThemePalette]) -> Bool {
+        set(map, forCodableKey: DefaultsKey.spaceThemePalettes.rawValue)
     }
 
     /// The Migration Sources this account has completed a Migration from.

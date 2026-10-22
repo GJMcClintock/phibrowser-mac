@@ -562,6 +562,7 @@ class SidebarViewController: NSViewController, BrowserThemeContextProviding {
             return true
         }
         view.themedBackgroundColor = .windowOverlayBackground
+        view.usesThemePalette = true
         view.material = .fullScreenUI
         let trackingArea = NSTrackingArea(
             rect: .zero,
@@ -1512,7 +1513,8 @@ class SidebarViewController: NSViewController, BrowserThemeContextProviding {
             manager: .shared,
             profileManager: .shared,
             initialProfileId: initialProfileId,
-            initialThemeId: state.themeContext.currentTheme.id
+            initialThemeId: state.themeContext.currentTheme.id,
+            afterSpaceId: state.spaceId
         ) { [weak self] restorePreviewTheme in
             self?.dismissCreateSpaceOverlay(
                 restorePreviewTheme: restorePreviewTheme
@@ -1548,6 +1550,8 @@ class SidebarViewController: NSViewController, BrowserThemeContextProviding {
         // in recordings. Within-window frosts the sidebar content this sheet
         // covers and renders entirely in-process, so captures match the screen.
         let backdrop = ColoredVisualEffectView()
+        backdrop.usesThemePalette = true
+        backdrop.paletteCoordinateView = view
         backdrop.themedBackgroundColor = .windowOverlayBackground
         backdrop.material = .fullScreenUI
         backdrop.blendingMode = .withinWindow
@@ -1573,6 +1577,8 @@ class SidebarViewController: NSViewController, BrowserThemeContextProviding {
         var headerBackdrop: ColoredVisualEffectView?
         if anchorsBelowStrip, let stripRow {
             let piece = ColoredVisualEffectView()
+            piece.usesThemePalette = true
+            piece.paletteCoordinateView = view
             piece.themedBackgroundColor = .windowOverlayBackground
             piece.material = .fullScreenUI
             piece.blendingMode = .withinWindow

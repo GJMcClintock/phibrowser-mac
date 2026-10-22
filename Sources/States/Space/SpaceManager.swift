@@ -5430,18 +5430,16 @@ final class SpaceManager: ObservableObject {
     /// the currently-active Space's profile when the user takes the default
     /// one-click "+" path, or the user's explicit choice from the picker.
     ///
-    /// The new Space inherits the currently-active Space's pinned theme, which
-    /// decides the sidebar's overlay background color, so it opens looking like
-    /// the Space it was created from rather than snapping to the global default
-    /// theme. A nil pin means "follow the global theme" —
-    /// the new Space already does, so we only copy an explicit override.
+    /// `afterSpaceId` places a UI-created Space immediately after its source.
+    /// Other callers keep the append behavior. The caller also owns theme setup.
     @discardableResult
     func createSpace(name: String,
                      colorHex: String,
                      iconName: String,
                      profileId: String,
                      makeDefaultActive: Bool = true,
-                     spaceId: String? = nil) -> String? {
+                     spaceId: String? = nil,
+                     afterSpaceId: String? = nil) -> String? {
         guard acceptsStoreAction(), let account = boundAccount else { return nil }
         let newSpaceId = spaceId ?? UUID().uuidString
         guard !spaces.contains(where: { $0.spaceId == newSpaceId }) else { return nil }
@@ -5450,7 +5448,8 @@ final class SpaceManager: ObservableObject {
             name: name,
             colorHex: colorHex,
             iconName: iconName,
-            spaceId: newSpaceId
+            spaceId: newSpaceId,
+            afterSpaceId: afterSpaceId
         )
         // Optimistic in-memory insert so the new Space's pill renders this
         // runloop turn instead of waiting for the background write to commit
@@ -5458,13 +5457,28 @@ final class SpaceManager: ObservableObject {
         // SQLite fsync → NSManagedObjectContextDidSave → main-thread re-fetch),
         // which is what made "New Space" feel slow. The persisted row stays
         // authoritative: once its emission lands, `handleSpacesUpdate` replaces
-        // the presentation fields with the stored values. We mirror
-        // `LocalStore.createSpace`'s GLOBAL max+1 sortOrder (the strip is one
-        // combined list, so appending past the global max is what lands the
-        // new pill last) and reuse `getAllSpaces`'s (sortOrder, profileId,
-        // createdDate) ordering so the pill's position is identical before
-        // and after that reconciliation — no visible reposition.
-        let nextOrder = (spaces.map(\.sortOrder).max() ?? -1) + 1
+        // the presentation fields with the stored values. Mirror the store's
+        // insertion and following sort orders so reconciliation keeps every
+        // pip in place, including when the new Space uses a different profile.
+        let storedSpaces = spaces.filter { !Self.isIncognitoSpaceId($0.spaceId) }.sorted { lhs, rhs in
+            if lhs.sortOrder != rhs.sortOrder { return lhs.sortOrder < rhs.sortOrder }
+            if lhs.profileId != rhs.profileId { return lhs.profileId < rhs.profileId }
+            return lhs.createdDate < rhs.createdDate
+        }
+        let anchorIndex = afterSpaceId.flatMap { id in storedSpaces.firstIndex { $0.spaceId == id } }
+        let nextOrder = anchorIndex.map { $0 + 1 }
+            ?? ((storedSpaces.map(\.sortOrder).max() ?? -1) + 1)
+        if anchorIndex != nil {
+            for (index, space) in storedSpaces.enumerated() {
+                space.update(from: Space(
+                    spaceId: space.spaceId, profileId: space.profileId,
+                    name: space.name, colorHex: space.colorHex,
+                    iconName: space.iconName, sortOrder: index < nextOrder ? index : index + 1,
+                    createdDate: space.createdDate, updatedDate: space.updatedDate,
+                    storeIdentifier: space.storeIdentifier
+                ))
+            }
+        }
         spaces.append(Space(spaceId: newSpaceId,
                                  profileId: profileId,
                                  name: name,
@@ -6594,6 +6608,39 @@ final class SpaceManager: ObservableObject {
 
     // MARK: - Per-Space theme
 
+    func themePalette(forSpaceId spaceId: String) -> ThemePalette? {
+        boundAccount?.userDefaults.spaceThemePalettes()[spaceId]
+    }
+
+    /// Previews a pointer edit in the Space's windows without writing account
+    /// preferences or broadcasting application-wide theme changes per event.
+    /// The editor commits through setThemePalette when tracking ends.
+    func previewThemePalette(_ palette: ThemePalette, forSpaceId spaceId: String, expectedStoreIdentifier: UUID?) {
+        guard acceptsStoreAction(from: expectedStoreIdentifier), boundAccount != nil else { return }
+        MainActor.assumeIsolated {
+            let theme = palette.applying(to: resolvedTheme(forSpaceId: spaceId))
+            for slot in slots {
+                if let controller = slot.windowController(for: spaceId) {
+                    controller.browserState.themeContext.setTheme(theme)
+                }
+            }
+        }
+    }
+
+    /// Persists one linked palette and broadcasts through the existing
+    /// per-Space theme path, including every window presenting that Space.
+    func setThemePalette(_ palette: ThemePalette, forSpaceId spaceId: String, expectedStoreIdentifier: UUID? = nil) {
+        guard acceptsStoreAction(from: expectedStoreIdentifier),
+              let account = boundAccount else { return }
+        var palettes = account.userDefaults.spaceThemePalettes()
+        guard palettes[spaceId] != palette else { return }
+        palettes[spaceId] = palette
+        guard account.userDefaults.setSpaceThemePalettes(palettes) else { return }
+        publishResolvedDefaultSpaceThemeIfNeeded(spaceId: spaceId)
+        reapplyResolvedTheme(forSpaceId: spaceId)
+        postSpaceThemeDidChange(spaceId: spaceId)
+    }
+
     /// Returns the pinned theme id stored for `spaceId`, or nil when the
     /// Space has no entry yet (legacy "Follow Global" Spaces awaiting the
     /// one-shot migration, and runtime-only Spaces that were never themed).
@@ -6622,6 +6669,10 @@ final class SpaceManager: ObservableObject {
         guard acceptsStoreAction(from: expectedStoreIdentifier) else { return }
         guard let account = boundAccount else { return }
         var map = account.userDefaults.spaceThemeIds()
+        var palettes = account.userDefaults.spaceThemePalettes()
+        if palettes.removeValue(forKey: spaceId) != nil {
+            guard account.userDefaults.setSpaceThemePalettes(palettes) else { return }
+        }
         if let themeId {
             map[spaceId] = themeId
         } else {
@@ -6680,6 +6731,9 @@ final class SpaceManager: ObservableObject {
     /// The overlay saturation the Space's slider should display: the custom
     /// value when one is stored, else the resolved registry theme's value.
     func effectiveOverlaySaturation(forSpaceId spaceId: String, appearance: Appearance) -> CGFloat {
+        if let palette = themePalette(forSpaceId: spaceId) {
+            return CGFloat(OverlaySaturationScale.saturation(forSlider: palette.saturation * 100))
+        }
         if let custom = overlaySaturation(forSpaceId: spaceId, appearance: appearance) {
             return custom
         }
@@ -6698,6 +6752,14 @@ final class SpaceManager: ObservableObject {
     /// resolved theme to live windows.
     func setOverlaySaturation(_ saturation: CGFloat, forSpaceId spaceId: String, appearance: Appearance, expectedStoreIdentifier: UUID? = nil) {
         guard acceptsStoreAction(from: expectedStoreIdentifier) else { return }
+        if let palette = themePalette(forSpaceId: spaceId) {
+            setThemePalette(ThemePalette(
+                hue: palette.hue,
+                saturation: OverlaySaturationScale.sliderValue(forSaturation: Double(saturation)) / 100,
+                brightness: palette.brightness, colorCount: palette.colorCount
+            ), forSpaceId: spaceId, expectedStoreIdentifier: expectedStoreIdentifier)
+            return
+        }
         guard let account = boundAccount else { return }
         let clampedSaturation = min(max(saturation, 0.1), 0.9)
         var map = account.userDefaults.spaceThemeSaturations()
@@ -6743,6 +6805,7 @@ final class SpaceManager: ObservableObject {
 
     /// The position the Pure-theme slider should display.
     func effectivePureThemeSliderValue(forSpaceId spaceId: String, appearance: Appearance) -> Double {
+        if let palette = themePalette(forSpaceId: spaceId) { return (1 - palette.brightness) * 100 }
         if let custom = pureThemeSliderValue(forSpaceId: spaceId) {
             return custom
         }
@@ -6764,6 +6827,11 @@ final class SpaceManager: ObservableObject {
     /// light and dark brightness ranges.
     func setPureThemeSliderValue(_ sliderValue: Double, forSpaceId spaceId: String, expectedStoreIdentifier: UUID? = nil) {
         guard acceptsStoreAction(from: expectedStoreIdentifier) else { return }
+        if let palette = themePalette(forSpaceId: spaceId) {
+            setThemePalette(palette.settingBrightness(1 - sliderValue / 100),
+                            forSpaceId: spaceId, expectedStoreIdentifier: expectedStoreIdentifier)
+            return
+        }
         guard let account = boundAccount else { return }
         let clampedSliderValue = min(max(sliderValue, 0), 100)
         var map = account.userDefaults.spacePureThemeSliderValues()
@@ -6838,8 +6906,9 @@ final class SpaceManager: ObservableObject {
 
     /// Whether the Space has a theme id, saturation, or Pure brightness that
     /// its windows must pin. Legacy opacity records are deliberately ignored
-    /// because ThemeSnapshot V2 fixes overlay alpha at 0.8.
+    /// because ThemeSnapshot V2 uses the standard overlay alpha.
     fileprivate func hasThemeCustomization(forSpaceId spaceId: String) -> Bool {
+        if themePalette(forSpaceId: spaceId) != nil { return true }
         if themeId(forSpaceId: spaceId) != nil {
             return true
         }
@@ -6854,9 +6923,16 @@ final class SpaceManager: ObservableObject {
     /// comes back.
     func clearThemeRecords(forSpaceId spaceId: String) {
         guard let account = boundAccount else { return }
+        var palettes = account.userDefaults.spaceThemePalettes()
+        var changed = false
+        if palettes.removeValue(forKey: spaceId) != nil {
+            changed = account.userDefaults.setSpaceThemePalettes(palettes)
+        }
         var pins = account.userDefaults.spaceThemeIds()
-        var changed = pins.removeValue(forKey: spaceId) != nil
-        if changed { account.userDefaults.setSpaceThemeIds(pins) }
+        if pins.removeValue(forKey: spaceId) != nil {
+            account.userDefaults.setSpaceThemeIds(pins)
+            changed = true
+        }
         var opacities = account.userDefaults.spaceOverlayOpacities()
         if opacities.removeValue(forKey: spaceId) != nil {
             account.userDefaults.setSpaceOverlayOpacities(opacities)
@@ -7431,6 +7507,9 @@ final class SpaceManager: ObservableObject {
             let registeredBase = manager.registeredThemes[resolvedThemeId(forSpaceId: spaceId)]
                 ?? manager.currentTheme
             let base = ThemeColorAdjustment.applyingStandardAlpha(to: registeredBase)
+            if let palette = themePalette(forSpaceId: spaceId) {
+                return palette.applying(to: base)
+            }
             if base.id == Theme.pure.id {
                 return applyingPureThemeBrightness(forSpaceId: spaceId, to: base)
             }
@@ -9561,8 +9640,12 @@ final class SpaceWindowSlot: ObservableObject {
     /// tab's title on the window. `inPlaceholderMode` is passed in because
     /// `BrowserState` publishes that flag before it changes.
     func retitleShell(presenting controller: SpaceSessionController, inPlaceholderMode: Bool) {
-        shell?.window.title = (inPlaceholderMode ? nil : controller.hostedChromiumWindow?.title)
+        guard let window = shell?.window else { return }
+        let title = (inPlaceholderMode ? nil : controller.hostedChromiumWindow?.title)
             ?? manager?.spaces.first(where: { $0.spaceId == controller.spaceId })?.name ?? "Phi"
+        // Reassigning the same title still invalidates native titlebar layout.
+        guard window.title != title else { return }
+        window.title = title
     }
 
     /// Puts `controller`'s content in the shell and makes it the slot's
@@ -13172,7 +13255,7 @@ extension Notification.Name {
 /// - **A flat fill of the sidebar's theme colour shows nothing, measured.**
 ///   The obvious build — one `CALayer` filled with `windowOverlayBackground` —
 ///   was built first. On the default theme it is invisible: Pure's light
-///   overlay is white at the fixed 0.8 overlay alpha over a white
+///   overlay is white at the standard overlay alpha over a white
 ///   `windowBackgroundColor`, so the two tones are one tone. The real sidebar's
 ///   separation (measured on a real reopen: 220 against the content's 253 on
 ///   the same row) comes from its `NSVisualEffectView` material. So the band is

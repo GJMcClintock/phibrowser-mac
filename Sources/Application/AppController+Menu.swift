@@ -70,12 +70,6 @@ private final class SpaceThemeEditorPanel: NSPanel {
     override var canBecomeMain: Bool { false }
 }
 
-private final class SpaceThemeEditorPanelDragView: NSView {
-    override func mouseDown(with event: NSEvent) {
-        window?.performDrag(with: event)
-    }
-}
-
 private enum SpaceThemeEditorPanelPlacement {
     case nearTrigger(NSPoint)
     case windowTop
@@ -111,37 +105,33 @@ private final class SpaceThemeEditorPanelPresenter {
         let contentSize = SpaceThemeEditorView.contentSize
         let panel = SpaceThemeEditorPanel(
             contentRect: NSRect(origin: .zero, size: contentSize),
-            styleMask: [.borderless, .nonactivatingPanel],
+            styleMask: [.titled, .fullSizeContentView, .nonactivatingPanel],
             backing: .buffered,
             defer: false
         )
         panel.isOpaque = false
         panel.backgroundColor = .clear
+        panel.titleVisibility = .hidden
+        panel.titlebarAppearsTransparent = true
+        panel.titlebarSeparatorStyle = .none
         panel.hasShadow = true
         panel.isFloatingPanel = true
         panel.hidesOnDeactivate = false
         panel.becomesKeyOnlyIfNeeded = true
         panel.isMovable = true
-        panel.isMovableByWindowBackground = true
+        panel.isMovableByWindowBackground = false
         panel.collectionBehavior = [.transient, .fullScreenAuxiliary]
-        panel.contentViewController = ThemedHostingController(
-            rootView: SpaceThemeEditorView(spaceId: spaceId) { [weak self] in
+        let hostingController = ThemedHostingController(
+            rootView: SpaceThemeEditorView(spaceId: spaceId, allowsWindowDragging: true) { [weak self] in
                 self?.dismiss()
-            },
+            }.ignoresSafeArea(),
             themeSource: themeSource
         )
-        panel.setContentSize(contentSize)
-        if let contentView = panel.contentView {
-            let dragView = SpaceThemeEditorPanelDragView()
-            dragView.translatesAutoresizingMaskIntoConstraints = false
-            contentView.addSubview(dragView)
-            NSLayoutConstraint.activate([
-                dragView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
-                dragView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
-                dragView.topAnchor.constraint(equalTo: contentView.topAnchor),
-                dragView.heightAnchor.constraint(equalToConstant: 8),
-            ])
-        }
+        hostingController.sizingOptions = []
+        panel.contentViewController = hostingController
+        // A full-size titled panel gets the browser's native window corners.
+        // Size its frame directly because the editor includes the titlebar area.
+        panel.setFrame(NSRect(origin: .zero, size: contentSize), display: false)
         self.panel = panel
         parentWindow = window
 
@@ -162,7 +152,7 @@ private final class SpaceThemeEditorPanelPresenter {
             )
             panel.setFrameOrigin(origin)
             window.addChildWindow(panel, ordered: .above)
-            panel.orderFront(nil)
+            panel.makeKeyAndOrderFront(nil)
             self.installDismissMonitors()
         }
     }
@@ -2137,11 +2127,9 @@ extension AppController {
         menu.addItem(newSpaceItem)
     }
 
-    /// Builds the shared account-button menu using the same window and command
-    /// routing as the main menu and the Space switcher.
+    /// Builds the shared account-button menu using the main menu's window and
+    /// command routing.
     func populateProfileMenu(_ menu: NSMenu) {
-        populateSpaceSwitcherMenu(menu, includesNewSpaceAction: false)
-
         func add(_ title: String, action: Selector, command: CommandWrapper? = nil, target: AnyObject? = nil) {
             let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
             item.target = target
@@ -2161,24 +2149,6 @@ extension AppController {
             menu.addItem(item)
         }
 
-        menu.addItem(.separator())
-        if let space = currentActiveSpace() {
-            let themeItem = NSMenuItem()
-            let editor = SpaceThemeEditorView(spaceId: space.spaceId, isEmbeddedInMenu: true) { [weak menu] in
-                menu?.cancelTracking()
-            }
-            .disabled(focusedSpaceIsAgentControlled())
-            let themeSource = currentSpacesSlot()?.visibleController?.browserState.themeContext
-            let hostingView = ThemedHostingView(rootView: editor, themeSource: themeSource)
-            // Menu windows have no browser controller; retain the owning Space's theme.
-            hostingView.subtreeThemeSource = themeSource
-            hostingView.sizingOptions = []
-            hostingView.autoresizingMask = [.width]
-            hostingView.frame = NSRect(origin: .zero, size: SpaceThemeEditorView.menuContentSize)
-            themeItem.view = hostingView
-            menu.addItem(themeItem)
-            menu.addItem(.separator())
-        }
         add(NSLocalizedString("profile.menu.downloads", value: "Download List", comment: "Profile menu - Download List action"),
             action: #selector(commandDispatch(_:)), command: .IDC_SHOW_DOWNLOADS, target: nil)
         add(NSLocalizedString("profile.menu.bookmarks", value: "Manage Bookmarks", comment: "Profile menu - Manage Bookmarks action"),

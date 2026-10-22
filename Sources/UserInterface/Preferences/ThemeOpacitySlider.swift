@@ -4,9 +4,10 @@
 // found in the LICENSE file.
 
 import AppKit
+import CoreImage
 import SwiftUI
 
-// Theme slider shared by the General pane, Spaces pane, and Create Space panel.
+// Theme slider shared by the General and Spaces panes.
 
 func normalizedThemeSliderTrackColor(from color: NSColor) -> NSColor {
     let resolvedColor = color.usingColorSpace(.extendedSRGB) ?? color
@@ -235,11 +236,8 @@ private struct SpaceThemeEditorGlassBackground: NSViewRepresentable {
     func makeNSView(context: Context) -> NSVisualEffectView {
         let view = NSVisualEffectView()
         view.material = .popover
-        view.blendingMode = .withinWindow
+        view.blendingMode = .behindWindow
         view.state = .active
-        view.wantsLayer = true
-        view.layer?.cornerRadius = 10
-        view.layer?.masksToBounds = true
 
         return view
     }
@@ -247,236 +245,438 @@ private struct SpaceThemeEditorGlassBackground: NSViewRepresentable {
     func updateNSView(_ nsView: NSVisualEffectView, context: Context) {}
 }
 
-/// Compact editor used by the existing "Edit Theme" menu actions. It shares
-/// the persistent Space theme and color-component paths used by the General
-/// and Spaces settings panes.
+private struct ThemeEditorControlBoundsKey: PreferenceKey {
+    static var defaultValue: [Anchor<CGRect>] { [] }
+
+    static func reduce(value: inout [Anchor<CGRect>], nextValue: () -> [Anchor<CGRect>]) {
+        value.append(contentsOf: nextValue())
+    }
+}
+
+/// Uses resolved colors as a guide, then softens the field for presentation.
+/// Handles retain exact colors; the field favors gentle, continuous transitions.
+enum ThemeEditorPaletteRenderer {
+    static func image(brightness: Double, appearance: Appearance, pixelSize: Int = 512) -> CGImage? {
+        guard pixelSize > 0 else { return nil }
+        let palette = ThemePalette(hue: 0, saturation: 0, brightness: brightness)
+        var pixels = [UInt16](repeating: .max, count: pixelSize * pixelSize * 4)
+        for y in 0..<pixelSize {
+            for x in 0..<pixelSize {
+                let point = CGPoint(
+                    x: (Double(x) + 0.5) / Double(pixelSize),
+                    y: (Double(y) + 0.5) / Double(pixelSize)
+                )
+                guard let color = palette.color(at: point, appearance: appearance).usingColorSpace(.sRGB) else { return nil }
+                let offset = (y * pixelSize + x) * 4
+                pixels[offset] = UInt16((color.redComponent * 65535).rounded())
+                pixels[offset + 1] = UInt16((color.greenComponent * 65535).rounded())
+                pixels[offset + 2] = UInt16((color.blueComponent * 65535).rounded())
+            }
+        }
+        let data = pixels.withUnsafeBytes { Data($0) }
+        guard let provider = CGDataProvider(data: data as CFData),
+              let colorSpace = CGColorSpace(name: CGColorSpace.sRGB) else { return nil }
+        guard let image = CGImage(
+            width: pixelSize, height: pixelSize, bitsPerComponent: 16, bitsPerPixel: 64,
+            bytesPerRow: pixelSize * 8, space: colorSpace,
+            bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue)
+                .union(.byteOrder16Little),
+            provider: provider, decode: nil, shouldInterpolate: true, intent: .defaultIntent
+        ) else { return nil }
+
+        // Work in linear light at half-float precision. Clamp before blurring
+        // so the cropped field remains opaque all the way to its corners.
+        let source = CIImage(cgImage: image)
+        let softened = source.clampedToExtent()
+            .applyingFilter("CIGaussianBlur", parameters: [kCIInputRadiusKey: Double(pixelSize) * 0.07])
+            .cropped(to: source.extent)
+            .applyingFilter("CIColorControls", parameters: [
+                kCIInputSaturationKey: 0.84,
+                kCIInputContrastKey: 0.96
+            ])
+        let context = CIContext(options: [.workingFormat: CIFormat.RGBAh])
+        return context.createCGImage(softened, from: source.extent, format: .RGBA16, colorSpace: colorSpace)
+    }
+}
+
+private struct ThemeEditorPaletteField: NSViewRepresentable {
+    let brightness: Double
+    let appearance: Appearance
+
+    func makeNSView(context: Context) -> FieldView {
+        let view = FieldView()
+        view.imageScaling = .scaleAxesIndependently
+        view.wantsLayer = true
+        view.layer?.contentsFormat = .RGBA16Float
+        return view
+    }
+
+    func updateNSView(_ view: FieldView, context: Context) {
+        // Hue, saturation and harmony edits only move handles; the field stays
+        // cached. Legacy brightness changes are the only reason to regenerate it.
+        guard view.renderedBrightness != brightness || view.renderedAppearance != appearance else { return }
+        guard let image = ThemeEditorPaletteRenderer.image(brightness: brightness, appearance: appearance) else { return }
+        view.image = NSImage(cgImage: image, size: NSSize(width: 244, height: 244))
+        view.renderedBrightness = brightness
+        view.renderedAppearance = appearance
+    }
+
+    final class FieldView: NSImageView {
+        var renderedBrightness: Double?
+        var renderedAppearance: Appearance?
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    }
+}
+
+/// Both appearances share the same softening and crossfade between cached fields.
+private struct ThemeEditorPaletteBackground: View {
+    @Environment(\.phiAppearance) private var appearance
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    let brightness: Double
+
+    var body: some View {
+        ZStack {
+            ThemeEditorPaletteField(brightness: brightness, appearance: .light)
+            ThemeEditorPaletteField(brightness: brightness, appearance: .dark)
+                .opacity(appearance.isDark ? 1 : 0)
+        }
+        .allowsHitTesting(false)
+        .animation(reduceMotion ? nil : .timingCurve(0.22, 1, 0.36, 1, duration: 0.3), value: appearance)
+        .accessibilityHidden(true)
+    }
+}
+
+/// Claims only blank editor background. Controls keep their native/SwiftUI
+/// mouse tracking, while AppKit owns window dragging outside their bounds.
+private struct ThemeEditorWindowDragSurface: NSViewRepresentable {
+    let controlRects: [CGRect]
+
+    func makeNSView(context: Context) -> DragView {
+        DragView()
+    }
+
+    func updateNSView(_ view: DragView, context: Context) {
+        view.controlRects = controlRects
+    }
+
+    final class DragView: NSView {
+        var controlRects: [CGRect] = []
+        private var mouseDownLocation: NSPoint?
+        override var isFlipped: Bool { true }
+        override var mouseDownCanMoveWindow: Bool { false }
+        override var acceptsFirstResponder: Bool { true }
+        override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+        override func hitTest(_ point: NSPoint) -> NSView? {
+            guard let window, window.isMovable, !isHidden else { return nil }
+            let localPoint = convert(point, from: superview)
+            guard bounds.contains(localPoint),
+                  !controlRects.contains(where: { $0.contains(localPoint) }) else { return nil }
+            switch NSApp.currentEvent?.type {
+            case .leftMouseDown, .leftMouseDragged, .leftMouseUp:
+                return self
+            default:
+                return nil
+            }
+        }
+
+        override func mouseDown(with event: NSEvent) {
+            mouseDownLocation = event.locationInWindow
+        }
+
+        override func mouseDragged(with event: NSEvent) {
+            guard let window, let mouseDownLocation,
+                  hypot(event.locationInWindow.x - mouseDownLocation.x,
+                        event.locationInWindow.y - mouseDownLocation.y) >= 3 else { return }
+            self.mouseDownLocation = nil
+            // Start after the drag threshold: on macOS 27 a mouse-down
+            // performDrag call can return before tracking begins.
+            window.performDrag(with: event)
+        }
+
+        override func mouseUp(with event: NSEvent) {
+            mouseDownLocation = nil
+        }
+    }
+}
+
+/// The existing Space theme editor, with a linked palette and live window updates.
 struct SpaceThemeEditorView: View {
-    static let contentSize = NSSize(width: 328, height: 99)
-    static let menuContentSize = NSSize(width: 248, height: 76)
+    static let contentSize = NSSize(width: 260, height: 296)
+    static let menuContentSize = contentSize
 
-    private static let innerCardSize = NSSize(width: 312, height: 83)
-    private static let swatchGroupWidth: CGFloat = 200
-    private static let colorDotDiameter: CGFloat = 16
-    private static let sliderWidth: CGFloat = 199
-    private static let panelDivider = Color(nsColor: .separatorColor)
-    private static let panelInnerBorder = Color(nsColor: .separatorColor)
-
-    let spaceId: String
+    let spaceId: String?
     let isEmbeddedInMenu: Bool
+    let allowsWindowDragging: Bool
     let onDismiss: () -> Void
 
     @ObservedObject private var spaceManager = SpaceManager.shared
     @Environment(\.phiAppearance) private var appearance
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var palette: ThemePalette
+    @State private var draggedHandle: Int?
+    @State private var hoveredColorCount: Int?
+    private let storeIdentifier: UUID?
+    /// New Spaces edit the form's draft until creation commits it.
+    private let draftPalette: Binding<ThemePalette>?
 
-    @State private var selectedThemeId: String
-    @State private var sliderValue: Double
-
-    init(spaceId: String, isEmbeddedInMenu: Bool = false, onDismiss: @escaping () -> Void) {
+    init(spaceId: String, isEmbeddedInMenu: Bool = false, allowsWindowDragging: Bool = false, onDismiss: @escaping () -> Void) {
         self.spaceId = spaceId
+        draftPalette = nil
         self.isEmbeddedInMenu = isEmbeddedInMenu
+        self.allowsWindowDragging = allowsWindowDragging
         self.onDismiss = onDismiss
-
-        let themeId = SpaceManager.shared.resolvedThemeId(forSpaceId: spaceId)
+        let manager = SpaceManager.shared
+        storeIdentifier = manager.storeIdentifier
         let appearance = ThemeManager.shared.currentAppearance
-        _selectedThemeId = State(initialValue: themeId)
-        _sliderValue = State(
-            initialValue: Self.sliderValue(
-                forSpaceId: spaceId,
-                themeId: themeId,
-                appearance: appearance
-            )
-        )
+        _palette = State(initialValue: manager.themePalette(forSpaceId: spaceId) ?? ThemePalette(
+            color: manager.resolvedTheme(forSpaceId: spaceId).color(for: .windowOverlayBackground, appearance: appearance),
+            appearance: appearance
+        ).settingBrightness(1))
+    }
+
+    init(palette: Binding<ThemePalette>, onDismiss: @escaping () -> Void) {
+        spaceId = nil
+        isEmbeddedInMenu = false
+        allowsWindowDragging = false
+        self.onDismiss = onDismiss
+        storeIdentifier = nil
+        draftPalette = palette
+        _palette = State(initialValue: palette.wrappedValue)
     }
 
     var body: some View {
-        Group {
-            if isEmbeddedInMenu {
+        VStack(spacing: 10) {
+            colorField
+            toolbar
+        }
+        .padding(.horizontal, 8)
+        .padding(.top, 8)
+        .padding(.bottom, 10)
+        .frame(width: Self.contentSize.width, height: Self.contentSize.height)
+        .background { SpaceThemeEditorGlassBackground() }
+        // Standalone panels use AppKit's system window mask, shared with the
+        // browser. Embedded editors still need a continuous content mask.
+        .clipShape(RoundedRectangle(
+            cornerRadius: allowsWindowDragging ? 0 : LiquidGlassCompatible.cornerRadius,
+            style: .continuous
+        ))
+        .overlayPreferenceValue(ThemeEditorControlBoundsKey.self) { anchors in
+            if allowsWindowDragging {
                 GeometryReader { geometry in
-                    VStack(spacing: 8) {
-                        colorRow
-                            .frame(height: 24)
-                        saturationRow(width: geometry.size.width)
-                            .frame(height: 28)
-                    }
+                    ThemeEditorWindowDragSurface(controlRects: anchors.map { geometry[$0] })
                 }
-                // Match the native menu's content column, leaving room for checkmarks.
-                .padding(.leading, 30)
-                .padding(.trailing, 16)
-                .padding(.vertical, 8)
-            } else {
-                VStack(spacing: 0) {
-                    colorRow
-                        .frame(height: 40)
-                    Rectangle()
-                        .fill(Self.panelDivider)
-                        .frame(height: 1)
-                    saturationRow(width: Self.sliderWidth)
-                        .frame(height: 42)
-                }
-                .padding(.horizontal, 12)
-                .frame(width: Self.innerCardSize.width, height: Self.innerCardSize.height)
-                .background {
-                    RoundedRectangle(cornerRadius: 7, style: .continuous)
-                        .fill(Color.primary.opacity(0.01))
-                }
-                .overlay {
-                    RoundedRectangle(cornerRadius: 7, style: .continuous)
-                        .stroke(Self.panelInnerBorder, lineWidth: 1)
-                        .allowsHitTesting(false)
-                }
-                .padding(8)
-                .frame(width: Self.contentSize.width, height: Self.contentSize.height)
-                .background { SpaceThemeEditorGlassBackground() }
             }
         }
         .onAppear(perform: syncControls)
+        .onDisappear {
+            if draggedHandle != nil { update(palette) }
+        }
         .onReceive(NotificationCenter.default.publisher(for: .spaceThemeDidChange)) { notification in
-            guard let changedSpaceId = notification.userInfo?["spaceId"] as? String,
-                  changedSpaceId == spaceId else { return }
+            guard let spaceId,
+                  notification.userInfo?["spaceId"] as? String == spaceId else { return }
             syncControls()
         }
-        .onReceive(NotificationCenter.default.publisher(for: .themeDidChange)) { _ in
-            syncControls()
+        .onReceive(NotificationCenter.default.publisher(for: .themeDidChange)) { _ in syncControls() }
+        .onReceive(NotificationCenter.default.publisher(for: .appearanceDidChange)) { _ in syncControls() }
+        .onChange(of: spaceManager.storeIdentifier) { _, _ in onDismiss() }
+        .onChange(of: spaceManager.spaces.map(\.spaceId)) { _, ids in
+            if let spaceId, !ids.contains(spaceId) { onDismiss() }
         }
-        .onReceive(NotificationCenter.default.publisher(for: .appearanceDidChange)) { _ in
-            syncControls()
-        }
-        .onChange(of: spaceManager.spaces.map(\.spaceId)) { _, spaceIds in
-            if !spaceIds.contains(spaceId) {
-                onDismiss()
-            }
-        }
+        .onChange(of: draftPalette?.wrappedValue) { _, _ in syncControls() }
     }
 
-    private var colorRow: some View {
+    private var toolbar: some View {
         HStack(spacing: 0) {
-            if !isEmbeddedInMenu {
-                Text(NSLocalizedString("settings.spaces.theme.colorLabel", value: "Color", comment: "Spaces settings - theme color row label"))
-                    .font(.body)
-                    .foregroundStyle(.primary)
-
-                Spacer(minLength: 0)
-            }
-
             HStack(spacing: 0) {
-                ForEach(ThemeManager.shared.orderedThemes, id: \.id) { theme in
-                    if isEmbeddedInMenu, theme.id != ThemeManager.shared.orderedThemes.first?.id {
-                        Spacer(minLength: 0)
-                    }
-
-                    ThemeSwatchView(
-                        fillColor: theme == .pure
-                            ? .white
-                            : Color(theme.color(for: .themeColor, appearance: appearance)),
-                        ringColor: Color(theme.color(for: .themeColor, appearance: appearance)),
-                        selected: selectedThemeId == theme.id,
-                        title: nil,
-                        showsContrastBorder: theme == .pure,
-                        dotDiameter: Self.colorDotDiameter,
-                        ringDiameter: 20,
-                        action: { selectTheme(theme.id) }
-                    )
-                    // Align the visible endpoint dots with the full-width menu slider.
-                    .frame(width: isEmbeddedInMenu ? Self.colorDotDiameter : nil)
-                    .frame(maxWidth: isEmbeddedInMenu ? nil : .infinity)
-                    .accessibilityLabel(theme.name)
+                appearanceButton(.light, asset: "sun", label: NSLocalizedString(
+                    "themes.appearance.lightOption", value: "Light", comment: "Appearance choice: always light mode"
+                ))
+                appearanceButton(.dark, asset: "moon", label: NSLocalizedString(
+                    "themes.appearance.darkOption", value: "Dark", comment: "Appearance choice: always dark mode"
+                ))
+            }
+            .padding(1)
+            .overlay {
+                Capsule().strokeBorder(Color.primary.opacity(appearance.isDark ? 0.2 : 0.06), lineWidth: 1)
+            }
+            Spacer(minLength: 0)
+            HStack(spacing: 0) {
+                ForEach(1...3, id: \.self) { count in
+                    colorCountButton(count)
                 }
             }
-            .frame(width: isEmbeddedInMenu ? nil : Self.swatchGroupWidth)
+            .padding(1)
+            .overlay {
+                Capsule().strokeBorder(Color.primary.opacity(appearance.isDark ? 0.2 : 0.06), lineWidth: 1)
+            }
         }
+        .frame(height: 24)
     }
 
-    private func saturationRow(width: CGFloat) -> some View {
-        HStack(spacing: 0) {
-            if !isEmbeddedInMenu {
-                Text(NSLocalizedString("settings.spaces.theme.saturationLabel", value: "Saturation", comment: "Spaces settings - theme saturation row label for the per-Space window colors"))
-                    .font(.body)
-                    .foregroundStyle(.primary)
-
-                Spacer(minLength: 0)
-            }
-
-            ThemeOpacitySliderView(
-                value: sliderBinding,
-                trackColor: sliderTrackColor,
-                borderColor: .separatorColor,
-                trackStyle: sliderTrackStyle,
-                width: width,
-                knobDiameter: 16
+    private func colorCountButton(_ count: Int) -> some View {
+        let selected = palette.colorCount == count
+        let label: String
+        switch count {
+        case 1:
+            label = NSLocalizedString(
+                "theme.editor.singleColor", value: "Single color",
+                comment: "Theme editor - select a palette with one color"
             )
-            .frame(width: width, height: 20)
-            .accessibilityLabel(NSLocalizedString("settings.spaces.theme.saturationLabel", value: "Saturation", comment: "Spaces settings - theme saturation row label for the per-Space window colors"))
+        case 2:
+            label = NSLocalizedString(
+                "theme.editor.twoColors", value: "Two colors",
+                comment: "Theme editor - select two linked complementary colors"
+            )
+        default:
+            label = NSLocalizedString(
+                "theme.editor.threeColors", value: "Three colors",
+                comment: "Theme editor - select three linked split complementary colors"
+            )
         }
-    }
-
-    private var sliderBinding: Binding<Double> {
-        Binding(
-            get: { sliderValue },
-            set: { newValue in
-                sliderValue = newValue
-                if selectedThemeId == Theme.pure.id {
-                    spaceManager.setPureThemeSliderValue(newValue, forSpaceId: spaceId)
+        let mode = appearance.isDark ? "dark" : "light"
+        return Button {
+            update(palette.settingColorCount(count))
+        } label: {
+            ZStack {
+                if count == 1 {
+                    Image("theme-editor-one-ring-" + mode)
+                    Image("theme-editor-one-dot")
+                        .renderingMode(.template)
+                        .foregroundStyle(Color.primary)
                 } else {
-                    spaceManager.setOverlaySaturation(
-                        CGFloat(OverlaySaturationScale.saturation(forSlider: newValue)),
-                        forSpaceId: spaceId,
-                        appearance: appearance
-                    )
+                    Image("theme-editor-count-" + (count == 2 ? "two-" : "three-") + mode)
                 }
             }
-        )
+            .frame(width: 22, height: 22)
+            .background {
+                Circle().fill(Color.primary.opacity(selected
+                    ? (appearance.isDark ? 0.2 : 0.06)
+                    : (hoveredColorCount == count ? 0.04 : 0)))
+            }
+            .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hoveredColorCount = $0 ? count : nil }
+        .anchorPreference(key: ThemeEditorControlBoundsKey.self, value: .bounds) { [$0] }
+        .help(label)
+        .accessibilityLabel(label)
+        .accessibilityIdentifier("theme.editor.colorCount.\(count)")
+        .accessibilityAddTraits(selected ? .isSelected : [])
     }
 
-    private var sliderTrackColor: NSColor {
-        spaceManager.resolvedTheme(forSpaceId: spaceId)
-            .color(for: .windowOverlayBackground, appearance: appearance)
+    private func appearanceButton(_ choice: UserAppearanceChoice, asset: String, label: String) -> some View {
+        let selected = appearance.isDark == (choice == .dark)
+        return Button {
+            ThemeManager.shared.setUserAppearanceChoice(choice)
+        } label: {
+            Image("theme-editor-" + asset)
+                .renderingMode(.template)
+                .foregroundStyle(Color.primary.opacity(selected ? 1 : 0.3))
+                .frame(width: 22, height: 22)
+                .background { Circle().fill(Color.primary.opacity(selected ? (appearance.isDark ? 0.2 : 0.06) : 0)) }
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .anchorPreference(key: ThemeEditorControlBoundsKey.self, value: .bounds) { [$0] }
+        .help(label)
+        .accessibilityLabel(label)
+        .accessibilityAddTraits(selected ? .isSelected : [])
     }
 
-    private var sliderTrackStyle: ThemeSliderTrackStyle {
-        selectedThemeId == Theme.pure.id ? .pureBrightness(appearance) : .saturation
+    private var colorField: some View {
+        GeometryReader { geometry in
+            let colors = palette.colors(for: appearance)
+            ZStack {
+                ThemeEditorPaletteBackground(brightness: palette.brightness)
+                    .frame(width: geometry.size.width, height: geometry.size.height)
+                ForEach(0..<palette.colorCount, id: \.self) { index in
+                    let point = palette.handlePosition(at: index)
+                    let diameter: CGFloat = index == 0 ? 38 : (index == 1 ? 28 : 14)
+                    Circle()
+                        .fill(Color(nsColor: colors[index].withAlphaComponent(1)))
+                        .overlay { Circle().strokeBorder(.white, lineWidth: 2) }
+                        .animation(reduceMotion ? nil : .timingCurve(0.22, 1, 0.36, 1, duration: 0.3), value: appearance)
+                        .frame(width: diameter, height: diameter)
+                        .frame(width: 40, height: 40)
+                        .contentShape(Circle())
+                        .focusable()
+                        .focusEffectDisabled()
+                        .onKeyPress(.leftArrow) { update(palette.rotatingHue(by: -1 / 360)); return .handled }
+                        .onKeyPress(.rightArrow) { update(palette.rotatingHue(by: 1 / 360)); return .handled }
+                        .accessibilityElement()
+                        .accessibilityLabel(String(format: NSLocalizedString(
+                            "theme.editor.colorHandle", value: "Color %d",
+                            comment: "Theme editor - accessible color handle label; placeholder is the color number, from one to three"
+                        ), index + 1))
+                        .accessibilityValue(colors[index].hexRGBString)
+                        .accessibilityAdjustableAction { direction in
+                            update(palette.rotatingHue(by: direction == .increment ? 1 / 360 : -1 / 360))
+                        }
+                        .position(x: point.x * geometry.size.width, y: point.y * geometry.size.height)
+                }
+            }
+            .contentShape(Rectangle())
+            .gesture(DragGesture(minimumDistance: 0).onChanged { value in
+                if draggedHandle == nil {
+                    let handles = (0..<palette.colorCount).map { index in
+                        let point = palette.handlePosition(at: index)
+                        return (index: index, distance: hypot(
+                            point.x * geometry.size.width - value.startLocation.x,
+                            point.y * geometry.size.height - value.startLocation.y
+                        ))
+                    }
+                    draggedHandle = handles.filter { $0.distance <= 20 }
+                        .min { $0.distance < $1.distance }?.index ?? 0
+                }
+                guard hypot(value.translation.width, value.translation.height) >= 3 else { return }
+                update(palette.movingHandle(at: draggedHandle ?? 0, to: CGPoint(
+                    x: value.location.x / geometry.size.width, y: value.location.y / geometry.size.height
+                ), snappingToCenter: true), preview: true)
+            }.onEnded { value in
+                let isClick = hypot(value.translation.width, value.translation.height) < 3
+                update(palette.movingHandle(at: isClick ? 0 : (draggedHandle ?? 0), to: CGPoint(
+                    x: value.location.x / geometry.size.width, y: value.location.y / geometry.size.height
+                ), snappingToCenter: true), animated: isClick)
+                draggedHandle = nil
+            })
+        }
+        .frame(width: 244, height: 244)
+        .clipShape(RoundedRectangle(cornerRadius: LiquidGlassCompatible.cornerRadius, style: .continuous))
+        .anchorPreference(key: ThemeEditorControlBoundsKey.self, value: .bounds) { [$0] }
+        .accessibilityIdentifier("theme.editor.palette")
     }
 
-    private var displayedTheme: Theme {
-        ThemeManager.shared.registeredThemes[selectedThemeId]
-            ?? Theme.builtInThemes.first(where: { $0.id == selectedThemeId })
-            ?? ThemeManager.shared.currentTheme
-    }
-
-    private func selectTheme(_ themeId: String) {
-        guard selectedThemeId != themeId else { return }
-        selectedThemeId = themeId
-        spaceManager.setTheme(forSpaceId: spaceId, themeId: themeId)
-        syncControls()
+    private func update(_ newPalette: ThemePalette, animated: Bool = false, preview: Bool = false) {
+        guard draftPalette != nil || spaceManager.acceptsStoreAction(from: storeIdentifier) else {
+            onDismiss()
+            return
+        }
+        guard !preview || newPalette != palette else { return }
+        withAnimation(animated && !reduceMotion ? .timingCurve(0.22, 1, 0.36, 1, duration: 0.3) : nil) {
+            palette = newPalette
+            if let draftPalette {
+                draftPalette.wrappedValue = newPalette
+            } else if let spaceId {
+                if preview {
+                    spaceManager.previewThemePalette(newPalette, forSpaceId: spaceId, expectedStoreIdentifier: storeIdentifier)
+                } else {
+                    spaceManager.setThemePalette(newPalette, forSpaceId: spaceId, expectedStoreIdentifier: storeIdentifier)
+                }
+            }
+        }
     }
 
     private func syncControls() {
-        let themeId = spaceManager.resolvedThemeId(forSpaceId: spaceId)
-        selectedThemeId = themeId
-        sliderValue = Self.sliderValue(
-            forSpaceId: spaceId,
-            themeId: themeId,
-            appearance: appearance
-        )
-    }
-
-    private static func sliderValue(
-        forSpaceId spaceId: String,
-        themeId: String,
-        appearance: Appearance
-    ) -> Double {
-        if themeId == Theme.pure.id {
-            return SpaceManager.shared.effectivePureThemeSliderValue(
-                forSpaceId: spaceId,
-                appearance: appearance
-            )
+        if let draftPalette {
+            palette = draftPalette.wrappedValue
+            return
         }
-        return OverlaySaturationScale.sliderValue(
-            forSaturation: Double(
-                SpaceManager.shared.effectiveOverlaySaturation(
-                    forSpaceId: spaceId,
-                    appearance: appearance
-                )
-            )
-        )
+        guard let spaceId, spaceManager.acceptsStoreAction(from: storeIdentifier) else { onDismiss(); return }
+        guard draggedHandle == nil else { return }
+        palette = spaceManager.themePalette(forSpaceId: spaceId) ?? ThemePalette(
+            color: spaceManager.resolvedTheme(forSpaceId: spaceId).color(for: .windowOverlayBackground, appearance: appearance),
+            appearance: appearance
+        ).settingBrightness(1)
     }
 }

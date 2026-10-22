@@ -446,6 +446,7 @@ class WebContentContainerViewController: NSViewController {
     override func loadView() {
         let view = ColoredVisualEffectView()
         view.themedBackgroundColor = .windowOverlayBackground
+        view.usesThemePalette = true
         view.material = .fullScreenUI
         view.wantsLayer = true
         self.view = view

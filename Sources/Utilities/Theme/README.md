@@ -6,6 +6,74 @@ A theme framework for macOS that supports runtime theme switching and system lig
 
 ## Design Summary
 
+The Space theme editor stores a local `ThemePalette` in account preferences.
+`SpaceManager.resolvedTheme` gives it precedence over legacy saturation/brightness
+adjustments; choosing a preset clears this override. The palette contains one
+anchor hue, shared saturation/brightness and a count of one to three colors.
+Two colors stay complementary (180 degrees); three use split complementary
+colors at 150 and 210 degrees from the primary hue. The secondary colors sit
+30 degrees to either side of the primary's opposite hue. Saved three-color
+palettes retain their primary hue and resolve their neighbors with the current rule.
+Moving any handle updates the anchor, preserving the harmony across hue wrap.
+`Theme.navigationPalette` travels with window-scoped theme copies. Navigation
+backdrops opt into its gradient through `ColoredVisualEffectView.usesThemePalette`;
+other semantic surfaces retain solid colors. The default new-tab URL header uses
+the primary palette color. Ordinary page headers continue to follow Chromium's
+page color, compositing translucent colors over the original theme background;
+palettes do not replace the shared `windowBackground` role. Palette records are
+local and are not part of the existing Space sync payload or global theme snapshots.
+Navigation gradients use 513 samples of a continuous Oklab blend and a floating
+point gradient layer. Three colors use a quadratic blend with squared progress:
+the primary dominates the upper area, both supporting colors overlap below it,
+and the third reaches its full color at the bottom. This avoids separate color
+bands and abrupt changes in the transition rate.
+Editor handles show the resolved color at full opacity.
+Window chrome uses a theme-color overlay at 80% opacity above the macOS
+visual-effect material. This alpha is shared by solid colors, gradients and
+restored theme snapshots; page backgrounds remain fully opaque.
+Both fields sample `ThemePalette.color(at:appearance:)`, sharing the handles'
+coordinate mapping, saturation and brightness resolution. Presentation applies a
+linear-light Gaussian blur and modest saturation/contrast reduction to soften
+spectral boundaries. The field is a visual guide; handles keep the exact resolved
+colors. Each opaque 16-bit sRGB image is cached by brightness and appearance, so
+dragging handles does not regenerate the fields. Light and dark fields crossfade
+on appearance changes with the same softening in both modes.
+Light/dark changes animate solid and gradient
+backdrops in every following window for 0.3 seconds, starting from their current
+presentation colors; direct palette edits remain immediate. Reduce Motion skips
+these transitions. Appearance changes propagate immediately on the main thread;
+the ease-out transition starts visibly at once, and appearance buttons update
+their selection without animation. Appearance icons contain only glyphs, and the editor owns
+their selected backgrounds.
+
+The editor's light/dark buttons use the existing application appearance choice.
+The compact editor has no brightness slider or randomizer.
+The bottom toolbar selects one, two or three colors directly, with appearance
+controls on the left. Pointer edits within approximately 6 points of the center
+snap every linked handle to neutral, preserving the anchor hue, brightness and
+selected harmony. The field's color sampling remains continuous and does not
+apply the interaction-only snap.
+Version 1 palettes
+decode at maximum brightness, the removed slider's rightmost endpoint; version 2
+records retain explicit brightness edits from the existing settings panes.
+In dark appearance, the stored saturation controls radial position. Resolved HSB
+saturation rises continuously from zero at the center to 90% at 20% of the radius,
+then falls to 45% at the edge, with a smooth peak between the two curves.
+At maximum palette brightness, HSB brightness rises from 36% at the neutral center
+to 90% at the edge. Color import prefers the outer radius when both saturation
+branches can represent the input brightness.
+Clicking the field always
+moves the primary handle with an eased transition; dragging an existing handle
+keeps direct tracking and preserves the linked harmony. Reduce Motion disables
+the transition. Changes use the existing per-Space theme notification path and
+preview immediately in the Space's windows. Pointer tracking saves once on release
+or editor dismissal; keyboard and discrete control edits save immediately. Unchanged
+navigation gradient samples are reused across repeated theme notifications, and
+Oklab samples are constructed directly in sRGB without per-sample AppKit conversion.
+The standalone editor uses AppKit's titled-window mask
+and popover material; the field uses a continuous corner mask. Empty editor
+background can drag the panel, while control bounds retain their own input.
+
 A macOS app needs to respond to two dimensions:
 
 1. Appearance: system light/dark mode.
