@@ -6170,7 +6170,9 @@ final class SpaceManager: ObservableObject {
     }
 
     /// Called only after every slot has finished presenting its replacement.
-    private func finishDeletingSpace(spaceId: String) {
+    /// `completion` (the pairing reset's awaitable entry only) reports whether the cascade
+    /// committed; it is called exactly once on every path.
+    private func finishDeletingSpace(spaceId: String, completion: ((Bool) -> Void)? = nil) {
         discardClaimedSpaceContent(spaceId: spaceId)
         let remainingUserSpaces = userSpaces.filter {
             $0.spaceId != spaceId && !pendingDeletionSpaceIds.contains($0.spaceId)
@@ -6225,6 +6227,7 @@ final class SpaceManager: ObservableObject {
         // but urlRulesPublisher deduplication can swallow the change (R-M3-4a-34).
         guard let account = boundAccount else {
             pendingDeletionSpaceIds.remove(spaceId)
+            completion?(false)
             return
         }
         let deletionStoreIdentifier = storeIdentifier
@@ -6245,6 +6248,7 @@ final class SpaceManager: ObservableObject {
                 guard let self, self.storeIdentifier == deletionStoreIdentifier else {
                     // The account changed under the cascade; its engine went with it.
                     if let syncUuid { PhiSpaceSyncState.shared.endLocalDeletion(syncUuid: syncUuid) }
+                    completion?(false)
                     return
                 }
                 // Only after the cascade committed: a failed cascade leaves the Space in
@@ -6259,6 +6263,7 @@ final class SpaceManager: ObservableObject {
                 self.handleSpacesUpdate(account.localStorage.getAllSpaces())
                 self.pendingDeletionSpaceIds.remove(spaceId)
                 self.reloadURLRulesFromStore()
+                completion?(true)
             } catch {
                 // Nothing was delivered, so there is nothing to roll back in sync.
                 if let syncUuid { PhiSpaceSyncState.shared.endLocalDeletion(syncUuid: syncUuid) }
@@ -6266,8 +6271,248 @@ final class SpaceManager: ObservableObject {
                     self?.pendingDeletionSpaceIds.remove(spaceId)
                 }
                 AppLogError("[SpaceManager] deleteSpaceCascade failed: \(PhiSyncLog.describe(error))")
+                completion?(false)
             }
         }
+    }
+
+    // MARK: - Pairing reset (docs/sync.md, "Replacing this Mac's data at pairing")
+
+    /// Outcome of `deleteSpaceForPairingReset`. Every refusal `deleteSpace` makes silently (or,
+    /// for an import, with an alert) is a distinct value here, so the reset can fail closed.
+    enum PairingResetSpaceDeletion: Equatable {
+        case deleted
+        /// No row: an earlier attempt already deleted it.
+        case notFound
+        /// The row is an Incognito or hidden Space.
+        case refusedNotUserSpace
+        case refusedLastUserSpace
+        case refusedAlreadyPending
+        case refusedStoreMismatch
+        case refusedImportInProgress
+        /// An agent task runs in the Space.
+        case refusedAgentTaskRunning
+        /// A retreat or the cascade failed; the Space is still there.
+        case failed
+        /// Nothing settled within the timeout, and the window close had not yet reached the cascade:
+        /// the operation is abandoned and its pending mark released. A close callback that arrives
+        /// later deletes nothing (so no sync deletion intent can come from an abandoned reset), and a
+        /// rerun may retry the Space. When the cascade had already started, it finishes on its own.
+        case timedOut
+    }
+
+    /// Outcome of `rebindDefaultSpaceForPairingReset`.
+    enum PairingResetRebind: Equatable {
+        case rebound
+        case refusedStoreMismatch
+        case refusedImportInProgress
+        case refusedAgentTaskRunning
+        case refusedUnknownProfile
+        /// The store write failed; nothing changed.
+        case failed
+        /// The row is re-bound but a window of the old Profile did not close, or the replacement
+        /// window did not arrive, within the timeout. A rerun finds the row re-bound and settles
+        /// the windows again.
+        case windowsNotSettled
+    }
+
+    /// How long one pairing-reset window operation may take before it is reported as failed. It
+    /// runs under the setup window's modal and must never hang there.
+    static let pairingResetWindowTimeout: Duration = .seconds(30)
+
+    /// The pairing reset's Space deletion: the same retreat, window close and cascade as
+    /// `deleteSpace`, with these differences. It reports a result instead of refusing silently; it
+    /// never shows an alert (an import in progress is a refusal), because it runs under the setup
+    /// window's modal; it retreats without animation and always to `default-space`, so no slide
+    /// completion or default-mode fallback timer is involved and no other doomed Space is built as
+    /// a retreat target; and it gives up after `timeout`. It also deletes agent Spaces (those of a
+    /// Profile the reset deletes), which never count toward the last-Space guard. Every other caller
+    /// keeps using `deleteSpace`. The commit is claimed once the retreats settle and before any
+    /// window closes, so after `timedOut` the late retreat closes no window and deletes nothing,
+    /// and the Space is no longer pending, so a rerun may retry it.
+    @MainActor
+    func deleteSpaceForPairingReset(spaceId: String,
+                                    timeout: Duration = SpaceManager.pairingResetWindowTimeout) async -> PairingResetSpaceDeletion {
+        guard acceptsStoreAction(), let account = boundAccount else { return .refusedStoreMismatch }
+        // Read the store, not the published list: the reset may have just recreated `default-space`,
+        // and the last-Space guard must see it.
+        let storeSpaces = account.localStorage.getAllSpaces()
+        handleSpacesUpdate(storeSpaces)
+        guard storeSpaces.contains(where: { $0.spaceId == spaceId }) else { return .notFound }
+        guard !Self.isIncognitoSpaceId(spaceId),
+              let space = spaces.first(where: { $0.spaceId == spaceId }) else { return .refusedNotUserSpace }
+        guard !pendingDeletionSpaceIds.contains(spaceId) else { return .refusedAlreadyPending }
+        guard !AgentSpaceManager.shared.isAgentSpace(spaceId) else { return .refusedAgentTaskRunning }
+        if !space.isAnyAgentSpace {
+            guard userSpaces.contains(where: { $0.spaceId != spaceId && !pendingDeletionSpaceIds.contains($0.spaceId) }) else {
+                return .refusedLastUserSpace
+            }
+        }
+        guard !ImportTargetLock.shared.isImporting(into: spaceId) else { return .refusedImportInProgress }
+        let deletionStoreIdentifier = storeIdentifier
+        pendingDeletionSpaceIds.insert(spaceId)
+        let once = PairingResetResumeOnce<PairingResetSpaceDeletion>()
+        return await withCheckedContinuation { continuation in
+            once.arm(continuation, timeout: timeout, timeoutValue: .timedOut, onAbandon: { [weak self] in
+                self?.pendingDeletionSpaceIds.remove(spaceId)
+            })
+            // The commit is claimed after the retreats settle and before any window closes: once
+            // the timeout abandoned the operation, the late close leaves the Space's windows alone.
+            closeSpaceWindows(spaceId: spaceId, animated: false,
+                              retreatTargetSpaceId: LocalStore.defaultSpaceId,
+                              proceed: { once.beginCommit() }) { [weak self] succeeded in
+                guard let self, self.storeIdentifier == deletionStoreIdentifier else {
+                    once.resume(.refusedStoreMismatch)
+                    return
+                }
+                // The timeout abandoned the operation and released the pending mark (a rerun may
+                // have claimed it since): touch nothing, and never start the cascade.
+                guard !once.isAbandoned else {
+                    AppLogWarn("[SpaceManager] pairing reset: late window close for \(spaceId) after the timeout; nothing closed, not deleting")
+                    return
+                }
+                guard succeeded, self.acceptsStoreAction(from: deletionStoreIdentifier) else {
+                    self.pendingDeletionSpaceIds.remove(spaceId)
+                    once.resume(.failed)
+                    return
+                }
+                self.finishDeletingSpace(spaceId: spaceId) { committed in
+                    once.resume(committed ? .deleted : .failed)
+                }
+            }
+        }
+    }
+
+    /// Points the default role at `spaceId` by writing the account defaults key directly. Unlike
+    /// the hand-off in `finishDeletingSpace`, it publishes nothing to the account register: the
+    /// pairing reset runs unpaired and sets the role on `default-space` before deleting the other
+    /// Spaces, so no hand-off runs at all. Returns false when the value could not be persisted.
+    @MainActor
+    @discardableResult
+    func setDefaultSpaceRoleForPairingReset(_ spaceId: String) -> Bool {
+        guard let account = boundAccount else { return false }
+        let key = AccountUserDefaults.DefaultsKey.defaultSpaceId.rawValue
+        guard account.userDefaults.string(forKey: key) != spaceId else { return true }
+        guard account.userDefaults.set(spaceId, forKey: key) else { return false }
+        publishResolvedDefaultSpaceThemeIfNeeded(spaceId: spaceId)
+        return true
+    }
+
+    /// Re-binds `default-space` to `profileId` for the pairing reset, when it is bound to a Profile
+    /// the reset deletes, and settles its windows before returning:
+    /// - a parked ghost of the Space is dropped (its tabs live only in the old Profile's session,
+    ///   which the reset deletes) instead of materialized;
+    /// - a slot showing the Space replaces its window in place on the new Profile, without
+    ///   animation, and nothing retreats (every retreat target would be the Space itself);
+    /// - a background window of the Space is closed;
+    /// - the call waits until no window of the Space remains on another Profile and every replaced
+    ///   slot shows a window on `profileId`, or reports `windowsNotSettled` after `timeout`;
+    /// - a slot whose earlier replacement never registered respawns again, so a rerun after
+    ///   `windowsNotSettled` can settle it.
+    /// The ordinary `changeProfile` refuses the default Space and is unchanged.
+    @MainActor
+    func rebindDefaultSpaceForPairingReset(toProfileId profileId: String,
+                                           timeout: Duration = SpaceManager.pairingResetWindowTimeout) async -> PairingResetRebind {
+        let spaceId = LocalStore.defaultSpaceId
+        guard acceptsStoreAction(), let account = boundAccount else { return .refusedStoreMismatch }
+        guard !ImportTargetLock.shared.isImporting(into: spaceId) else { return .refusedImportInProgress }
+        guard !AgentSpaceManager.shared.isAgentSpace(spaceId) else { return .refusedAgentTaskRunning }
+        guard ProfileManager.shared.profile(for: profileId) != nil else { return .refusedUnknownProfile }
+        dropParkedGhosts(parkedGhostSpaceIdsByWindowId.filter { $0.value == spaceId },
+                         reason: "pairingReset(rebind \(spaceId))")
+        let rebindStoreIdentifier = storeIdentifier
+        let storeRow = account.localStorage.getAllSpaces().first { $0.spaceId == spaceId }
+        if storeRow?.profileId != profileId {
+            do {
+                try await account.localStorage.rebindDefaultSpaceForPairingResetThrowing(toProfileId: profileId)
+            } catch {
+                return .failed
+            }
+        }
+        guard storeIdentifier == rebindStoreIdentifier, acceptsStoreAction(from: rebindStoreIdentifier) else {
+            return .refusedStoreMismatch
+        }
+        // The spawn path reads the binding from `spaces`; publish the committed row first.
+        handleSpacesUpdate(account.localStorage.getAllSpaces())
+        let settled = await settleDefaultSpaceWindowsForPairingReset(onProfileId: profileId, timeout: timeout)
+        return settled ? .rebound : .windowsNotSettled
+    }
+
+    /// The window half of `rebindDefaultSpaceForPairingReset`, run once the row is bound to
+    /// `profileId`. A slot still showing `default-space` with no registered window but a pending
+    /// replacement is one whose earlier respawn never registered (the activation was dropped or
+    /// the spawn stalled): it respawns again, so a rerun of the rebind can settle it. A slot that
+    /// moved to another Space after such a failure closes the old window it still holds. Returns
+    /// false when the windows did not settle within `timeout`.
+    @MainActor
+    func settleDefaultSpaceWindowsForPairingReset(onProfileId profileId: String, timeout: Duration) async -> Bool {
+        let spaceId = LocalStore.defaultSpaceId
+        var replacedSlots: [SpaceWindowSlot] = []
+        for slot in slots {
+            if slot.activeSpaceId == spaceId, slot.windowController(for: spaceId) == nil,
+               slot.hasPendingReplacement(for: spaceId) {
+                slot.respawnWindow(forSpaceId: spaceId, animated: false, retryingStalledReplacement: true)
+                replacedSlots.append(slot)
+                continue
+            }
+            if slot.activeSpaceId != spaceId, slot.hasPendingReplacement(for: spaceId) {
+                // The user left the Space after a failed replacement: the old window would
+                // otherwise stay live on the old Profile until the next manual switch.
+                slot.closePendingReplacement(for: spaceId)
+            }
+            guard let controller = slot.windowController(for: spaceId), controller.profileId != profileId else { continue }
+            if slot.activeSpaceId == spaceId {
+                slot.respawnWindow(forSpaceId: spaceId, animated: false)
+                replacedSlots.append(slot)
+            } else {
+                slot.evictWindow(for: spaceId)
+                slot.closeRetiredWindow(controller)
+            }
+        }
+        return await waitForPairingReset(timeout: timeout) { [weak self] in
+            guard let self else { return false }
+            let stale = SpaceSessionControllersManager.shared.getAllWindows().contains {
+                $0.spaceId == spaceId && $0.profileId != profileId
+            }
+            let replaced = replacedSlots.allSatisfy { slot in
+                !self.slots.contains { $0 === slot } || slot.windowController(for: spaceId)?.profileId == profileId
+            }
+            return !stale && replaced
+        }
+    }
+
+    /// The Profiles of the live windows showing `default-space`. The pairing reset re-runs the rebind
+    /// when one of them is a Profile it deletes (an earlier rebind committed but its windows did not
+    /// settle).
+    @MainActor
+    func defaultSpaceWindowProfileIdsForPairingReset() -> Set<String> {
+        Set(SpaceSessionControllersManager.shared.getAllWindows()
+            .filter { $0.spaceId == LocalStore.defaultSpaceId }.map(\.profileId))
+    }
+
+    /// Waits until no live window is bound to any of `profileIds` (window teardown after a Space
+    /// deletion is asynchronous), up to `timeout`. Returns the Profiles that still have a window.
+    @MainActor
+    func profilesWithLiveWindowsForPairingReset(_ profileIds: Set<String>,
+                                                timeout: Duration = SpaceManager.pairingResetWindowTimeout) async -> Set<String> {
+        func bound() -> Set<String> {
+            Set(SpaceSessionControllersManager.shared.getAllWindows().map(\.profileId)).intersection(profileIds)
+        }
+        guard !profileIds.isEmpty else { return [] }
+        _ = await waitForPairingReset(timeout: timeout) { bound().isEmpty }
+        return bound()
+    }
+
+    /// Polls `condition` on the main actor every 100 ms until it holds or `timeout` passes.
+    @MainActor
+    private func waitForPairingReset(timeout: Duration, until condition: () -> Bool) async -> Bool {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: timeout)
+        while !condition() {
+            guard clock.now < deadline else { return false }
+            try? await Task.sleep(for: .milliseconds(100))
+        }
+        return true
     }
 
     /// Closes every live window this Space has, across all slots — the
@@ -6275,7 +6520,16 @@ final class SpaceManager: ObservableObject {
     /// PERSISTENT agent task completes: the task's window must go, but the
     /// Space row (and its tagged rows) stays in the switcher for the user,
     /// and for a later task to re-bind to.
-    func closeSpaceWindows(spaceId: String, completion: ((Bool) -> Void)? = nil) {
+    /// `animated: false` (the pairing reset) retreats without the slide, so nothing waits on a
+    /// Core Animation completion or its fallback timer.
+    /// `retreatTargetSpaceId` (the pairing reset) forces where every slot retreats to; when it is
+    /// not available the retreat fails rather than falling back to another Space.
+    /// `proceed` (the pairing reset) is asked once every retreat has settled and before any window
+    /// is evicted or closed; false leaves every window of the Space as it is and completes with
+    /// false.
+    func closeSpaceWindows(spaceId: String, animated: Bool = true, retreatTargetSpaceId: String? = nil,
+                           proceed: (() -> Bool)? = nil,
+                           completion: ((Bool) -> Void)? = nil) {
         let closingSlots = slots
         let deletionStoreIdentifier = storeIdentifier
         // Visible can lag active during a cold/failed switch. Both must leave
@@ -6294,6 +6548,10 @@ final class SpaceManager: ObservableObject {
                   !self.slots.contains(where: {
                       $0.activeSpaceId == spaceId || $0.visibleController?.spaceId == spaceId
                   }) else {
+                completion?(false)
+                return
+            }
+            if let proceed, !proceed() {
                 completion?(false)
                 return
             }
@@ -6323,13 +6581,20 @@ final class SpaceManager: ObservableObject {
             }
             let preferred = Self.isIncognitoSpaceId(spaceId)
                 ? currentDefaultSpaceId : (slot.lastRegularSpaceId ?? currentDefaultSpaceId)
-            guard let target = candidates.first(where: { $0.spaceId == preferred })
-                ?? candidates.first(where: { $0.spaceId == currentDefaultSpaceId })
-                ?? candidates.first else {
+            let resolvedTarget: Space?
+            if let retreatTargetSpaceId {
+                resolvedTarget = candidates.first(where: { $0.spaceId == retreatTargetSpaceId })
+            } else {
+                resolvedTarget = candidates.first(where: { $0.spaceId == preferred })
+                    ?? candidates.first(where: { $0.spaceId == currentDefaultSpaceId })
+                    ?? candidates.first
+            }
+            guard let target = resolvedTarget else {
                 finish(false)
                 continue
             }
             slot.activate(spaceId: target.spaceId,
+                          animated: animated,
                           onActivationFailed: { finish(false) },
                           onSwapSettled: { finish(true) })
         }
@@ -10029,6 +10294,31 @@ final class SpaceWindowSlot: ObservableObject {
     /// flipped before), and the first tab is seeded afterwards.
     private var hostedSpawnTimings: [String: SpaceSwitchTiming] = [:]
 
+    /// Generation of the latest hosted spawn attempt per Space, bumped when an
+    /// attempt claims `pendingSpawnSpaceIds` in `spawnHostedSession` and when
+    /// `abandonStalledSpawn` gives a stalled attempt up. An attempt whose
+    /// profile load calls back after its generation moved on creates no
+    /// window and leaves the mark alone. A window of an abandoned attempt that
+    /// registers anyway is queued for close by `registerWindow`'s replace path.
+    private var hostedSpawnGenerationBySpaceId: [String: Int] = [:]
+
+    /// The latest hosted spawn attempt's generation for `spaceId` (0 before
+    /// the first attempt).
+    func hostedSpawnGeneration(for spaceId: String) -> Int {
+        hostedSpawnGenerationBySpaceId[spaceId] ?? 0
+    }
+
+    /// Gives up a spawn of `spaceId` that is marked in flight but stalled (its
+    /// profile load never called back or its window never registered): the
+    /// in-flight mark is removed so a new attempt can claim it, and the
+    /// generation moves on so the stalled attempt's late callback creates
+    /// nothing. Only the pairing reset's retry calls it.
+    func abandonStalledSpawn(for spaceId: String) {
+        guard pendingSpawnSpaceIds.remove(spaceId) != nil else { return }
+        hostedSpawnGenerationBySpaceId[spaceId, default: 0] += 1
+        AppLogInfo("[SpaceWindowSlot] abandonStalledSpawn(\(spaceId)): stalled spawn given up; generation \(hostedSpawnGenerationBySpaceId[spaceId] ?? 0)")
+    }
+
     func timingForHostedSpawn(spaceId: String) -> SpaceSwitchTiming? {
         hostedSpawnTimings[spaceId]
     }
@@ -10089,8 +10379,14 @@ final class SpaceWindowSlot: ObservableObject {
         let isIncognitoSpace = SpaceManager.isIncognitoSpaceId(spaceId)
         let previous = visibleController
         let inheritedFrame = resolveInheritedFrame(from: previous)
+        let generation = hostedSpawnGeneration(for: spaceId) + 1
         let spawn: () -> Void = { [weak self, weak previous, weak manager] in
             guard let self else {
+                onActivationFailed?()
+                return
+            }
+            guard self.hostedSpawnGeneration(for: spaceId) == generation else {
+                AppLogInfo("[SpaceWindowSlot] spawnHostedSession(\(spaceId)): attempt \(generation) abandoned; not creating a window")
                 onActivationFailed?()
                 return
             }
@@ -10154,13 +10450,17 @@ final class SpaceWindowSlot: ObservableObject {
             onSpawned(registered)
         }
         pendingSpawnSpaceIds.insert(spaceId)
+        hostedSpawnGenerationBySpaceId[spaceId] = generation
         timing?.mark("profile.load.begin")
         if isIncognitoSpace {
             bridge.ensureIncognitoSpaceProfileLoaded { [weak self] success in
                 timing?.mark(success ? "profile.load.ready" : "profile.load.failed")
                 guard success else {
                     AppLogWarn("[SpaceWindowSlot] ensureIncognitoSpaceProfileLoaded failed; not spawning")
-                    self?.pendingSpawnSpaceIds.remove(spaceId)
+                    // An abandoned attempt must not clear a newer attempt's mark.
+                    if self?.hostedSpawnGeneration(for: spaceId) == generation {
+                        self?.pendingSpawnSpaceIds.remove(spaceId)
+                    }
                     onActivationFailed?()
                     return
                 }
@@ -10171,7 +10471,9 @@ final class SpaceWindowSlot: ObservableObject {
                 timing?.mark(success ? "profile.load.ready" : "profile.load.failed")
                 guard success else {
                     AppLogWarn("[SpaceWindowSlot] ensureProfileLoaded failed for \(pid); not spawning")
-                    self?.pendingSpawnSpaceIds.remove(spaceId)
+                    if self?.hostedSpawnGeneration(for: spaceId) == generation {
+                        self?.pendingSpawnSpaceIds.remove(spaceId)
+                    }
                     onActivationFailed?()
                     return
                 }
@@ -10841,7 +11143,7 @@ final class SpaceWindowSlot: ObservableObject {
             contentHost.backdrop.animateFill(from: fromFill, duration: duration, startTime: CACurrentMediaTime())
         }
         CATransaction.commit()
-        fallback = Timer.scheduledTimer(withTimeInterval: duration + Self.swapFinalizeFallbackMargin, repeats: false) { _ in
+        fallback = scheduleCommonModesFallbackTimer(after: duration + Self.swapFinalizeFallbackMargin) {
             finalize()
         }
     }
@@ -11169,7 +11471,7 @@ final class SpaceWindowSlot: ObservableObject {
             }
             // Keep the outgoing band intact while a cold session is built.
             // Starting its motion now would slide into an empty destination.
-            fallbackTimer = Timer.scheduledTimer(withTimeInterval: duration + 0.5, repeats: false) { [weak self] _ in
+            fallbackTimer = scheduleCommonModesFallbackTimer(after: duration + 0.5) { [weak self] in
                 self?.settle()
             }
         }
@@ -11177,7 +11479,7 @@ final class SpaceWindowSlot: ObservableObject {
         private func startBandAnimations() {
             startLeavingChrome()
             fallbackTimer?.invalidate()
-            fallbackTimer = Timer.scheduledTimer(withTimeInterval: duration + 0.5, repeats: false) { [weak self] _ in
+            fallbackTimer = scheduleCommonModesFallbackTimer(after: duration + 0.5) { [weak self] in
                 self?.settle()
             }
             leavingBandContainer.layer?.masksToBounds = true
@@ -12545,7 +12847,29 @@ final class SpaceWindowSlot: ObservableObject {
     /// `pendingCloseOnReplacementBySpaceId`): a profile load can make the
     /// spawn complete asynchronously, and closing up front would leave the
     /// slot window-less if the spawn fails.
-    func respawnWindow(forSpaceId spaceId: String) {
+    ///
+    /// With `retryingStalledReplacement`, a call that finds the Space still
+    /// active with no registered window but a pending replacement retries
+    /// it: the earlier activation was dropped or its spawn stalled, and the
+    /// old window is still on screen. It activates again; the pending old
+    /// window stays queued, so the replacement's registration still closes
+    /// it. A spawn still marked in flight (`pendingSpawnSpaceIds`) is given
+    /// up first (`abandonStalledSpawn`): a spawn that never registers leaves
+    /// the mark set, and the only caller (the pairing reset's rebind) retries
+    /// after waiting its whole timeout, when a spawn still marked in flight is
+    /// a stalled one. Its late profile-load callback creates nothing, and a
+    /// window of it that registers anyway is queued for close like any
+    /// replaced window. Without the flag this state is left alone, as the
+    /// profile-change path always did.
+    func respawnWindow(forSpaceId spaceId: String, animated: Bool = true,
+                       retryingStalledReplacement: Bool = false) {
+        if retryingStalledReplacement, activeSpaceId == spaceId, windowsBySpaceId[spaceId] == nil,
+           hasPendingReplacement(for: spaceId) {
+            AppLogInfo("[SpaceWindowSlot] respawnWindow(\(spaceId)): replacement never registered (spawn in flight: \(pendingSpawnSpaceIds.contains(spaceId))); activating again")
+            abandonStalledSpawn(for: spaceId)
+            activate(spaceId: spaceId, animated: animated)
+            return
+        }
         guard activeSpaceId == spaceId, let old = windowsBySpaceId[spaceId] else {
             // The slot moved on (user switched Spaces in the gap) or the
             // window is already gone — just retire any leftover window;
@@ -12559,7 +12883,23 @@ final class SpaceWindowSlot: ObservableObject {
         AppLogInfo("[SpaceWindowSlot] respawnWindow(\(spaceId)): replacing window \(old.windowId) in place")
         evictWindow(for: spaceId, removeSlotIfEmpty: false)
         pendingCloseOnReplacementBySpaceId[spaceId] = old
-        activate(spaceId: spaceId)
+        activate(spaceId: spaceId, animated: animated)
+    }
+
+    /// Whether a respawn's old window for `spaceId` is still waiting for its
+    /// replacement to register (`pendingCloseOnReplacementBySpaceId`).
+    func hasPendingReplacement(for spaceId: String) -> Bool {
+        pendingCloseOnReplacementBySpaceId[spaceId] != nil
+    }
+
+    /// Closes a respawn's old window for `spaceId` that still waits for its
+    /// replacement although this slot has moved to another Space: no
+    /// replacement will register here until the user returns to the Space,
+    /// which then spawns on the Space's current binding.
+    func closePendingReplacement(for spaceId: String) {
+        guard let old = pendingCloseOnReplacementBySpaceId.removeValue(forKey: spaceId) else { return }
+        AppLogInfo("[SpaceWindowSlot] closePendingReplacement(\(spaceId)): closing window \(old.windowId); slot is on \(activeSpaceId ?? "nil")")
+        closeRetiredWindow(old)
     }
 
     /// First Space in STRIP order (`manager.spaces`) that has a live
@@ -14113,5 +14453,59 @@ final class ReopenLoadingHandoff {
     private func tearDown() -> Outcome {
         isTornDown = true
         return .tearDown
+    }
+}
+
+/// A one-shot switch-animation fallback timer scheduled in the common run-loop modes. The default
+/// mode alone is starved while a modal session runs (the sync setup window), which would hold a
+/// Space retreat until the modal closes whenever Core Animation drops the slide's completion.
+private func scheduleCommonModesFallbackTimer(after interval: TimeInterval,
+                                              _ fire: @escaping () -> Void) -> Timer {
+    let timer = Timer(timeInterval: interval, repeats: false) { _ in fire() }
+    RunLoop.main.add(timer, forMode: .common)
+    return timer
+}
+
+/// Resumes a pairing-reset continuation exactly once: with the operation's result, or with
+/// `timeoutValue` when `timeout` passes first. When the timeout fires before the operation's
+/// callback claimed the commit (`beginCommit()`), the operation is abandoned: `onAbandon` runs and
+/// every later `beginCommit()` answers false. Main-actor only.
+@MainActor
+final class PairingResetResumeOnce<Value> {
+    private var continuation: CheckedContinuation<Value, Never>?
+    private var timer: Task<Void, Never>?
+    private(set) var isAbandoned = false
+    private var isCommitting = false
+
+    func arm(_ continuation: CheckedContinuation<Value, Never>, timeout: Duration, timeoutValue: Value,
+             onAbandon: @escaping @MainActor () -> Void = {}) {
+        self.continuation = continuation
+        // Strong on purpose: the operation's own callback may never run, and the timeout must
+        // still resume the caller.
+        timer = Task { @MainActor in
+            try? await Task.sleep(for: timeout)
+            guard !Task.isCancelled else { return }
+            if !self.isCommitting {
+                self.isAbandoned = true
+                onAbandon()
+            }
+            self.resume(timeoutValue)
+        }
+    }
+
+    /// The operation's callback claims the commit before changing anything. False once the timeout
+    /// abandoned the operation; a later timeout then only resumes `timeoutValue`.
+    func beginCommit() -> Bool {
+        guard !isAbandoned else { return false }
+        isCommitting = true
+        return true
+    }
+
+    func resume(_ value: Value) {
+        guard let continuation else { return }
+        self.continuation = nil
+        timer?.cancel()
+        timer = nil
+        continuation.resume(returning: value)
     }
 }
