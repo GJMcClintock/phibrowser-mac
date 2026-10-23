@@ -6,7 +6,7 @@
 import Cocoa
 import QuartzCore
 
-/// A native foil ticket shared by onboarding and account settings. Geometry is
+/// A native foil card shared by onboarding and account settings. Geometry is
 /// authored at the reference's 292 x 423 points; resizing never rebuilds its art.
 final class HolographicCardView: NSView {
     static let designSize = CGSize(width: 292, height: 423)
@@ -32,6 +32,7 @@ final class HolographicCardView: NSView {
     var joinedDate = "" { didSet { updateCopy() } }
     var style = HolographicCardStyle.default { didSet { if oldValue != style { updateMaterial() } } }
     var showsReverse = false { didSet { renderMotion() } }
+    var animatesIdleTilt = false { didSet { updateAnimationState() } }
 
     func replayEntrance() {
         motion = HolographicCardMotion()
@@ -48,8 +49,14 @@ final class HolographicCardView: NSView {
     private var timer: Timer?
     private var lastTick: CFTimeInterval?
     private var motion = HolographicCardMotion()
-    private var pointer: CGPoint?
+    private var pointer: CGPoint? {
+        didSet { if oldValue != pointer { updateAnimationState() } }
+    }
     private(set) var isAnimating = false
+
+    private var needsMotion: Bool {
+        animatesIdleTilt || motion.entrance < 1 || pointer != nil || motion.position != .zero
+    }
 
     override var isFlipped: Bool { true }
     override var acceptsFirstResponder: Bool { true }
@@ -154,6 +161,7 @@ final class HolographicCardView: NSView {
         if reduced { motion.finishEntrance() }
         let shouldAnimate = isPresentationActive && !reduced && !isHiddenOrHasHiddenAncestor
             && window?.occlusionState.contains(.visible) == true
+            && needsMotion
         if shouldAnimate && timer == nil {
             lastTick = nil
             let timer = Timer(timeInterval: 1.0 / 60, repeats: true) { [weak self] _ in
@@ -177,8 +185,12 @@ final class HolographicCardView: NSView {
         let delta = min(1.0 / 15, max(0, now - (lastTick ?? now)))
         lastTick = now
         guard !visibleRect.isEmpty else { return }
-        motion.advance(by: delta, pointer: pointer)
-        renderMotion()
+        motion.advance(by: delta, pointer: pointer ?? (animatesIdleTilt ? nil : .zero))
+        if !needsMotion {
+            updateAnimationState()
+        } else {
+            renderMotion()
+        }
     }
 
     private func renderMotion() {
@@ -247,6 +259,9 @@ struct HolographicCardMotion {
         let smoothing = 1 - pow(1 - 0.075, delta * 60)
         position.x += (target.x - position.x) * smoothing
         position.y += (target.y - position.y) * smoothing
+        if target == .zero && abs(position.x) < 0.0001 && abs(position.y) < 0.0001 {
+            position = .zero
+        }
     }
 
     static func normalizedPointer(_ point: CGPoint, in bounds: CGRect) -> CGPoint {

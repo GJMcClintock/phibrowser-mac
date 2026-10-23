@@ -21,6 +21,7 @@ final class HolographicCardDebugViewController: NSViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
+        cardView.animatesIdleTilt = true
         cardView.name = "Mike"
         cardView.memberID = "103"
         cardView.joinedDate = "2026.10"

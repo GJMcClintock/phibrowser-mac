@@ -44,7 +44,7 @@ final class HolographicCardViewTests: XCTestCase {
         XCTAssertEqual(HolographicCardView.formattedJoinDate("invalid"), "")
     }
 
-    func testExportIsReadableEvenBeforeEntranceAndPreservesTicketCutouts() throws {
+    func testExportIsReadableEvenBeforeEntranceAndHasNoSideCutouts() throws {
         let view = HolographicCardView(frame: .zero)
         view.name = "任凯 — A very long profile name"
         view.memberID = "12345"
@@ -54,7 +54,8 @@ final class HolographicCardViewTests: XCTestCase {
         XCTAssertEqual(rep.pixelsWide, 292)
         XCTAssertEqual(rep.pixelsHigh, 423)
         XCTAssertEqual(try XCTUnwrap(rep.colorAt(x: 0, y: 0)).alphaComponent, 0, accuracy: 0.01)
-        XCTAssertEqual(try XCTUnwrap(rep.colorAt(x: 1, y: 292)).alphaComponent, 0, accuracy: 0.01)
+        XCTAssertGreaterThan(try XCTUnwrap(rep.colorAt(x: 1, y: 292)).alphaComponent, 0.99)
+        XCTAssertGreaterThan(try XCTUnwrap(rep.colorAt(x: 290, y: 292)).alphaComponent, 0.99)
         XCTAssertGreaterThan(try XCTUnwrap(rep.colorAt(x: 146, y: 211)).alphaComponent, 0.99)
         XCTAssertGreaterThan(try XCTUnwrap(rep.colorAt(x: 10, y: 180)).alphaComponent, 0.99)
         XCTAssertFalse(view.isAnimating)
@@ -93,6 +94,30 @@ final class HolographicCardViewTests: XCTestCase {
         XCTAssertFalse(view.isAnimating)
         view.isPresentationActive = true
         XCTAssertTrue(view.isAnimating)
+        try await Task.sleep(for: .seconds(3))
+        XCTAssertFalse(view.isAnimating)
+        view.isHidden = true
+        view.isHidden = false
+        XCTAssertFalse(view.isAnimating)
+        let rotor = try XCTUnwrap(view.layer?.sublayers?.first)
+        let restingTransform = rotor.transform
+        let location = view.convert(CGPoint(x: view.bounds.maxX, y: view.bounds.midY), to: nil)
+        let mouseMove = try XCTUnwrap(NSEvent.mouseEvent(with: .mouseMoved, location: location,
+            modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber,
+            context: nil, eventNumber: 0, clickCount: 0, pressure: 0))
+        view.mouseMoved(with: mouseMove)
+        XCTAssertTrue(view.isAnimating)
+        try await Task.sleep(for: .milliseconds(300))
+        XCTAssertNotEqual(rotor.transform.m13, restingTransform.m13)
+        let mouseExit = try XCTUnwrap(NSEvent.enterExitEvent(with: .mouseExited, location: location,
+            modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber,
+            context: nil, eventNumber: 0, trackingNumber: 0, userData: nil))
+        view.mouseExited(with: mouseExit)
+        try await Task.sleep(for: .seconds(3))
+        XCTAssertFalse(view.isAnimating)
+        XCTAssertEqual(rotor.transform.m13, restingTransform.m13, accuracy: 0.000001)
+        view.replayEntrance()
+        XCTAssertTrue(view.isAnimating)
         view.removeFromSuperview()
         XCTAssertFalse(view.isAnimating)
     }
@@ -100,6 +125,7 @@ final class HolographicCardViewTests: XCTestCase {
     func testProfileControllerUpdatesTheSharedCardWithRealProfileData() throws {
         let controller = ProfileCardViewController()
         let card = try XCTUnwrap(controller.view as? HolographicCardView)
+        XCTAssertFalse(card.animatesIdleTilt)
         controller.profile = Profile(id: 12345, auth0_id: "fixture", email: "fixture@example.com",
             name: "任凯", picture: "", last_login: "", created_at: "2026-10-15T12:00:00.123Z")
         XCTAssertEqual(card.name, "任凯")
@@ -115,6 +141,7 @@ final class HolographicCardViewTests: XCTestCase {
         controller.view.frame = CGRect(x: 0, y: 0, width: 640, height: 800)
         controller.view.layoutSubtreeIfNeeded()
         let card = try XCTUnwrap(controller.view.subviews.compactMap { $0 as? HolographicCardView }.first)
+        XCTAssertFalse(card.animatesIdleTilt)
         XCTAssertEqual(card.name, "Welcome Fixture")
         XCTAssertEqual(card.frame.width, 292, accuracy: 0.5)
         XCTAssertEqual(card.frame.height, 423, accuracy: 0.5)

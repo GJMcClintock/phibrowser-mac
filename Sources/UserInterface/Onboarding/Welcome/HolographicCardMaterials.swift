@@ -79,9 +79,6 @@ enum HolographicCardArtwork {
     static let ticketPath: CGPath = {
         let path = CGMutablePath()
         path.addRoundedRect(in: rect, cornerWidth: 28, cornerHeight: 28)
-        for x in [CGFloat.zero, size.width] {
-            path.addEllipse(in: CGRect(x: x - 8.5, y: size.height * 0.69 - 8.5, width: 17, height: 17))
-        }
         return path
     }()
 
