@@ -29,7 +29,8 @@ rewrite what a person saved.
   trashes them.
 - Metadata is the frontmatter block, always first in the file and short, so
   the listing's bounded head carries it: `title`, `source`, `saved`, `site`,
-  `byline`, `type` (`article` | `video`), `trigger`, `extraction`.
+  `byline`, `type` (`article` | `video` | `pdf` | `epub`), `trigger`,
+  `extraction` (`none` for a file with no text layer), `pages` for a PDF.
 - `source` (URL, `normalizedSource`) is the item's identity for "already
   saved", for appending highlights and for import de-duplication.
 - The broker is content-agnostic and name-jailed: a bare `<basename>.md` or

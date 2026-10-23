@@ -257,6 +257,18 @@ final class ExtensionMessageRouter {
             SaveForLaterService.handleOpenOriginal(context)
             return "{}"
         }
+        // The library page's Settings sheet points at the browser's own
+        // preferences for the folder and the saving behaviour.
+        register(type: "saveForLater.openSettings") { context in
+            SaveForLaterService.handleOpenSettings(context)
+            return "{}"
+        }
+        // The library page tells its own window what colours its sidebar
+        // wears, so the native title bar matches the page.
+        register(type: "saveForLater.windowChrome") { context in
+            SaveForLaterService.handleWindowChrome(context)
+            return "{}"
+        }
         // The capture RPC's report leg and the file broker's chunked write
         // path (Mirage streams MHTML archives through it).
         register(type: "saveForLater.fs.writeBegin") { context in

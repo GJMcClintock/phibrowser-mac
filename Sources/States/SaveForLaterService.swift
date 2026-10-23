@@ -411,17 +411,44 @@ enum SaveForLaterService {
     /// File > Open Folio and from the Library sidebar alike.
     nonisolated static var libraryPageURL: String { extensionPageURL("library.html") }
 
-    /// Opens Mirage's Folio library page in the active browser Profile.
+    /// Opens Mirage's Folio library page in a kiosk window of its own: the
+    /// library is an app surface, not a tab among tabs. One such window is
+    /// enough; a second request brings the open one to the front.
+    @MainActor
     static func openLibrary() {
-        guard let state = SpaceSessionControllersManager.shared
-                  .activeWindowController?.browserState else { return }
-        openLibrary(in: state)
+        guard featureEnabled else { return }
+        let manager = SpaceSessionControllersManager.shared
+        let kiosks = {
+            manager.getAllWindows().compactMap { $0 as? KioskBrowserWindowController }
+        }
+        if let existing = kiosks().first(where: {
+                ($0.browserState.focusingTab?.url ?? "").hasPrefix(libraryPageURL)
+            }),
+           let window = existing.window {
+            AppController.bringKioskWindowToFront(window)
+            return
+        }
+        let before = Set(kiosks().map(\.windowId))
+        // The fragment tells the page it owns the whole window, so it
+        // reports its sidebar colours for the title bar.
+        let url = "\(libraryPageURL)#surface=window"
+        guard AppController.shared?.openNewKioskWindow(
+            url: url, bringToFront: true) == true else {
+            // No kiosk could be made (session restore in flight): a tab of
+            // the active window still shows the library.
+            manager.activeWindowController?.browserState
+                .createTab(libraryPageURL, customGuid: nil, focusAfterCreate: true)
+            return
+        }
+        kiosks().first { !before.contains($0.windowId) }?.configureAsFolioSurface()
     }
 
-    /// Opens the library page as a tab of `state`'s window.
+    /// Opens the library for `state`'s window: the same kiosk window, whichever
+    /// window asked.
+    @MainActor
     static func openLibrary(in state: BrowserState) {
-        guard featureEnabled else { return }
-        state.createTab(libraryPageURL, customGuid: nil, focusAfterCreate: true)
+        _ = state
+        openLibrary()
     }
 
     /// The library page as the Library's Folio pane surface: a strip tab of
@@ -815,6 +842,39 @@ enum SaveForLaterService {
                 }
             }.value
             libraryReply("{\"ok\":true}", requestId: context.requestId)
+        }
+    }
+
+    private struct WindowChromePayload: Decodable {
+        /// CSS hex colours (`#rrggbb`) of the page's sidebar.
+        let background: String
+        let text: String
+    }
+
+    /// `saveForLater.windowChrome`: Folio's window paints its title bar in
+    /// the page's sidebar colours, so the bar and the page read as one
+    /// surface across the reading themes.
+    nonisolated static func handleWindowChrome(_ context: ExtensionMessageContext) {
+        guard libraryGate(context),
+              let data = context.payload.data(using: .utf8),
+              let payload = try? JSONDecoder().decode(WindowChromePayload.self, from: data),
+              let background = NSColor(folioHex: payload.background),
+              let text = NSColor(folioHex: payload.text) else { return }
+        Task { @MainActor in
+            for controller in SpaceSessionControllersManager.shared.getAllWindows()
+                .compactMap({ $0 as? KioskBrowserWindowController })
+            where (controller.browserState.focusingTab?.url ?? "").hasPrefix(libraryPageURL) {
+                controller.applyFolioChrome(background: background, text: text)
+            }
+        }
+    }
+
+    /// `saveForLater.openSettings`: the General pane, where the Folio
+    /// folder and the auto-save switch live. Library pages only.
+    nonisolated static func handleOpenSettings(_ context: ExtensionMessageContext) {
+        guard libraryGate(context) else { return }
+        Task { @MainActor in
+            AppController.shared?.showSettings(pane: .general)
         }
     }
 
@@ -1575,5 +1635,24 @@ enum SaveForLaterService {
                 to: folder.appendingPathComponent(target + ".mhtml"))
         }
         return target
+    }
+}
+
+private extension NSColor {
+    /// `#rrggbb` or `#rrggbbaa`, as the page's computed colours are sent.
+    convenience init?(folioHex: String) {
+        var text = folioHex.trimmingCharacters(in: .whitespaces)
+        guard text.hasPrefix("#") else { return nil }
+        text.removeFirst()
+        guard text.count == 6 || text.count == 8, let value = UInt64(text, radix: 16) else {
+            return nil
+        }
+        let hasAlpha = text.count == 8
+        let shift: UInt64 = hasAlpha ? 8 : 0
+        let r = CGFloat((value >> (16 + shift)) & 0xff) / 255
+        let g = CGFloat((value >> (8 + shift)) & 0xff) / 255
+        let b = CGFloat((value >> shift) & 0xff) / 255
+        let a = hasAlpha ? CGFloat(value & 0xff) / 255 : 1
+        self.init(srgbRed: r, green: g, blue: b, alpha: a)
     }
 }

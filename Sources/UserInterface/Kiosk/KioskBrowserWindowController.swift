@@ -350,6 +350,48 @@ final class KioskBrowserWindowController: SpaceSessionController {
         configureKioskActions()
     }
 
+    /// Turns this Kiosk into Folio's window: no browser toolbar (the library
+    /// page is the whole surface), the standard zoom in place of "open in a
+    /// Space", and a frame remembered apart from ordinary Kiosks.
+    @MainActor
+    func configureAsFolioSurface() {
+        guard let window else { return }
+        // The positioner keeps the traffic lights where the Kiosk toolbar
+        // put them; without that toolbar the standard title-bar placement
+        // is the right one, so it goes before the toolbar does.
+        trafficLightPositioner = nil
+        window.toolbar = nil
+        // The content view keeps the whole window: Folio's own title bar is
+        // drawn in the top strip, under the traffic lights, and is what the
+        // window is dragged by (web content swallows the mouse).
+        window.styleMask.insert(.fullSizeContentView)
+        window.titleVisibility = .hidden
+        window.titlebarAppearsTransparent = true
+        (contentViewController as? KioskBrowserContentViewController)?
+            .useFolioTitleBar()
+        window.minSize = NSSize(width: 720, height: 480)
+        if let zoomButton = window.standardWindowButton(.zoomButton) {
+            zoomButton.target = window
+            zoomButton.action = #selector(NSWindow.zoom(_:))
+        }
+        window.setFrameAutosaveName(Self.folioFrameAutosaveName)
+        if !window.setFrameUsingName(Self.folioFrameAutosaveName) {
+            window.setContentSize(NSSize(width: 1180, height: 780))
+            window.center()
+        }
+    }
+
+    private static let folioFrameAutosaveName = NSWindow.FrameAutosaveName("FolioWindowFrame")
+
+    /// Colours applied to the title bar and the window behind it so a
+    /// resize never shows a different ground.
+    @MainActor
+    func applyFolioChrome(background: NSColor, text: NSColor) {
+        window?.backgroundColor = background
+        (contentViewController as? KioskBrowserContentViewController)?
+            .applyFolioChrome(background: background, text: text)
+    }
+
     @MainActor
     func handleCommand(_ command: CommandWrapper) -> Bool {
         guard !command.isUnavailableInKiosk else { return true }

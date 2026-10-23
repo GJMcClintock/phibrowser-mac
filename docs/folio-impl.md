@@ -495,6 +495,20 @@ browser is away), landing on the entry file by `source`: the body becomes
 the article, the `.mhtml` is written beside it, and `extraction` flips
 from `feed` to `page`. `fetch: entry` keeps the feed's text only.
 
+### PDF and EPUB items
+
+A dropped file's title starts as its filename read as words (dashes and
+underscores as spaces when the name has none, percent-escapes decoded).
+The extract job hands pdf.js a plain `Uint8Array` view (it refuses a Node
+`Buffer`), writes `pages` for a PDF, and adopts the file's own metadata
+title when it is worth having (`usableMetadataTitle` drops "Untitled",
+"Microsoft Word - …" and source filenames) and the current title is still
+the filename's, either the one the add passed along or, on a later
+rebuild, one that reads as the basename does. A file without a text
+layer carries `extraction: none`; the reader shows the file itself first
+either way (the PDF in the browser's viewer, the EPUB rebuilt on the page
+as one document, see `folio-ui.md`).
+
 ### Library page mode and the development loopback
 
 - Mirage's boot probe (`GET /library`) treats a **404 as legacy mode**: a

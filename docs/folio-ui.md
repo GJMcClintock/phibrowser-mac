@@ -104,10 +104,20 @@ simonwillison.net · saved Oct 21 · re-captured Nov 10 · edited Nov 12
 ```
 
 The segmented control switches between the markdown, the in-page MHTML
-view, and the original for a `.pdf`/`.epub` (through `openOriginal`,
-which opens a tab; the reader itself stays on the markdown). The
-provenance line is the frontmatter in words; a partial or imported
-extraction keeps its note in the body.
+view, and for a file the file itself (`[Article] [Original]`: Article is
+the markdown converted from it, Original the saved PDF or EPUB) in a
+frame below the header, which shrinks to a strip so the surfaces stay a
+click apart. A PDF's bytes come through the service as a
+blob URL for the browser's own viewer. An EPUB renders through epub.js
+(`stage/epub.ts`: `ePub(bytes).renderTo(holder, { flow: "scrolled-doc" })`,
+scripts off, a default theme in the reader's colours and type), a
+chapter at a time; the header carries previous/next chapter arrows and a
+**Contents** picker built from the book's own navigation. A file opens
+on itself, and its text renders when the
+Article tab is first chosen, since a book's worth of markdown is slow to
+lay out. An open-in-app icon hands the file to the system
+(`openOriginal`). The provenance line is the frontmatter in words; a
+partial or imported extraction keeps its note in the body.
 
 Highlights are shown in place as marked passages with a margin marker,
 and the toolbar's highlight count scrolls to the section. A note under a
@@ -150,6 +160,13 @@ body, the reader's font, soft-wrapped, caret where you clicked
 Highlights (2) are kept as they are                                   ▸
 ```
 
+- The body is a live markdown editor (`stage/live-markdown.ts`,
+  CodeMirror 6 with the GFM grammar): one text, decorated as it is read.
+  Headings sit at their size, emphasis, code, links and quotes wear their
+  look, bullets and rules draw as such, and the marks that say so (`#`,
+  `**`, backticks, `[]()`) are hidden on every line but the ones the
+  selection touches, where the source shows whole. ⌘B and ⌘I wrap or
+  unwrap, Enter continues lists and quotes, Tab indents.
 - Title and tags are fields; the rest of the frontmatter is not editable
   here and is rebuilt from the parsed block on save with `edited` set. The
   `## Highlights` section is outside the text and appended verbatim. A
@@ -317,13 +334,54 @@ pre-selected.
 | Run | "Nothing left here. Everything was moved or trashed." | failed count opens the ledger's failures |
 | Page | | app too old: the scope says the feature is off; folder unreadable: one full-page notice, as today |
 
+## Folio's window
+
+File › Open Folio opens the library in a window of its own, a Kiosk made
+for it (`KioskBrowserWindowController.configureAsFolioSurface`): the
+address field, profile, extension and Space controls are gone, replaced by
+Folio's title bar (`FolioTitleBarView`), a 30pt strip the traffic lights
+sit centred in, with a book mark and the title in the middle, and the
+whole strip a drag handle (double-click zooms). It wears the page's
+sidebar colours: the page sends its sidebar background and text
+(`saveForLater.windowChrome`) once it is up and again whenever the reading
+theme changes them, so the bar and the sidebar below it read as one. The zoom
+button is the ordinary zoom and the frame is remembered apart from other
+Kiosks. A second Open Folio brings that window to the front. The page is
+told it owns the window by the `#surface=window` fragment. The attached
+Library panel is unchanged.
+
+## Rail and one column
+
+The page is the rail plus one column. The column is the list until
+something opens on the stage (an item, a subscription, an import, the
+editor); then the stage takes the column and Back, Escape, closing the
+item or choosing another scope in the sidebar brings the list back. Rows
+are wide: a 44px site tile, a 15px title, a two-line excerpt, the site and
+badges (Webpage copy, PDF, EPUB, edited), the time on the right. A file's
+excerpt line leads with its page count ("1373 pages · …"). The header carries the scope's title and counts
+("35 entries · 14 unread"), search, the filter pills, and on a
+subscription Poll now and Mark all read.
+
+## Sidebar foot and Settings
+
+The sidebar ends in a quiet foot with no rule above it: **Settings** on
+the left and the palette's ⌘ on the right. Import and Subscribe are `+`
+buttons on the Imports and Feeds headings, as New folder is on Folders;
+the Feeds heading keeps its gear for Manage feeds. Settings is a sheet:
+Library (Show the library in Finder, Browser settings… which opens Phi's
+General pane through `saveForLater.openSettings`, where the folder and
+auto-save live), Feeds (Manage feeds…, Poll all), Maintenance (Clean up…,
+Repair the library). Every entry is also a palette command.
+
 ## Sidebar rail
 
-Inside a browser tab the page sits beside Phi's own sidebar, so its own
-sidebar starts as a 54px icon rail whenever the window is narrower than
-1440px: section and folder glyphs with their labels as tooltips, the
-headings reduced to dividers, Import and Subscribe as icons. The toggle in
-the sidebar head switches between the rail and the full sidebar and
+Collapsed, the sidebar is a 54px rail of one button per section and
+nothing of what is inside: Inbox (new count as a badge), Watch, Folders,
+then Feeds (unread count), Imports and Tags, with the palette, Import and
+Subscribe at the foot. Each button opens its section in the column: Inbox,
+Watch and Folders show their items and folders; Feeds, Imports and Tags
+show their subscriptions, runs and tags as rows to pick from (with unread
+counts on feeds). The panel toggle at the top of either state switches and
 remembers the choice. The page's controls are shielded from the window
 theme's button recolouring, which Phi injects into every page.
 
@@ -381,5 +439,5 @@ never localized.
 
 ## Out of scope
 
-An EPUB reading surface, rich editing, a full-text index, feed discovery
-in the address bar, and a Chromium-side reader for `.mhtml`.
+Rich editing, a full-text index, feed discovery in the address bar, and
+a Chromium-side reader for `.mhtml`.
