@@ -1412,14 +1412,22 @@ typedef NS_ENUM(NSInteger, PhiGhostMaterializeOutcome) {
 /// that route already is brought to the front as it is; otherwise the most
 /// recently active one is brought to the front and taken to the route, without
 /// a reload when it shows the chat page; a window opens only when none is,
-/// installing Phi Chat on first use. Leaves every AI Chat panel alone; see
-/// phi_chat_web_app.h.
-/// `completion` fires once on the UI thread - before this returns for an
-/// invalid path or while the AI switch is off: success=YES once a window shows
-/// the route or is on its way to it, otherwise NO with the extension API's
-/// error string - @"openPhiChat: invalid path" (`path` does not start with
-/// '/'), @"openPhiChat: AI features are off" or
-/// @"openPhiChat: could not open the window".
+/// installing Phi Chat on first use - and then one for each request waiting
+/// that has joined no other (requests for the same path join). Leaves every
+/// AI Chat panel alone; see phi_chat_web_app.h. Must be called on the main
+/// thread. Callers must guard with respondsToSelector: (skew).
+/// `completion` fires at most once, on the UI thread: success=YES once a
+/// window shows the route or is on its way to it, otherwise NO with the
+/// extension API's error string - @"openPhiChat: invalid path" (`path` does
+/// not start with '/'), @"openPhiChat: AI features are off" or
+/// @"openPhiChat: could not open the window". An invalid path, or the AI
+/// switch off at the call, fires it before this returns. The AI switch going
+/// off later fires @"openPhiChat: AI features are off" while the request
+/// still waits to be served, and @"openPhiChat: could not open the window"
+/// once a window is opening for it. Otherwise it is held until a window
+/// opens or the request fails - seconds on first use, while Phi Chat
+/// installs - so capture the caller weakly in it. It may never fire, for
+/// example if the browser quits first.
 - (void)openPhiChatAtPath:(NSString *)path
                completion:(nullable void (^)(BOOL success, NSString * _Nullable error))completion;
 
