@@ -1407,6 +1407,22 @@ typedef NS_ENUM(NSInteger, PhiGhostMaterializeOutcome) {
 /// shouldEnablePhiExtensions returns NO during policy checks.
 - (void)disablePhiExtensions:(BOOL)clearData;
 
+/// Opens Phi Chat on the sidecar route `path` (such as @"/settings/private-ai"),
+/// by the rules of phinomenonPrivate.openPhiChat({ path }): a chat window on
+/// that route already is brought to the front as it is; otherwise the most
+/// recently active one is brought to the front and taken to the route, without
+/// a reload when it shows the chat page; a window opens only when none is,
+/// installing Phi Chat on first use. Leaves every AI Chat panel alone; see
+/// phi_chat_web_app.h.
+/// `completion` fires once on the UI thread - before this returns for an
+/// invalid path or while the AI switch is off: success=YES once a window shows
+/// the route or is on its way to it, otherwise NO with the extension API's
+/// error string - @"openPhiChat: invalid path" (`path` does not start with
+/// '/'), @"openPhiChat: AI features are off" or
+/// @"openPhiChat: could not open the window".
+- (void)openPhiChatAtPath:(NSString *)path
+               completion:(nullable void (^)(BOOL success, NSString * _Nullable error))completion;
+
 /// Install one or more extensions from Chrome Web Store by their IDs.
 /// Results are reported per-extension via extensionInstallResult:status: delegate callback.
 /// Status values: @"success", @"skipped", @"disabled", @"blocked", @"failed"
