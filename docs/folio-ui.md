@@ -359,7 +359,8 @@ item or choosing another scope in the sidebar brings the list back. Rows
 are wide: a 44px site tile, a 15px title, a two-line excerpt, the site and
 badges (Webpage copy, PDF, EPUB, edited), the time on the right. A file's
 excerpt line leads with its page count ("1373 pages · …"). The header carries the scope's title and counts
-("35 entries · 14 unread"), search, the filter pills, and on a
+("35 entries · 14 unread"), search, the filter pills (All, Articles,
+Videos, Books for EPUBs, PDFs, Highlighted), and on a
 subscription Poll now and Mark all read.
 
 ## Sidebar foot and Settings
