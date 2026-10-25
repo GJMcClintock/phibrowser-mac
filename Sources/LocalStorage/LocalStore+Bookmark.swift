@@ -1544,16 +1544,17 @@ extension LocalStore {
             do {
                 let bookmarkRaw = TabDataType.bookmark.rawValue
                 let folderRaw = TabDataType.bookmarkFolder.rawValue
-                let predicate = #Predicate<TabDataModel> { $0.type == bookmarkRaw || $0.type == folderRaw }
+                let predicate = #Predicate<TabDataModel> {
+                    ($0.type == bookmarkRaw || $0.type == folderRaw)
+                        && $0.profile?.profileId == profileId
+                        && $0.spaceId == spaceId
+                }
                 let sortBy: [SortDescriptor<TabDataModel>] = [SortDescriptor(\.createdDate)]
                 let descriptor = FetchDescriptor<TabDataModel>(
                     predicate: predicate,
                     sortBy: sortBy
                 )
-                let bookmarks: [TabDataModel] = try context.fetch(descriptor)
-                return bookmarks.filter {
-                    $0.profile?.profileId == profileId && $0.spaceId == spaceId
-                }
+                return try context.fetch(descriptor)
             } catch {
                 AppLogError("Failed to fetch bookmarks for publisher: \(error)")
                 return []
