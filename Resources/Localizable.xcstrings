@@ -62627,6 +62627,30 @@
         }
       }
     },
+    "settings.ai.emailProtection.enableToggle" : {
+      "comment" : "AI settings - Toggle to enable AI detection of phishing and scam emails",
+      "extractionState" : "extracted_with_value",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Enable email protection"
+          }
+        }
+      }
+    },
+    "settings.ai.emailProtection.sectionTitle" : {
+      "comment" : "AI settings - Section title for email phishing and scam detection",
+      "extractionState" : "extracted_with_value",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Email Protection"
+          }
+        }
+      }
+    },
     "settings.ai.features.enableToggle" : {
       "comment" : "AI settings - Master toggle to enable or disable all AI features in Phi Browser",
       "extractionState" : "extracted_with_value",
