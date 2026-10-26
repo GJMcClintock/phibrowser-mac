@@ -2,11 +2,13 @@
 // Use of this source code is governed by an Apache license in the LICENSE file.
 
 import Cocoa
+import ImageIO
+import UniformTypeIdentifiers
 
 /// Only the three discrete selections vary. Rendering parameters are the supplied
 /// frontend's defaults, independent of selection and of persisted browser settings.
-struct HolographicCardStyle: Codable, Equatable, Hashable {
-    enum Palette: String, Codable, CaseIterable {
+struct HolographicCardStyle: Codable, Equatable, Hashable, Sendable {
+    enum Palette: String, Codable, CaseIterable, Sendable {
         case silver, green, aqua, blue, violet, pink, coral, gold
 
         var themeID: String {
@@ -41,11 +43,11 @@ struct HolographicCardStyle: Codable, Equatable, Hashable {
         }
     }
 
-    enum Texture: String, Codable, CaseIterable {
+    enum Texture: String, Codable, CaseIterable, Sendable {
         case arcs, waves, guilloche, brushed, diamond, stardust
     }
 
-    enum Ornament: String, Codable, CaseIterable {
+    enum Ornament: String, Codable, CaseIterable, Sendable {
         case lace, lotus, periodic, modulated, epicycloid, none
         var enhanced: Bool { self == .periodic || self == .modulated || self == .epicycloid }
     }
@@ -71,9 +73,8 @@ struct HolographicCardStyle: Codable, Equatable, Hashable {
     }
 }
 
-@MainActor
 enum HolographicCardArtwork {
-    static let size = HolographicCardView.designSize
+    static let size = CGSize(width: 292, height: 423)
     static let rect = CGRect(origin: .zero, size: size)
 
     static let ticketPath: CGPath = {
@@ -109,11 +110,151 @@ enum HolographicCardArtwork {
         return p.copy(using: &transform)!
     }()
 
-    private static var textureCache: [HolographicCardStyle.Texture: CGImage] = [:]
-    private static var ornamentCache: [HolographicCardStyle.Ornament: CGPath] = [:]
+    /// CGPath lacks Sendable in the SDK. Only an immutable copy leaves the producer;
+    /// no mutable path is shared. Remove this wrapper when CGPath gains Sendable.
+    struct ImmutablePath: @unchecked Sendable {
+        let value: CGPath
 
-    static func sealPath(_ ornament: HolographicCardStyle.Ornament) -> CGPath {
-        if let cached = ornamentCache[ornament] { return cached }
+        init(_ path: CGPath) {
+            value = path.copy()!
+        }
+    }
+
+    struct Material: Sendable {
+        let grain: CGImage?
+        let foil: CGImage?
+        let seal: ImmutablePath
+    }
+
+    /// Serializes cache misses off the main actor, sharing immutable artwork across cards.
+    actor Cache {
+        // Bump the version when drawing formulas, colors, or serialization change.
+        private let directory: URL
+        private var grainImage: CGImage?
+        private var textures: [HolographicCardStyle.Texture: CGImage] = [:]
+        private var ornaments: [HolographicCardStyle.Ornament: ImmutablePath] = [:]
+
+        init(directory: URL = URL(fileURLWithPath: FileSystemUtils.cacheDirctory(), isDirectory: true)
+            .appendingPathComponent("HolographicCardArtwork", isDirectory: true)) {
+            self.directory = directory.appendingPathComponent("v1-584x846", isDirectory: true)
+        }
+
+        func material(for style: HolographicCardStyle) -> Material {
+            assert(!Thread.isMainThread, "Card artwork must be prepared off the main thread.")
+            if grainImage == nil {
+                grainImage = loadImage("grain.png")
+                if grainImage == nil, let image = HolographicCardArtwork.grain {
+                    grainImage = image
+                    storeImage(image, name: "grain.png")
+                }
+            }
+            return Material(grain: grainImage, foil: foil(style.texture), seal: sealPath(style.ornament))
+        }
+
+        func foil(_ texture: HolographicCardStyle.Texture) -> CGImage? {
+            if let cached = textures[texture] { return cached }
+            let name = "foil-\(texture.rawValue).png"
+            if let image = loadImage(name) {
+                textures[texture] = image
+                return image
+            }
+            let image = makeFoil(texture)
+            textures[texture] = image
+            if let image { storeImage(image, name: name) }
+            return image
+        }
+
+        func sealPath(_ ornament: HolographicCardStyle.Ornament) -> ImmutablePath {
+            if let cached = ornaments[ornament] { return cached }
+            let name = "seal-\(ornament.rawValue).plist"
+            if let data = loadData(name),
+               let geometry = try? PropertyListDecoder().decode(SealGeometry.self, from: data),
+               let path = geometry.path(for: ornament) {
+                let cached = ImmutablePath(path)
+                ornaments[ornament] = cached
+                return cached
+            }
+            let path = ImmutablePath(makeSealPath(ornament))
+            ornaments[ornament] = path
+            let encoder = PropertyListEncoder()
+            encoder.outputFormat = .binary
+            if let data = try? encoder.encode(SealGeometry(path.value)) { storeData(data, name: name) }
+            return path
+        }
+
+        private func loadData(_ name: String) -> Data? {
+            let url = directory.appendingPathComponent(name)
+            guard let values = try? url.resourceValues(forKeys: [.fileSizeKey]),
+                  let size = values.fileSize, size > 0, size <= 4 * 1024 * 1024 else { return nil }
+            return try? Data(contentsOf: url)
+        }
+
+        private func storeData(_ data: Data, name: String) {
+            // A cache is disposable: unavailable storage must not prevent presentation.
+            do {
+                try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+                try data.write(to: directory.appendingPathComponent(name), options: .atomic)
+            } catch { }
+        }
+
+        private func loadImage(_ name: String) -> CGImage? {
+            guard let data = loadData(name),
+                  let source = CGImageSourceCreateWithData(data as CFData, nil),
+                  CGImageSourceGetType(source) as String? == UTType.png.identifier,
+                  let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+                  properties[kCGImagePropertyPixelWidth] as? Int == Int(size.width * 2),
+                  properties[kCGImagePropertyPixelHeight] as? Int == Int(size.height * 2) else { return nil }
+            // Decode here on the cache actor rather than lazily on the first UI draw.
+            return CGImageSourceCreateImageAtIndex(source, 0,
+                [kCGImageSourceShouldCacheImmediately: true] as CFDictionary)
+        }
+
+        private func storeImage(_ image: CGImage, name: String) {
+            let data = NSMutableData()
+            guard let destination = CGImageDestinationCreateWithData(data, UTType.png.identifier as CFString, 1, nil) else { return }
+            CGImageDestinationAddImage(destination, image, nil)
+            guard CGImageDestinationFinalize(destination) else { return }
+            storeData(data as Data, name: name)
+        }
+    }
+
+    /// The seal formulas produce only polylines. Persist their points, preserving
+    /// vector masks and moving highlights without rerunning the trigonometry.
+    private struct SealGeometry: Codable {
+        var contours: [[CGPoint]] = []
+
+        init(_ path: CGPath) {
+            var contours: [[CGPoint]] = []
+            path.applyWithBlock { element in
+                switch element.pointee.type {
+                case .moveToPoint: contours.append([element.pointee.points[0]])
+                case .addLineToPoint: contours[contours.count - 1].append(element.pointee.points[0])
+                default: break
+                }
+            }
+            self.contours = contours
+        }
+
+        func path(for ornament: HolographicCardStyle.Ornament) -> CGPath? {
+            let closed = ornament == .lace || ornament == .lotus
+            let count = ornament == .none ? 0 : (closed ? 6 : 1)
+            let pointsPerContour = closed ? 2881 : (ornament == .epicycloid ? 16 : 20) * 720 + 1
+            guard contours.count == count,
+                  contours.allSatisfy({ $0.count == pointsPerContour && $0.allSatisfy {
+                      $0.x.isFinite && $0.y.isFinite && abs($0.x) <= 200 && abs($0.y) <= 200
+                  } }) else { return nil }
+            let path = CGMutablePath()
+            for points in contours {
+                path.addLines(between: points)
+                if closed { path.closeSubpath() }
+            }
+            return path
+        }
+    }
+
+    static let cache = Cache()
+
+    private static func makeSealPath(_ ornament: HolographicCardStyle.Ornament) -> CGPath {
         let path = CGMutablePath()
         let closed = ornament == .lace || ornament == .lotus
         let steps = closed ? 2880 : (ornament == .epicycloid ? 16 : 20) * 720
@@ -152,12 +293,10 @@ enum HolographicCardArtwork {
                 if closed { path.closeSubpath() }
             }
         }
-        ornamentCache[ornament] = path
         return path
     }
 
-    static func foil(_ texture: HolographicCardStyle.Texture) -> CGImage? {
-        if let cached = textureCache[texture] { return cached }
+    private static func makeFoil(_ texture: HolographicCardStyle.Texture) -> CGImage? {
         // The reference canvas has a fixed DPR of 2.
         let raw = bitmap(scale: 2) { context in
             context.setFillColor(hex(0x898989))
@@ -285,13 +424,12 @@ enum HolographicCardArtwork {
               let image = CGImage(width: raw.width, height: raw.height, bitsPerComponent: 8, bitsPerPixel: 32,
                 bytesPerRow: raw.bytesPerRow, space: raw.colorSpace!, bitmapInfo: raw.bitmapInfo,
                 provider: provider, decode: nil, shouldInterpolate: true, intent: .defaultIntent) else { return nil }
-        textureCache[texture] = image
         return image
     }
 
     /// SVG feTurbulence defaults: seed 0, fractalNoise, frequency .85,
     /// three octaves, stitched 180 x 180 tile and path opacity .8.
-    static let grain: CGImage? = {
+    private static let grain: CGImage? = {
         var seed = 1
         func random() -> Int { seed = seed * 16807 % 2147483647; return seed }
         var permutation = Array(0..<256)

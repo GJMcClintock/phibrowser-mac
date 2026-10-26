@@ -9,7 +9,7 @@ import QuartzCore
 /// A native foil card shared by onboarding and account settings. Geometry is
 /// authored at the reference's 292 x 423 points; resizing never rebuilds its art.
 final class HolographicCardView: NSView {
-    static let designSize = CGSize(width: 292, height: 423)
+    static let designSize = HolographicCardArtwork.size
 
     static func formattedJoinDate(_ value: String) -> String {
         let parser = ISO8601DateFormatter()
@@ -30,7 +30,7 @@ final class HolographicCardView: NSView {
     var name = "Phi" { didSet { updateCopy() } }
     var memberID = "" { didSet { updateCopy() } }
     var joinedDate = "" { didSet { updateCopy() } }
-    var style = HolographicCardStyle.default { didSet { if oldValue != style { updateMaterial() } } }
+    var style: HolographicCardStyle { didSet { if oldValue != style { updateMaterial() } } }
     var showsReverse = false { didSet { renderMotion() } }
     var animatesIdleTilt = false { didSet { updateAnimationState() } }
 
@@ -45,6 +45,8 @@ final class HolographicCardView: NSView {
     private let rotor = CATransformLayer()
     private let front = HolographicCardFace(isBack: false)
     private let back = HolographicCardFace(isBack: true)
+    private var materialTask: Task<Void, Never>?
+    private(set) var renderedStyle: HolographicCardStyle?
     private var tracking: NSTrackingArea?
     private var timer: Timer?
     private var lastTick: CFTimeInterval?
@@ -61,11 +63,17 @@ final class HolographicCardView: NSView {
     override var isFlipped: Bool { true }
     override var acceptsFirstResponder: Bool { true }
 
-    override init(frame frameRect: NSRect) {
+    override convenience init(frame frameRect: NSRect) {
+        self.init(frame: frameRect, style: .default)
+    }
+
+    init(frame frameRect: NSRect = .zero, style: HolographicCardStyle) {
+        self.style = style
         super.init(frame: frameRect)
         wantsLayer = true
         layer?.masksToBounds = false
         layer?.addSublayer(rotor)
+        rotor.isHidden = true
         rotor.bounds = CGRect(origin: .zero, size: Self.designSize)
         rotor.addSublayer(front.layer)
         rotor.addSublayer(back.layer)
@@ -84,6 +92,7 @@ final class HolographicCardView: NSView {
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
     deinit {
+        materialTask?.cancel()
         timer?.invalidate()
         NotificationCenter.default.removeObserver(self)
         NSWorkspace.shared.notificationCenter.removeObserver(self)
@@ -159,7 +168,7 @@ final class HolographicCardView: NSView {
     private func updateAnimationState() {
         let reduced = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         if reduced { motion.finishEntrance() }
-        let shouldAnimate = isPresentationActive && !reduced && !isHiddenOrHasHiddenAncestor
+        let shouldAnimate = renderedStyle != nil && isPresentationActive && !reduced && !isHiddenOrHasHiddenAncestor
             && window?.occlusionState.contains(.visible) == true
             && needsMotion
         if shouldAnimate && timer == nil {
@@ -224,19 +233,32 @@ final class HolographicCardView: NSView {
     }
 
     private func updateMaterial() {
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        front.setStyle(style)
-        back.setStyle(style)
-        CATransaction.commit()
+        materialTask?.cancel()
+        let requestedStyle = style
+        materialTask = Task { [weak self] in
+            guard !Task.isCancelled else { return }
+            let material = await HolographicCardArtwork.cache.material(for: requestedStyle)
+            guard !Task.isCancelled, let self, self.style == requestedStyle else { return }
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            self.front.setStyle(requestedStyle, artwork: material)
+            self.back.setStyle(requestedStyle, artwork: material)
+            self.renderedStyle = requestedStyle
+            self.rotor.isHidden = false
+            CATransaction.commit()
+            self.updateAnimationState()
+        }
     }
 
     /// Export the fully readable front, independently of an in-flight 3D spin.
-    /// A separate face avoids mutating the live animation or its presentation tree.
-    func frontImage(scale: CGFloat = 3) -> NSImage? {
+    /// Await artwork even if export is requested before the live card is ready.
+    func frontImage(scale: CGFloat = 3) async -> NSImage? {
         guard scale > 0, scale <= 4 else { return nil }
+        let style = style, name = name, memberID = memberID, joinedDate = joinedDate
+        let artwork = await HolographicCardArtwork.cache.material(for: style)
+        guard !Task.isCancelled else { return nil }
         let face = HolographicCardFace(isBack: false)
-        face.setStyle(style)
+        face.setStyle(style, artwork: artwork)
         face.setCopy(name: name, identifier: memberID, joinedDate: joinedDate)
         face.light(x: 0, y: 0, facing: 1)
         guard let image = face.image(scale: scale) else { return nil }
@@ -280,6 +302,7 @@ private final class HolographicCardFace {
     private let iridescence = CAGradientLayer()
     private let radial = CAGradientLayer()
     private let foil = CALayer()
+    private let grain = CALayer()
     private let sealGroove = CAGradientLayer()
     private let sealGrooveMask = CAShapeLayer()
     private let sealReflectionMask = CAShapeLayer()
@@ -328,9 +351,7 @@ private final class HolographicCardFace {
             + [HolographicCardArtwork.hex(0x19224d, alpha: 74.0 / 255), NSColor.clear.cgColor]
         sheen.locations = [0.1, 0.24, 0.39, 0.49, 0.66, 0.85]
         surface.addSublayer(sheen)
-        let grain = CALayer()
         grain.frame = bounds
-        grain.contents = HolographicCardArtwork.grain
         grain.opacity = 0.13
         grain.compositingFilter = "multiplyBlendMode"
         surface.addSublayer(grain)
@@ -364,10 +385,10 @@ private final class HolographicCardFace {
         shade.frame = bounds
         shade.backgroundColor = NSColor.black.cgColor
         surface.addSublayer(shade)
-        setStyle(.default)
     }
 
-    func setStyle(_ style: HolographicCardStyle) {
+    func setStyle(_ style: HolographicCardStyle, artwork: HolographicCardArtwork.Material) {
+        grain.contents = artwork.grain
         self.style = style
         let hex = HolographicCardArtwork.hex
         let colors = style.palette.colors
@@ -389,13 +410,13 @@ private final class HolographicCardFace {
         iridescenceGroup.opacity = HolographicCardStyle.iridescenceOpacity
         iridescenceGroup.compositingFilter = silver ? "softLightBlendMode" : nil
         radial.isHidden = silver
-        foil.contents = HolographicCardArtwork.foil(style.texture)
+        foil.contents = artwork.foil
         foil.opacity = HolographicCardStyle.textureOpacity * (isBack ? 0.85 : 1)
         foil.compositingFilter = isBack ? "softLightBlendMode" : "overlayBlendMode"
         sheen.compositingFilter = isBack || silver ? "screenBlendMode" : "overlayBlendMode"
         sheen.opacity = isBack ? 0.32 : (silver ? 0.6 : 0.95)
         if !isBack {
-            let path = HolographicCardArtwork.sealPath(style.ornament)
+            let path = artwork.seal.value
             let enhanced = style.ornament.enhanced
             sealGrooveMask.path = path
             sealGrooveMask.lineWidth = enhanced ? 0.26 : 0.22

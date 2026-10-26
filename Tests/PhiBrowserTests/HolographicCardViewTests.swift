@@ -9,6 +9,119 @@ import XCTest
 
 @MainActor
 final class HolographicCardViewTests: XCTestCase {
+    private func waitForMaterial(in view: HolographicCardView) async throws {
+        let deadline = ContinuousClock.now + .seconds(20)
+        while view.renderedStyle != view.style {
+            guard ContinuousClock.now < deadline else {
+                XCTFail("Card material did not finish loading.")
+                throw NSError(domain: "HolographicCardViewTests", code: 1)
+            }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+    }
+
+    func testInitialUserStyleLoadsWithoutShowingOrAnimatingDefaultArtwork() async throws {
+        let style = HolographicCardStyle(palette: .gold, texture: .brushed, ornament: .none)
+        let view = HolographicCardView(style: style)
+        let rotor = try XCTUnwrap(view.layer?.sublayers?.first)
+        XCTAssertEqual(view.style, style)
+        XCTAssertNil(view.renderedStyle)
+        XCTAssertTrue(rotor.isHidden)
+        XCTAssertFalse(view.isAnimating)
+        try await waitForMaterial(in: view)
+        XCTAssertEqual(view.renderedStyle, style)
+        XCTAssertFalse(rotor.isHidden)
+        XCTAssertFalse(view.isAnimating, "A detached card must not start its entrance.")
+    }
+
+    func testLatestStyleWinsWhenChangedBeforeArtworkIsReady() async throws {
+        let view = HolographicCardView(style: .init(texture: .waves, ornament: .lotus))
+        view.style = .init(palette: .blue, texture: .diamond, ornament: .periodic)
+        let latest = HolographicCardStyle(palette: .pink, texture: .stardust, ornament: .none)
+        view.style = latest
+        try await waitForMaterial(in: view)
+        XCTAssertEqual(view.renderedStyle, latest)
+        // Allow cancelled requests to resume; none may replace the latest material.
+        try await Task.sleep(for: .milliseconds(100))
+        XCTAssertEqual(view.renderedStyle, latest)
+    }
+
+    func testMaterialDiskCacheSurvivesNewCacheAndPaletteChanges() async throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let style = HolographicCardStyle(palette: .gold, texture: .brushed, ornament: .lotus)
+        let first = await HolographicCardArtwork.Cache(directory: folder).material(for: style)
+        let directory = folder.appendingPathComponent("v1-584x846")
+        let files = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
+        XCTAssertEqual(Set(files.map(\.lastPathComponent)), ["grain.png", "foil-brushed.png", "seal-lotus.plist"])
+        let timestamp = Date(timeIntervalSince1970: 1234)
+        for file in files {
+            try FileManager.default.setAttributes([.modificationDate: timestamp], ofItemAtPath: file.path)
+        }
+        var anotherPalette = style
+        anotherPalette.palette = .blue
+        let restored = await HolographicCardArtwork.Cache(directory: folder).material(for: anotherPalette)
+        XCTAssertEqual(first.seal.value, restored.seal.value)
+        try assertSamePixels(first.grain, restored.grain)
+        try assertSamePixels(first.foil, restored.foil)
+        for file in files {
+            let attributes = try FileManager.default.attributesOfItem(atPath: file.path)
+            XCTAssertEqual(attributes[.modificationDate] as? Date, timestamp, "Disk hits must not regenerate or rewrite artwork.")
+        }
+    }
+
+    func testInvalidDiskMaterialIsRegenerated() async throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let style = HolographicCardStyle(texture: .brushed, ornament: .lace)
+        let original = await HolographicCardArtwork.Cache(directory: folder).material(for: style)
+        let directory = folder.appendingPathComponent("v1-584x846")
+        try Data("broken image".utf8).write(to: directory.appendingPathComponent("grain.png"))
+        let tinyContext = try XCTUnwrap(CGContext(data: nil, width: 1, height: 1, bitsPerComponent: 8,
+            bytesPerRow: 4, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        let tinyImage = try XCTUnwrap(tinyContext.makeImage())
+        let tinyPNG = try XCTUnwrap(NSBitmapImageRep(cgImage: tinyImage).representation(using: .png, properties: [:]))
+        try tinyPNG.write(to: directory.appendingPathComponent("foil-brushed.png"))
+        let invalidSeal = try PropertyListSerialization.data(fromPropertyList: ["contours": []], format: .binary, options: 0)
+        try invalidSeal.write(to: directory.appendingPathComponent("seal-lace.plist"))
+        let repaired = await HolographicCardArtwork.Cache(directory: folder).material(for: style)
+        try assertSamePixels(original.grain, repaired.grain)
+        try assertSamePixels(original.foil, repaired.foil)
+        XCTAssertEqual(original.seal.value, repaired.seal.value)
+        XCTAssertNotEqual(try Data(contentsOf: directory.appendingPathComponent("grain.png")), Data("broken image".utf8))
+        XCTAssertNotEqual(try Data(contentsOf: directory.appendingPathComponent("foil-brushed.png")), tinyPNG)
+        XCTAssertNotEqual(try Data(contentsOf: directory.appendingPathComponent("seal-lace.plist")), invalidSeal)
+    }
+
+    func testUnavailableDiskCacheDoesNotPreventMaterialGeneration() async throws {
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: file) }
+        try Data("not a directory".utf8).write(to: file)
+        let material = await HolographicCardArtwork.Cache(directory: file).material(
+            for: .init(texture: .stardust, ornament: .none))
+        XCTAssertNotNil(material.grain)
+        XCTAssertNotNil(material.foil)
+        XCTAssertTrue(material.seal.value.isEmpty)
+        XCTAssertEqual(try Data(contentsOf: file), Data("not a directory".utf8))
+    }
+
+    private func assertSamePixels(_ first: CGImage?, _ second: CGImage?, file: StaticString = #filePath, line: UInt = #line) throws {
+        func pixels(_ image: CGImage?) throws -> [UInt8] {
+            let image = try XCTUnwrap(image)
+            let context = try XCTUnwrap(CGContext(data: nil, width: image.width, height: image.height,
+                bitsPerComponent: 8, bytesPerRow: image.width * 4,
+                space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+            context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+            return Array(UnsafeBufferPointer(start: context.data!.assumingMemoryBound(to: UInt8.self), count: image.width * image.height * 4))
+        }
+        let lhs = try pixels(first), rhs = try pixels(second)
+        XCTAssertEqual(first?.width, second?.width, file: file, line: line)
+        XCTAssertEqual(first?.height, second?.height, file: file, line: line)
+        // PNG can round alpha unpremultiplication by one byte; compare decoded pixels.
+        XCTAssertEqual(lhs.count, rhs.count, file: file, line: line)
+        XCTAssertTrue(zip(lhs, rhs).allSatisfy { abs(Int($0) - Int($1)) <= 1 }, file: file, line: line)
+    }
+
     func testPointerClampsOutsideCardAndHandlesEmptyLayout() {
         let bounds = CGRect(x: 20, y: 40, width: 292, height: 423)
         XCTAssertEqual(HolographicCardMotion.normalizedPointer(CGPoint(x: bounds.midX, y: bounds.midY), in: bounds), .zero)
@@ -44,12 +157,13 @@ final class HolographicCardViewTests: XCTestCase {
         XCTAssertEqual(HolographicCardView.formattedJoinDate("invalid"), "")
     }
 
-    func testExportIsReadableEvenBeforeEntranceAndHasNoSideCutouts() throws {
+    func testExportIsReadableEvenBeforeEntranceAndHasNoSideCutouts() async throws {
         let view = HolographicCardView(frame: .zero)
         view.name = "任凯 — A very long profile name"
         view.memberID = "12345"
         view.joinedDate = "2026.10"
-        let image = try XCTUnwrap(view.frontImage(scale: 1))
+        let exported = await view.frontImage(scale: 1)
+        let image = try XCTUnwrap(exported)
         let rep = try XCTUnwrap(NSBitmapImageRep(data: try XCTUnwrap(image.tiffRepresentation)))
         XCTAssertEqual(rep.pixelsWide, 292)
         XCTAssertEqual(rep.pixelsHigh, 423)
@@ -59,7 +173,8 @@ final class HolographicCardViewTests: XCTestCase {
         XCTAssertGreaterThan(try XCTUnwrap(rep.colorAt(x: 146, y: 211)).alphaComponent, 0.99)
         XCTAssertGreaterThan(try XCTUnwrap(rep.colorAt(x: 10, y: 180)).alphaComponent, 0.99)
         XCTAssertFalse(view.isAnimating)
-        XCTAssertNil(view.frontImage(scale: 0))
+        let invalidExport = await view.frontImage(scale: 0)
+        XCTAssertNil(invalidExport)
     }
 
     func testDetachedCardDoesNotRetainAnAnimationTimer() {
@@ -84,6 +199,7 @@ final class HolographicCardViewTests: XCTestCase {
         window.contentView = view
         window.orderFront(nil)
         defer { window.close() }
+        try await waitForMaterial(in: view)
         try await Task.sleep(for: .milliseconds(200))
         XCTAssertTrue(view.isAnimating)
         view.isHidden = true
@@ -181,21 +297,24 @@ final class HolographicCardViewTests: XCTestCase {
         XCTAssertEqual(selected.count, 8 * 6 * 6)
     }
 
-    func testEveryTextureHasDistinctCachedArtwork() throws {
+    func testEveryTextureHasDistinctCachedArtwork() async throws {
         var data = Set<Data>()
         for texture in HolographicCardStyle.Texture.allCases {
-            let image = try XCTUnwrap(HolographicCardArtwork.foil(texture))
+            let generated = await HolographicCardArtwork.cache.foil(texture)
+            let image = try XCTUnwrap(generated)
             XCTAssertEqual(image.width, 584)
             XCTAssertEqual(image.height, 846)
-            XCTAssertTrue(image === HolographicCardArtwork.foil(texture))
+            let cached = await HolographicCardArtwork.cache.foil(texture)
+            XCTAssertTrue(image === cached)
             data.insert(try XCTUnwrap(image.dataProvider?.data) as Data)
         }
         XCTAssertEqual(data.count, 6)
     }
 
-    func testFormulaOrnamentsStayOpenAndNoneIsEmpty() {
+    func testFormulaOrnamentsStayOpenAndNoneIsEmpty() async {
         for ornament in HolographicCardStyle.Ornament.allCases {
-            let path = HolographicCardArtwork.sealPath(ornament)
+            let cachedPath = await HolographicCardArtwork.cache.sealPath(ornament)
+            let path = cachedPath.value
             var closed = 0, moves = 0, lines = 0
             path.applyWithBlock { element in
                 switch element.pointee.type {

@@ -97,12 +97,16 @@ final class HolographicCardDebugViewController: NSViewController {
     }
 
     @objc private func exportFront() {
-        guard let tiff = cardView.frontImage()?.tiffRepresentation,
+        Task { await exportImage() }
+    }
+
+    private func exportImage() async {
+        let style = cardView.style
+        guard let tiff = await cardView.frontImage()?.tiffRepresentation,
               let bitmap = NSBitmapImageRep(data: tiff),
               let data = bitmap.representation(using: .png, properties: [:]) else { return }
         let panel = NSSavePanel()
         panel.allowedContentTypes = [.png]
-        let style = cardView.style
         panel.nameFieldStringValue = "\(style.palette.rawValue)-\(style.texture.rawValue)-\(style.ornament.rawValue).png"
         panel.begin { response in
             guard response == .OK, let url = panel.url else { return }
