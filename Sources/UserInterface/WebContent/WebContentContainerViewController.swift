@@ -44,6 +44,13 @@ class WebContentContainerViewController: NSViewController {
         currentWebContentController?.restoreFocusAfterPresentation()
     }
 
+    /// Hands keyboard focus to the presented page, as after the extension
+    /// side panel closes. The floating sidebar calls this when it hides over
+    /// a fullscreen page.
+    func focusWebContent() {
+        currentWebContentController?.focusWebContent()
+    }
+
     /// Hosted mode: the session's tree is about to be hidden or removed.
     /// See `WebContentViewController.collapseContentFullscreenForConcealment`.
     func collapseContentFullscreenForConcealment() {

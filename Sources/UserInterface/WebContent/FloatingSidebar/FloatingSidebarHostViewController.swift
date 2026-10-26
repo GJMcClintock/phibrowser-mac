@@ -36,7 +36,13 @@ final class FloatingSidebarHostViewController: NSViewController {
 
     var isVisible: Bool { floatingSidebarContainerView?.isHidden == false }
 
-    override func loadView() { view = FloatingSidebarOverlayView() }
+    override func loadView() {
+        let overlay = FloatingSidebarOverlayView()
+        overlay.isOverFullscreenPage = { [weak self] in
+            self?.browserState?.focusingTab?.isInContentFullscreen == true
+        }
+        view = overlay
+    }
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -55,6 +61,18 @@ final class FloatingSidebarHostViewController: NSViewController {
         parent.addChild(self)
         parent.view.addSubview(view)
         view.snp.makeConstraints { make in make.edges.equalTo(content) }
+    }
+
+    /// AppKit hit-tests in subview order, independently of the layer
+    /// zPosition that draws this host over its siblings, so a sibling added
+    /// after it takes the clicks on the panel drawn over that sibling. Puts
+    /// the host back in front when `sibling` is one of its siblings (the
+    /// content fullscreen overlay in a hosted shell). Assigning the order
+    /// reorders in place: nothing leaves the window, and the other siblings
+    /// keep their order.
+    func bringToFront(over sibling: NSView) {
+        guard isViewLoaded, let superview = view.superview, sibling.superview === superview else { return }
+        superview.subviews = superview.subviews.filter { $0 !== view } + [view]
     }
 
     /// Keeps the open panel in place while replacing only its Space content.
@@ -494,6 +512,7 @@ final class FloatingSidebarHostViewController: NSViewController {
         cancelFloatingSidebarHide()
         guard let panel = floatingSidebarContainerView else { return }
         guard panel.isHidden == false else { return }
+        returnKeyboardToFullscreenPage(from: panel)
         floatingSidebarViewController?.setMediaPresented(false)
         // A forced hide (sidebar expanding, window ordering out) takes the
         // create-Space form down with the panel; without this the form's
@@ -522,6 +541,26 @@ final class FloatingSidebarHostViewController: NSViewController {
             panel.isHidden = true
             floatingSidebarLastShownAt = nil
             floatingSidebarShownFromRightToLeft = false
+        }
+    }
+
+    /// A click in the panel over a fullscreen page takes the keyboard from
+    /// the page, and Esc leaves fullscreen only through the page. Hand it
+    /// back as the panel goes, as the page container does when the extension
+    /// side panel closes, and like it one turn later: a forced hide can run
+    /// inside Chromium's synchronous bridge push or a window's teardown.
+    /// Hiding the panel leaves the keyboard with the window meanwhile.
+    private func returnKeyboardToFullscreenPage(from panel: NSView) {
+        guard let responder = view.window?.firstResponder as? NSView,
+              responder.isDescendant(of: panel) else { return }
+        DispatchQueue.main.async { [weak self, weak panel] in
+            guard let self, let panel, let state = self.browserState,
+                  state.focusingTab?.isInContentFullscreen == true,
+                  let window = self.view.window else { return }
+            let current = window.firstResponder
+            guard current == nil || current === window
+                    || (current as? NSView)?.isDescendant(of: panel) == true else { return }
+            state.windowController?.mainSplitViewController.webContentContainerViewController.focusWebContent()
         }
     }
 
@@ -638,10 +677,17 @@ final class MouseTrackingAreaView: NSView {
 }
 
 /// The full-page overlay accepts hits only on the trigger and visible panel.
-/// Everything else remains available to the page and its own overlays.
+/// Everything else remains available to the page and its own overlays. Over
+/// a fullscreen page the trigger strip and the panel's container only track
+/// the pointer, through their tracking areas, and their clicks (the strip,
+/// the inset left of the glass) reach the page too.
 private final class FloatingSidebarOverlayView: NSView {
+    var isOverFullscreenPage: () -> Bool = { false }
+
     override func hitTest(_ point: NSPoint) -> NSView? {
         let hit = super.hitTest(point)
-        return hit === self ? nil : hit
+        if hit === self { return nil }
+        if hit is MouseTrackingAreaView, isOverFullscreenPage() { return nil }
+        return hit
     }
 }

@@ -2336,6 +2336,9 @@ class WebContentViewController: NSViewController {
     /// nearest in its ancestry). Lifted alone they left the surface, built a
     /// compositor of their own and showed nothing until its first frame,
     /// while the AppKit fullscreen transition held the main thread.
+    ///
+    /// In a hosted shell the floating sidebar stays in front of the overlay,
+    /// so it can still open over the page.
     private func applyContentFullscreenState(_ isFullscreen: Bool) {
         if isFullscreen {
             guard savedHostViewSuperview == nil else { return }
@@ -2385,6 +2388,9 @@ class WebContentViewController: NSViewController {
             hostView.snp.remakeConstraints { make in
                 make.edges.equalToSuperview()
             }
+            // A hosted shell's floating sidebar is the overlay's sibling and
+            // draws over the page; it has to take the clicks it draws over.
+            contentSurfaceLender?.floatingSidebarHost.bringToFront(over: overlay)
             // Re-parent transiently detaches webContentView from the window,
             // which causes NSWindow to clear first responder. Without this,
             // keyboard events (including ESC to exit fullscreen) never reach
