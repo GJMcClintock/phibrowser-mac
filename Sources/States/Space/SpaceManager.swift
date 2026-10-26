@@ -536,10 +536,33 @@ final class SpaceManager: ObservableObject {
     /// Distinguishes "the user closed the last window mid-session" — where a
     /// Dock-click reopen must respawn the persisted Space
     /// (`reopenOnPersistedSpaceIfWindowless`) — from a launch that hasn't
-    /// surfaced a window yet (e.g. a hidden login-item start), where the
-    /// first Dock click must stay with Chromium's reopen so its session
-    /// restore can run (`PhiAttemptSessionRestore`).
+    /// surfaced a window yet. A hidden login-item start is one: its first
+    /// Dock click stays with Chromium's reopen so its session restore can run
+    /// (`PhiAttemptSessionRestore`). A silent launch is the other, and its
+    /// first click is this side's (`isInSilentLaunch`).
     fileprivate(set) var hasEverHostedSlotWindow = false
+
+    /// Whether the process is still in its silent launch (chromium ADR 0019):
+    /// it was started with no startup window to show Phi Chat (by the app's
+    /// shim, or by Sentinel), so Chromium skipped the cold start, and no slot
+    /// window has been hosted since. Its first
+    /// Dock click or external link restores in the cold start's place. The
+    /// first hosted window, however it arrives, ends the state; the Phi Chat
+    /// and Kiosk windows live in no slot and leave it alone. A framework
+    /// without the query reads as not silent.
+    private var isInSilentLaunch: Bool {
+        Self.isInSilentLaunch(
+            chromiumReportsSilentLaunch: ChromiumLauncher.sharedInstance().bridge?
+                .isSilentLaunch?() ?? false,
+            hasEverHostedSlotWindow: hasEverHostedSlotWindow)
+    }
+
+    /// The rule behind the property above. Pure and static so it is pinned by
+    /// table.
+    static func isInSilentLaunch(chromiumReportsSilentLaunch: Bool,
+                                 hasEverHostedSlotWindow: Bool) -> Bool {
+        chromiumReportsSilentLaunch && !hasEverHostedSlotWindow
+    }
 
     /// Bumped whenever any slot's window map changes (`registerWindow`,
     /// `unregisterWindow`, `evictWindow`). Which slot hosts an agent Space's
@@ -1431,8 +1454,11 @@ final class SpaceManager: ObservableObject {
     /// Space's OWN profile via `createBrowser(withWindowType:profileId:)` —
     /// and returns true. Returns false when the reopen should stay with
     /// Chromium's handler: a browser window still exists (Chromium focuses
-    /// it), or no slot window has been hosted yet this session (Chromium's
-    /// session restore owns the hidden-login-item first click).
+    /// it), or no slot window has been hosted yet this session outside a
+    /// silent launch (Chromium's session restore owns the hidden-login-item
+    /// first click). A silent launch's first click is handled here; with the
+    /// restore switch on it restores by the cold-start rule
+    /// (`reopenLandingMode`).
     ///
     /// Why Chromium must not create this window itself: its reopen seeds the
     /// window from Chromium's last-used-profile pref
@@ -1452,7 +1478,7 @@ final class SpaceManager: ObservableObject {
             // absent line cannot be told apart from a build that never had
             // them, or from a reopen that never reached the app at all. Stated
             // positively instead: it appears when this path was skipped, and
-            // three of its four numbers ARE the predicate's inputs — the
+            // four of its five readings ARE the predicate's inputs — the
             // second one is `slotsHoldingWindows`, not `slots` — so the same
             // line says which one refused. `slots` is kept beside it as the
             // raw registry count, the only reading that says whether anything
@@ -1489,7 +1515,7 @@ final class SpaceManager: ObservableObject {
             let leftovers = liveWindows == 0 && !slots.isEmpty
                 ? "; " + slots.map(\.diagnosticSummary).joined(separator: ", ")
                 : ""
-            AppLogInfo("[SpaceManager] windowless reopen declined, the persisted-Space reopen did not run: hasEverHostedSlotWindow=\(hasEverHostedSlotWindow), slotsHoldingWindows=\(heldSlots), slots=\(slots.count), liveNonShadowWindows=\(liveWindows)\(leftovers)")
+            AppLogInfo("[SpaceManager] windowless reopen declined, the persisted-Space reopen did not run: hasEverHostedSlotWindow=\(hasEverHostedSlotWindow), slotsHoldingWindows=\(heldSlots), slots=\(slots.count), liveNonShadowWindows=\(liveWindows), inSilentLaunch=\(isInSilentLaunch)\(leftovers)")
             return false
         }
         // Switch on: replay the whole closed window group (each Space with its
@@ -1524,7 +1550,8 @@ final class SpaceManager: ObservableObject {
     }
 
     /// True when the app has no browser window but has hosted a slot window this
-    /// session — the state a Dock reopen or an external-link open handles.
+    /// session, or is still in its silent launch — the state a Dock reopen or
+    /// an external-link open handles.
     /// Non-slot windows don't count as "windowless": a standalone Incognito
     /// window is focused by Chromium's own reopen, and shadow windows are
     /// invisible background hosts either way.
@@ -1532,7 +1559,8 @@ final class SpaceManager: ObservableObject {
         Self.isWindowlessWithHostedSlots(
             hasEverHostedSlotWindow: hasEverHostedSlotWindow,
             slots: slotOccupancy,
-            liveNonShadowWindowCount: liveNonShadowWindowCount)
+            liveNonShadowWindowCount: liveNonShadowWindowCount,
+            isInSilentLaunch: isInSilentLaunch)
     }
 
     /// Whether one slot is holding — or is still owed — a window: the per-slot
@@ -1573,16 +1601,19 @@ final class SpaceManager: ObservableObject {
     /// whether any slot still HOLDS — or is owed — a window costs the same and
     /// cannot be latched that way, whoever mints the next shell.
     ///
-    /// The other two inputs are unchanged: `hasEverHostedSlotWindow` leaves
-    /// the hidden-login-item first click to Chromium's session restore, and
-    /// `liveNonShadowWindowCount` is what "windowless" means for the windows
-    /// that live outside slots.
+    /// `hasEverHostedSlotWindow` leaves the hidden-login-item first click to
+    /// Chromium's session restore, and `liveNonShadowWindowCount` is what
+    /// "windowless" means for the windows that live outside slots. The fourth
+    /// input, `isInSilentLaunch`, takes the silent launch's first wake from
+    /// Chromium: it skipped that launch's cold start, and its reopen restores
+    /// nothing once the Phi Chat window exists (chromium ADR 0019).
     static func isWindowlessWithHostedSlots(
         hasEverHostedSlotWindow: Bool,
         slots: [(hostsWindow: Bool, awaitsSpawnedWindow: Bool)],
-        liveNonShadowWindowCount: Int
+        liveNonShadowWindowCount: Int,
+        isInSilentLaunch: Bool
     ) -> Bool {
-        hasEverHostedSlotWindow
+        (hasEverHostedSlotWindow || isInSilentLaunch)
             && !slots.contains(where: slotHoldsOrAwaitsWindow)
             && liveNonShadowWindowCount == 0
     }
@@ -2453,10 +2484,10 @@ final class SpaceManager: ObservableObject {
     /// nor in a Guest-to-account transition. Forwarding the open is then what
     /// creates its window, so `AppController` forwards one that arrived with
     /// browser access at once instead of running out its retries. Until a
-    /// process first hosts a slot window this never reads true
-    /// (`hasEverHostedSlotWindow`): cold launch still waits for Chromium's
-    /// startup window, and a process an app shim started, which has no
-    /// startup window coming, waits out the retries.
+    /// process first hosts a slot window this reads true only in a silent
+    /// launch (`isInSilentLaunch`): cold launch still waits for Chromium's
+    /// startup window, while a silent launch has none coming, so with the
+    /// restore switch off its link forwards at once.
     ///
     /// Logs its inputs when false, so a log bundle says why an open waited.
     var mayForwardExternalOpenWithoutWindow: Bool {
@@ -2472,7 +2503,7 @@ final class SpaceManager: ObservableObject {
             isTerminating: isTerminating,
             isGuestTransitionInProgress: guestTransition)
         if !mayForward {
-            AppLogDebug("[SpaceManager] external open waits for a window: windowless=\(windowless), hasEverHostedSlotWindow=\(hasEverHostedSlotWindow), restoreInFlight=\(isSessionRestoreInFlight), terminating=\(isTerminating), guestTransition=\(guestTransition)")
+            AppLogDebug("[SpaceManager] external open waits for a window: windowless=\(windowless), hasEverHostedSlotWindow=\(hasEverHostedSlotWindow), inSilentLaunch=\(isInSilentLaunch), restoreInFlight=\(isSessionRestoreInFlight), terminating=\(isTerminating), guestTransition=\(guestTransition)")
         }
         return mayForward
     }
@@ -2938,13 +2969,23 @@ final class SpaceManager: ObservableObject {
     enum RestoreLandingMode: Equatable {
         /// Dock reopen (R1). Only the marked landing entry lands.
         case landingOnly
-        /// Cold start (R2). Every entry that was still on screen when the
-        /// record froze lands on its own active Space. An entry the record
-        /// marks as a closed group (`isParkedOnlyEntry` on the slot tuple)
-        /// lands nothing, which is what keeps a closed group from coming
-        /// back as a window. A missing marker is treated as on-screen — the
-        /// fail-eager direction the marker itself is written in.
+        /// Cold start (R2), and the first wake after a silent launch, which
+        /// stands in for one (`reopenLandingMode`). Every entry that was
+        /// still on screen when the record froze lands on its own active
+        /// Space. An entry the record marks as a closed group
+        /// (`isParkedOnlyEntry` on the slot tuple) lands nothing, which is
+        /// what keeps a closed group from coming back as a window. A missing
+        /// marker is treated as on-screen — the fail-eager direction the
+        /// marker itself is written in.
         case everyOnScreenEntry
+    }
+
+    /// The mode a windowless reopen classifies in. The first wake after a
+    /// silent launch stands in for the cold start Chromium skipped (chromium
+    /// ADR 0019), so it brings back every group on screen at quit rather than
+    /// the one closed last. Pure and static so the choice is pinned by table.
+    static func reopenLandingMode(isInSilentLaunch: Bool) -> RestoreLandingMode {
+        isInSilentLaunch ? .everyOnScreenEntry : .landingOnly
     }
 
     /// Splits the restore snapshot's windows into the set a replay rebuilds
@@ -3168,7 +3209,10 @@ final class SpaceManager: ObservableObject {
     private func armLazyRestoreForReopen(
         _ bridge: PhiChromiumBridgeProtocol
     ) -> ArmedRestorePlan? {
-        let classification = classifyLoadedRestoreSnapshot(mode: .landingOnly)
+        // Read before any window of this reopen can register and end the
+        // silent launch.
+        let mode = Self.reopenLandingMode(isInSilentLaunch: isInSilentLaunch)
+        let classification = classifyLoadedRestoreSnapshot(mode: mode)
         let featureEnabled = Self.isLazySpaceRestoreEnabled
         let bridgeSupports = Self.bridgeSupportsLazyRestore(bridge)
         let hasSnapshotEntries = !restoreEntries.isEmpty
@@ -3201,7 +3245,7 @@ final class SpaceManager: ObservableObject {
         // Logged like the restore transitions: the park set decides what the
         // reopen deliberately does NOT bring back, which a log bundle must
         // be able to answer.
-        AppLogInfo("[SpaceManager] lazy reopen armed: \(plan.eagerWindowIds.count) eager, \(parkedGhostSpaceIdsByWindowId.count) parked, \(plan.closedGroupWindowIds.count) closed-group")
+        AppLogInfo("[SpaceManager] lazy reopen armed (\(mode)): \(plan.eagerWindowIds.count) eager, \(parkedGhostSpaceIdsByWindowId.count) parked, \(plan.closedGroupWindowIds.count) closed-group")
         return plan
     }
 

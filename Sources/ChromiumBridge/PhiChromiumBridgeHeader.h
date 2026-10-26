@@ -2320,6 +2320,14 @@ typedef NS_ENUM(NSInteger, PhiGhostMaterializeOutcome) {
                              zOrder:(NSInteger)zOrder
     NS_SWIFT_NAME(setContentHosting(forWebView:frameInWindow:clipInWindow:topLeftRadius:topRightRadius:bottomRightRadius:bottomLeftRadius:zOrder:));
 
+/// Whether this launch was silent: the browser was started with no startup
+/// window, as the Phi Chat app's shim and Sentinel start it to show Phi Chat,
+/// so the cold-launch restore did not run (chromium ADR 0019). NO for a hidden
+/// login-item launch, whose first Dock reopen Chromium restores itself. Fixed
+/// for the life of the process. Optional so an older framework reads as not
+/// silent. Main thread only.
+- (BOOL)isSilentLaunch;
+
 @end
 
 typedef NS_ENUM(NSInteger, PhiMediaControlAction) {

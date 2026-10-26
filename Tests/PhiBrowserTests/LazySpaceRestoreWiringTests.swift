@@ -866,15 +866,19 @@ final class LazySpaceRestoreWiringTests: XCTestCase {
     /// what made a floor under all of them necessary.
     ///
     /// The defaults describe the windowless state; each test flips one input.
+    /// The silent-launch row flips two, because that state exists only before
+    /// a slot window has been hosted.
     private static func windowless(
         hasEverHostedSlotWindow: Bool = true,
         slots: [(hostsWindow: Bool, awaitsSpawnedWindow: Bool)] = [],
-        liveNonShadowWindowCount: Int = 0
+        liveNonShadowWindowCount: Int = 0,
+        isInSilentLaunch: Bool = false
     ) -> Bool {
         SpaceManager.isWindowlessWithHostedSlots(
             hasEverHostedSlotWindow: hasEverHostedSlotWindow,
             slots: slots,
-            liveNonShadowWindowCount: liveNonShadowWindowCount)
+            liveNonShadowWindowCount: liveNonShadowWindowCount,
+            isInSilentLaunch: isInSilentLaunch)
     }
 
     func testNoSlotAndNoWindowIsTheWindowlessState() {
@@ -947,6 +951,16 @@ final class LazySpaceRestoreWiringTests: XCTestCase {
             slots: [(hostsWindow: false, awaitsSpawnedWindow: false)]))
     }
 
+    func testASilentLaunchIsWindowlessBeforeItHostsAWindow() {
+        // The Phi Chat app started the browser with no startup window, so the
+        // cold start never ran (chromium ADR 0019). Left to Chromium's reopen,
+        // the first Dock click opened one plain window and none of the windows
+        // open at quit came back; the first external link waited out the
+        // retries for a window nothing was bringing.
+        XCTAssertTrue(Self.windowless(
+            hasEverHostedSlotWindow: false, isInSilentLaunch: true))
+    }
+
     func testAWindowOutsideEverySlotIsStillAWindow() {
         // A standalone Incognito window lives in no slot, so the slot inputs
         // read "windowless" while the user is looking at a browser window;
@@ -954,6 +968,27 @@ final class LazySpaceRestoreWiringTests: XCTestCase {
         // this count (`liveNonShadowWindowCount`), which is what lets an agent
         // Space's hidden host reach the windowless paths at all.
         XCTAssertFalse(Self.windowless(liveNonShadowWindowCount: 1))
+    }
+
+    // MARK: - Whether the process is still in its silent launch
+
+    func testASilentLaunchThatHasHostedNoWindowIsInTheSilentLaunchState() {
+        XCTAssertTrue(SpaceManager.isInSilentLaunch(
+            chromiumReportsSilentLaunch: true, hasEverHostedSlotWindow: false))
+    }
+
+    func testTheFirstHostedWindowEndsTheSilentLaunchState() {
+        // However it arrived: the restore, an extension's window, a move out
+        // of the Kiosk window. The ordinary reopen rules apply from here.
+        XCTAssertFalse(SpaceManager.isInSilentLaunch(
+            chromiumReportsSilentLaunch: true, hasEverHostedSlotWindow: true))
+    }
+
+    func testALaunchChromiumDoesNotReportAsSilentNeverIs() {
+        // A cold launch, the hidden login item, and a framework without the
+        // query all keep today's rules.
+        XCTAssertFalse(SpaceManager.isInSilentLaunch(
+            chromiumReportsSilentLaunch: false, hasEverHostedSlotWindow: false))
     }
 
     // MARK: - Whether an external open may forward without a window
@@ -997,6 +1032,15 @@ final class LazySpaceRestoreWiringTests: XCTestCase {
     func testAQuitInProgressForwardsNothingEarly() {
         // A window created mid-quit could be saved into the next session.
         XCTAssertFalse(Self.forwardsWithoutWindow(isTerminating: true))
+    }
+
+    func testASilentLaunchWithNoRestoreInFlightForwardsAtOnce() {
+        // The restore switch off: nothing restores, so no window is coming
+        // and the link's own forward creates one. With the switch on, the
+        // restore in flight holds it (`testARestoreInFlightIsWaitedFor`).
+        XCTAssertTrue(Self.forwardsWithoutWindow(
+            isWindowlessWithHostedSlots: Self.windowless(
+                hasEverHostedSlotWindow: false, isInSilentLaunch: true)))
     }
 
     func testAGuestTransitionKeepsTheWait() {
