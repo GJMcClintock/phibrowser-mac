@@ -765,6 +765,13 @@ class SpaceSessionController: NSWindowController {
             make.edges.equalToSuperview()
         }
 
+        // A standalone window's floating panel goes after the window-wide
+        // views above, as a hosted shell keeps its panel above the whole
+        // session: the panel draws over them, so it takes the clicks where
+        // it covers them too.
+        mainSplitViewController.webContentContainerViewController
+            .setupFloatingSidebar(in: mainSplitViewController)
+
         // A peek's appear flight starts from the press that opened it, which
         // is long gone by the time the panel is built — start recording now.
         peekOriginTracker = PeekOriginTracker(

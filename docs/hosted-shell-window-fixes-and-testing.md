@@ -53,7 +53,7 @@ and separate Profiles. Exercise expanded and floating sidebar modes.
 | --- | --- |
 | Warm and cold switches | Correct content and sidebar appear without a visible backing window; queued commands target the requested Space |
 | Geometry | Resize/collapse state survives a switch, while a second shell retains independent geometry |
-| Floating sidebar | Remains complete across visited/unvisited Spaces; dismissal and invisible hit areas do not block the page |
+| Floating sidebar | Remains complete across visited/unvisited Spaces; dismissal and invisible hit areas do not block the page; opens and takes clicks over a page in content fullscreen, in a standalone Incognito window too, whose host sits on the window's content view over the page area as the shell's does |
 | Close and before-unload | Closing one session or the entire shell respects the correct scope and veto recovery |
 | Incognito and agent sessions | Existing isolation and lifecycle rules remain independent of regular Space presentation |
 | Find, omnibox and tab search | Keyboard focus and overlay coordinates belong to the visible host |

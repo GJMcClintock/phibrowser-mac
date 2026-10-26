@@ -55,18 +55,14 @@ class PageOverlayView: NSView {
 extension WebContentContainerViewController {
     func installPageOverlay(_ overlay: PageOverlayView) {
         // AppKit hit testing follows subview order, independently of layer z.
-        // In standalone windows the sidebar is a sibling here; in hosted
-        // windows the shell already places it above this whole page tree.
-        let sidebar = floatingSidebarHost.view
+        // The floating sidebar is mounted above this whole page tree.
         if let higher = view.subviews.first(where: {
             $0 !== overlay && (($0 as? PageOverlayView)?.stackingRank ?? .min) > overlay.stackingRank
         }) {
             view.addSubview(overlay, positioned: .below, relativeTo: higher)
             return
         }
-        view.addSubview(overlay,
-                        positioned: sidebar.superview === view ? .below : .above,
-                        relativeTo: sidebar.superview === view ? sidebar : nil)
+        view.addSubview(overlay, positioned: .above, relativeTo: nil)
     }
 }
 

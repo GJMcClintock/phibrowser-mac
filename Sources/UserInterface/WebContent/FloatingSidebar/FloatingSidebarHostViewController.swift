@@ -67,7 +67,7 @@ final class FloatingSidebarHostViewController: NSViewController {
     /// zPosition that draws this host over its siblings, so a sibling added
     /// after it takes the clicks on the panel drawn over that sibling. Puts
     /// the host back in front when `sibling` is one of its siblings (the
-    /// content fullscreen overlay in a hosted shell). Assigning the order
+    /// content fullscreen overlay). Assigning the order
     /// reorders in place: nothing leaves the window, and the other siblings
     /// keep their order.
     func bringToFront(over sibling: NSView) {

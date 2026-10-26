@@ -11,7 +11,9 @@ import XCTest
 /// content view, while the floating sidebar still slides in from the left
 /// edge above it. The panel has to take the clicks it shows, not the page
 /// under it, and the page still covers every other view in the shell and
-/// keeps every click outside the panel.
+/// keeps every click outside the panel. A standalone Incognito window has no
+/// shell; its page lifts over the window's own content view, and its own
+/// floating sidebar behaves the same.
 @MainActor
 final class ContentFullscreenFloatingSidebarTests: XCTestCase {
     private var store: LocalStore!
@@ -92,22 +94,9 @@ final class ContentFullscreenFloatingSidebarTests: XCTestCase {
         defer { exitFullscreen(tab) }
         RunLoop.main.run(until: Date().addingTimeInterval(0.1))
         split.setSidebarCollapsed(true, animated: false)
-        let host = split.floatingSidebarHost
-        // The strip comes up a moment after the column collapses.
-        func visibleStrip() -> NSView? {
-            host.view.subviews.first {
-                !$0.isHidden && $0.frame.width == FloatingSidebarHostViewController.floatingSidebarTriggerWidth
-            }
-        }
-        let deadline = Date().addingTimeInterval(2)
-        while visibleStrip() == nil, Date() < deadline {
-            RunLoop.main.run(until: Date().addingTimeInterval(0.02))
-        }
-        split.view.layoutSubtreeIfNeeded()
-        XCTAssertFalse(host.isVisible, "precondition: the panel is closed")
-        let strip = try XCTUnwrap(visibleStrip(), "precondition: the trigger strip is up")
-        let stripFrame = strip.convert(strip.bounds, to: nil)
+        let strip = try triggerStrip(of: split.floatingSidebarHost, in: window)
 
+        let stripFrame = strip.convert(strip.bounds, to: nil)
         let hit = try XCTUnwrap(hitTest(window, at: NSPoint(x: stripFrame.midX, y: stripFrame.midY)))
         XCTAssertTrue(hit.isDescendant(of: webView), "a click on the strip reaches the page, not \(hit)")
     }
@@ -175,6 +164,66 @@ final class ContentFullscreenFloatingSidebarTests: XCTestCase {
                       "the keyboard stays where it was, not \(String(describing: window.firstResponder))")
     }
 
+    func testAStandaloneWindowsFloatingSidebarTakesClicksOverAFullscreenPage() throws {
+        let (window, controller, webView) = try makeStandaloneWindow()
+        defer { window.close(); withExtendedLifetime(controller) {} }
+        let tab = try XCTUnwrap(controller.browserState.focusingTab)
+
+        tab.isInContentFullscreen = true
+        defer { exitFullscreen(tab) }
+        let panel = try showPanel(in: controller)
+
+        try assertClicks(in: window, reach: panel, andPage: webView)
+
+        // AppKit's fullscreen transition resizes the window under the lifted page.
+        window.setContentSize(NSSize(width: 1200, height: 800))
+        window.contentView?.layoutSubtreeIfNeeded()
+        try assertClicks(in: window, reach: panel, andPage: webView)
+
+        exitFullscreen(tab)
+        let panelFrame = panel.convert(panel.bounds, to: nil)
+        let hit = try XCTUnwrap(hitTest(window, at: NSPoint(x: panelFrame.midX, y: panelFrame.midY)))
+        XCTAssertTrue(hit.isDescendant(of: panel), "the panel keeps its clicks after fullscreen, not \(hit)")
+    }
+
+    func testAStandaloneWindowsTriggerStripLeavesItsClicksToTheFullscreenPage() throws {
+        let (window, controller, webView) = try makeStandaloneWindow()
+        defer { window.close(); withExtendedLifetime(controller) {} }
+        let tab = try XCTUnwrap(controller.browserState.focusingTab)
+
+        tab.isInContentFullscreen = true
+        defer { exitFullscreen(tab) }
+        RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+        controller.mainSplitViewController.setSidebarCollapsed(true, animated: false)
+        let host = controller.mainSplitViewController.webContentContainerViewController.floatingSidebarHost
+        let strip = try triggerStrip(of: host, in: window)
+
+        let stripFrame = strip.convert(strip.bounds, to: nil)
+        let hit = try XCTUnwrap(hitTest(window, at: NSPoint(x: stripFrame.midX, y: stripFrame.midY)))
+        XCTAssertTrue(hit.isDescendant(of: webView), "a click on the strip reaches the page, not \(hit)")
+    }
+
+    func testHidingAStandaloneWindowsPanelGivesTheKeyboardBackToTheFullscreenPage() throws {
+        let (window, controller, webView) = try makeStandaloneWindow()
+        defer { window.close(); withExtendedLifetime(controller) {} }
+        let tab = try XCTUnwrap(controller.browserState.focusingTab)
+
+        tab.isInContentFullscreen = true
+        defer { exitFullscreen(tab) }
+        let panel = try showPanel(in: controller)
+        XCTAssertTrue(window.firstResponder === webView, "precondition: the fullscreen page has the keyboard")
+        let row = FocusableView(frame: NSRect(x: 10, y: 10, width: 40, height: 20))
+        panel.addSubview(row)
+        XCTAssertTrue(window.makeFirstResponder(row), "precondition: the panel takes the keyboard")
+
+        controller.mainSplitViewController.webContentContainerViewController.floatingSidebarHost
+            .hideFloatingSidebar(animated: false)
+        RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+
+        XCTAssertTrue(window.firstResponder === webView,
+                      "the page has the keyboard again, not \(String(describing: window.firstResponder))")
+    }
+
     // MARK: - Helpers
 
     /// The sidebar column collapsed and its floating panel shown, over the
@@ -191,6 +240,39 @@ final class ContentFullscreenFloatingSidebarTests: XCTestCase {
         let panel = try XCTUnwrap(host.floatingSidebarContainerView, file: file, line: line)
         split.view.layoutSubtreeIfNeeded()
         return panel
+    }
+
+    /// The same, in a standalone window.
+    private func showPanel(in controller: SpaceSessionController,
+                           file: StaticString = #filePath,
+                           line: UInt = #line) throws -> NSView {
+        RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+        controller.mainSplitViewController.setSidebarCollapsed(true, animated: false)
+        let host = controller.mainSplitViewController.webContentContainerViewController.floatingSidebarHost
+        host.showFloatingSidebar()
+        XCTAssertTrue(host.isVisible, "precondition: the panel is shown", file: file, line: line)
+        let panel = try XCTUnwrap(host.floatingSidebarContainerView, file: file, line: line)
+        controller.window?.contentView?.layoutSubtreeIfNeeded()
+        return panel
+    }
+
+    /// The strip at the left edge, which comes up a moment after the column
+    /// collapses, while the panel is closed.
+    private func triggerStrip(of host: FloatingSidebarHostViewController, in window: NSWindow,
+                              file: StaticString = #filePath,
+                              line: UInt = #line) throws -> NSView {
+        func visibleStrip() -> NSView? {
+            host.view.subviews.first {
+                !$0.isHidden && $0.frame.width == FloatingSidebarHostViewController.floatingSidebarTriggerWidth
+            }
+        }
+        let deadline = Date().addingTimeInterval(2)
+        while visibleStrip() == nil, Date() < deadline {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+        }
+        window.contentView?.layoutSubtreeIfNeeded()
+        XCTAssertFalse(host.isVisible, "precondition: the panel is closed", file: file, line: line)
+        return try XCTUnwrap(visibleStrip(), "precondition: the trigger strip is up", file: file, line: line)
     }
 
     private func assertClicks(in window: NSWindow, reach panel: NSView, andPage webView: NSView,
@@ -243,9 +325,37 @@ final class ContentFullscreenFloatingSidebarTests: XCTestCase {
         let slot = SpaceWindowSlot(manager: manager, initialSpaceId: "first")
         slot.ensureShell(initialFrame: NSRect(x: 0, y: 0, width: 1000, height: 700))
         slots.append(slot)
+        let (state, webView) = makeStateWithFocusedTab()
+        let session = SpaceSessionController(window: slot.shell!.window, windowId: state.windowId,
+            profileId: state.profileId, spaceId: "first", account: store.account,
+            slot: slot, browserState: state, dormant: true)
+        slot.registerWindow(session, for: "first")
+        XCTAssertTrue(session.isPresented, "precondition: the Space is presented")
+        slot.shell?.window.orderFront(nil)
+        waitUntilMounted(webView)
+        return (slot, session, webView)
+    }
+
+    /// A standalone Incognito window (Shift-Cmd-N) with one focused, mounted
+    /// tab. The caller closes the window.
+    private func makeStandaloneWindow() throws -> (NSWindow, SpaceSessionController, NSView) {
+        let (state, webView) = makeStateWithFocusedTab(isIncognito: true)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 700),
+                              styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        let controller = SpaceSessionController(window: window, windowId: state.windowId,
+            browserType: .incognito, profileId: state.profileId, account: store.account, browserState: state)
+        XCTAssertFalse(controller.isHosted, "precondition: the window is standalone")
+        window.orderFront(nil)
+        waitUntilMounted(webView)
+        return (window, controller, webView)
+    }
+
+    private func makeStateWithFocusedTab(isIncognito: Bool = false) -> (BrowserState, NSView) {
         nextWindowId += 1
         let state = UnseededBrowserState(windowId: nextWindowId, localStore: store,
-            profileId: LocalStore.defaultProfileId, spaceId: "first")
+            profileId: LocalStore.defaultProfileId, spaceId: "first", isIncognito: isIncognito)
         let webView = FocusableView(frame: NSRect(x: 0, y: 0, width: 300, height: 200))
         webViews.append(webView)
         let wrapper = PageColorTestWebContentWrapper(urlString: "https://first.example/")
@@ -255,19 +365,16 @@ final class ContentFullscreenFloatingSidebarTests: XCTestCase {
         state.tabs = [tab]
         state.updateNormalTabs()
         state.focusingTab = tab
-        let session = SpaceSessionController(window: slot.shell!.window, windowId: state.windowId,
-            profileId: state.profileId, spaceId: "first", account: store.account,
-            slot: slot, browserState: state, dormant: true)
-        slot.registerWindow(session, for: "first")
-        XCTAssertTrue(session.isPresented, "precondition: the Space is presented")
-        slot.shell?.window.orderFront(nil)
+        return (state, webView)
+    }
+
+    private func waitUntilMounted(_ webView: NSView, file: StaticString = #filePath, line: UInt = #line) {
         let deadline = Date().addingTimeInterval(2)
         while webView.window == nil, Date() < deadline {
             RunLoop.main.run(until: Date().addingTimeInterval(0.01))
         }
-        XCTAssertNotNil(webView.window, "precondition: the page is mounted")
+        XCTAssertNotNil(webView.window, "precondition: the page is mounted", file: file, line: line)
         RunLoop.main.run(until: Date().addingTimeInterval(0.1))
-        return (slot, session, webView)
     }
 
     private func drainMainQueue() async {

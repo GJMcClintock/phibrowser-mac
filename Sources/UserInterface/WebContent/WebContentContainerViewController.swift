@@ -528,8 +528,6 @@ class WebContentContainerViewController: NSViewController {
                 }
             }
         }
-        
-        setupFloatingSidebar()
 
         // Add titlebar aware area
         view.addSubview(titleAwareArea)
