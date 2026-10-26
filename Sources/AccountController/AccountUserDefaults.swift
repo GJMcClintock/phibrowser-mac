@@ -199,13 +199,7 @@ final class AccountUserDefaults {
     /// the launch-time read that runs before any account is bound
     /// (`SpaceManager.coldStartPreferredProfiles`).
     static func storedObject(forKey key: DefaultsKey, ofAccountWithUserID userID: String) -> Any? {
-        storedObject(forKey: key.rawValue, ofAccountWithUserID: userID)
-    }
-
-    /// The raw-key form, for a key derived from a `DefaultsKey` rather than
-    /// one of them (`SpaceManager.slotsRestoreSnapshotDefaultsKey`).
-    static func storedObject(forKey key: String, ofAccountWithUserID userID: String) -> Any? {
-        loadStore(from: storeURL(for: Account(userID: userID)))[key]
+        loadStore(from: storeURL(for: Account(userID: userID)))[key.rawValue]
     }
 
     private static func loadStore(from url: URL) -> [String: Any] {
@@ -349,10 +343,12 @@ extension AccountUserDefaults {
         /// `SpaceWindowSlot.registerWindow`. Read on the next launch by
         /// `SpaceManager` so Chromium-restored windows reattach to the
         /// Space they had when the snapshot was saved, instead of all
-        /// piling into the persisted-active Space. Under an explicit
-        /// `--user-data-dir` the stored key carries that directory
-        /// (`SpaceManager.slotsRestoreSnapshotKey`): the ids it maps belong
-        /// to one Chromium data directory only.
+        /// piling into the persisted-active Space. The ids it maps belong to
+        /// one Chromium data directory, and this store moves with that
+        /// directory (`FileSystemUtils.launchUserDataDirectory`), so the key
+        /// needs no scoping of its own: keying it on `--user-data-dir` gave
+        /// launches the Phi Chat app's shim started, which spell the default
+        /// directory out, a second record for the same session.
         case slotsRestoreSnapshot
         /// The Migration Sources this account has already completed a
         /// Migration from, held as their source identifiers. A source listed
