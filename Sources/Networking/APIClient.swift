@@ -178,10 +178,20 @@ class APIClient {
     private func stagedOnboardingToken(
         accountUserID: String
     ) async throws -> String {
-        let stagedToken = await MainActor.run {
+        var stagedToken = await MainActor.run {
             AuthManager.shared.stagedOnboardingAccessToken(
                 expectedUserID: accountUserID
             )
+        }
+        if stagedToken == nil {
+            // Resuming onboarding after relaunch can leave the staged
+            // credential unloaded or expired; restore or renew it once.
+            _ = await AuthManager.shared.getActiveCredentials()
+            stagedToken = await MainActor.run {
+                AuthManager.shared.stagedOnboardingAccessToken(
+                    expectedUserID: accountUserID
+                )
+            }
         }
         guard let stagedToken, !stagedToken.isEmpty else {
             throw APIError.invalidRequest(

@@ -16,7 +16,7 @@ final class ProfileCardViewController: NSViewController {
     var profile: Profile? {
         didSet {
             cardView.name = userName ?? profile?.name ?? "Phi"
-            cardView.memberID = profile.map { String($0.id) } ?? ""
+            cardView.memberID = HolographicCardView.memberID(sub: profile?.auth0_id ?? "")
             cardView.joinedDate = HolographicCardView.formattedJoinDate(profile?.created_at ?? "")
         }
     }

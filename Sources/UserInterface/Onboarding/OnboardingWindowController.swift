@@ -235,6 +235,7 @@ class OnboardingWindowController: NSWindowController {
 
     private func viewController(for phase: LoginController.Phase, credentials: Credentials?, isFirstPage: Bool) -> NSViewController {
         setNameViewController.isFisrtPage = false
+        welcomeViewController.isFisrtPage = false
         passwordManagerViewController.isFisrtPage = false
         nextStepViewController.isFisrtPage = false
 
@@ -252,6 +253,7 @@ class OnboardingWindowController: NSWindowController {
             } else {
                 welcomeViewController.userName = LoginController.shared.accountForOnboarding?.userInfo?.name
             }
+            welcomeViewController.isFisrtPage = isFirstPage
             return welcomeViewController
         case .layoutSelection:
             return layoutSelectionViewController

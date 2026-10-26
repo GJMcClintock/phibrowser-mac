@@ -4,6 +4,7 @@
 // found in the LICENSE file.
 
 import Cocoa
+import CryptoKit
 import QuartzCore
 
 /// A native foil card shared by onboarding and account settings. Geometry is
@@ -25,6 +26,12 @@ final class HolographicCardView: NSView {
         formatter.timeZone = .current
         formatter.dateFormat = "yyyy.MM"
         return formatter.string(from: date)
+    }
+
+    /// First 16 hex digits of the SHA-256 of the Auth0 `sub`.
+    static func memberID(sub: String) -> String {
+        guard !sub.isEmpty else { return "" }
+        return SHA256.hash(data: Data(sub.utf8)).prefix(8).map { String(format: "%02x", $0) }.joined()
     }
 
     var name = "Phi" { didSet { updateCopy() } }

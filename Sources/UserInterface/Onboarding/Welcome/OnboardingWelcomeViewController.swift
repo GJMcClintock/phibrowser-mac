@@ -8,113 +8,55 @@ import SnapKit
 import SwiftUI
 import PostHog
 
-class OnboardingWelcomeViewController: NSViewController {
+class OnboardingWelcomeViewController: OnboardingBaseViewController {
     private let cardView = HolographicCardView()
     private var profileTask: Task<Void, Never>?
 
-    private let titleLabel: NSTextField = {
-        let title = NSLocalizedString("oobe.welcome.title", value: "Welcome", comment: "Onboarding welcome page - Main title greeting the user")
-        let label = NSTextField(labelWithString: title)
-        label.font = .brandDisplay("IvyPrestoDisplay-SemiBoldItalic", size: 46, renders: title)
-        label.textColor = NSColor(red: 0.18, green: 0.42, blue: 0.49, alpha: 1.0) // #2D6F7D
-        label.alignment = .center
-        label.lineBreakMode = .byTruncatingMiddle
-        return label
-    }()
-    
-    private lazy var themeStackView: NSStackView = {
-        let stackView = NSStackView()
-        stackView.orientation = .horizontal
-        stackView.alignment = .top
-        stackView.distribution = .gravityAreas
-        stackView.spacing = 12
-        return stackView
-    }()
-    
-    private var coloredBgView: NSView = {
-        let view = NSView()
-        view.wantsLayer = true
-        view.alphaValue = 0.1
-        return view
-    }()
-    
-    private let dotBg: NSImage = {
-        return .dotBg
-    }()
-    
-    private lazy var dotBackgroundImageView: NSImageView = {
-        let imageView = NSImageView()
-        imageView.image = dotBg
-        imageView.alphaValue = 0.15
-        return imageView
-    }()
-    
     private lazy var randomButton: NSButton = {
-        let button = NSButton(title: NSLocalizedString("oobe.welcome.randomizeCard", value: "Randomize",
-            comment: "Onboarding membership card - Randomly choose a theme, background texture and ornament"),
-            target: self, action: #selector(randomizeCard))
-        button.image = NSImage(systemSymbolName: "shuffle", accessibilityDescription: nil)
-        button.imagePosition = .imageLeading
-        button.bezelStyle = .rounded
-        button.controlSize = .small
+        let button = NSButton(image: NSImage(resource: .oobeDice), target: self, action: #selector(randomizeCard))
+        let title = NSLocalizedString("oobe.welcome.randomizeCard", value: "Randomize",
+            comment: "Onboarding membership card - Randomly choose a theme, background texture and ornament")
+        button.isBordered = false
+        button.imagePosition = .imageOnly
+        button.contentTintColor = .white
+        button.toolTip = title
+        button.setAccessibilityLabel(title)
+        button.wantsLayer = true
+        button.layer?.backgroundColor = NSColor.white.withAlphaComponent(0.1).cgColor
+        button.layer?.cornerRadius = 20
         return button
     }()
 
-    private lazy var nextButton: GradientBorderButton = {
-        let button = GradientBorderButton()
-        button.title = NSLocalizedString("oobe.welcome.nextButton", value: "Next", comment: "Onboarding welcome page - Next button to proceed to next step")
-        button.clickAction = { [weak self] in
-            self?.nextButtonTapped()
-        }
-        button.cornerRadius = 999
-        return button
-    }()
-    
-    var nextClosure: ((Bool) -> Void)?
-    private var accentColor: NSColor?
     private var selectedThemeId: String = Theme.pure.id
-    private var themeButtons: [String: OnboardingThemeSwatchButton] = [:]
-    
+
     private var themes: [Theme] {
         Theme.builtInThemes.map { builtInTheme in
             ThemeManager.shared.registeredThemes[builtInTheme.id] ?? builtInTheme
         }
     }
-    
+
     var userName: String? {
         didSet {
-            let title = String(format: NSLocalizedString("oobe.welcome.personalizedTitle", value: "Welcome %@", comment: "Onboarding welcome page - Personalized welcome title with user name"), userName ?? "")
             cardView.name = userName ?? "Phi"
-            titleLabel.stringValue = title
-            // The name is user-supplied and the greeting is localized, so
-            // neither is guaranteed to be Latin — see NSFont.brandDisplay.
-            titleLabel.font = .brandDisplay("IvyPrestoDisplay-SemiBoldItalic", size: 46, renders: title)
         }
     }
-    
+
     // MARK: - Lifecycle
-    override func loadView() {
-        self.view = NSView()
-        self.view.wantsLayer = true
-        self.view.layer?.backgroundColor = NSColor.white.cgColor
-    }
-    
     override func viewDidLoad() {
         super.viewDidLoad()
         setupUI()
     }
-    
+
     override func viewWillAppear() {
         super.viewWillAppear()
         cardView.isPresentationActive = true
         profileTask?.cancel()
         profileTask = Task { [weak self] in await self?.requestProfile() }
-        updateThemeSelection()
         if let theme = themes.first(where: { $0.id == selectedThemeId }) ?? themes.first {
             themeChanged(theme)
         }
     }
-    
+
     override func viewWillDisappear() {
         super.viewWillDisappear()
         cardView.isPresentationActive = false
@@ -123,79 +65,45 @@ class OnboardingWelcomeViewController: NSViewController {
     }
 
     private func requestProfile() async {
-        guard let accountUserID = LoginController.shared.accountForOnboarding?.userID else { return }
-        let response = try? await APIClient.shared.getOnboardingAccountProfile(accountUserID: accountUserID)
-        guard !Task.isCancelled, let profile = response?.data else { return }
-        cardView.name = userName ?? profile.name
-        cardView.memberID = String(profile.id)
-        cardView.joinedDate = HolographicCardView.formattedJoinDate(profile.created_at)
+        guard let accountUserID = LoginController.shared.accountForOnboarding?.userID else {
+            AppLogWarn("[OOBEWelcome] Skip profile request: no onboarding account")
+            return
+        }
+        cardView.memberID = HolographicCardView.memberID(sub: accountUserID)
+        do {
+            let profile = try await APIClient.shared.getOnboardingAccountProfile(accountUserID: accountUserID).data
+            guard !Task.isCancelled else { return }
+            cardView.name = userName ?? profile.name
+            cardView.joinedDate = HolographicCardView.formattedJoinDate(profile.created_at)
+        } catch {
+            guard !Task.isCancelled else { return }
+            AppLogWarn("[OOBEWelcome] Failed to load profile: \(error.localizedDescription)")
+        }
     }
 
     // MARK: - Setup
     private func setupUI() {
-        view.addSubview(coloredBgView)
-        view.addSubview(dotBackgroundImageView)
+        titleLabel.isHidden = true
+        skipButton.isHidden = true
+        nextButton.backgroundColor = Color.white.opacity(0.05)
+
         view.addSubview(cardView)
-        view.addSubview(titleLabel)
-        view.addSubview(themeStackView)
-        view.addSubview(nextButton)
         view.addSubview(randomButton)
-        
-        view.snp.makeConstraints { make in
-            make.width.equalTo(640)
-            make.height.equalTo(800)
-        }
-        view.layoutSubtreeIfNeeded()
-        
-        coloredBgView.snp.makeConstraints { make in
-            make.edges.equalToSuperview()
-        }
-        
-        dotBackgroundImageView.snp.makeConstraints { make in
-            make.edges.equalToSuperview()
-        }
-        
+
         cardView.snp.makeConstraints { make in
             make.centerX.equalToSuperview()
-            make.top.equalToSuperview().offset(198)
-            make.width.equalTo(HolographicCardView.designSize.width)
-            make.height.equalTo(HolographicCardView.designSize.height)
-        }
-        
-        titleLabel.snp.makeConstraints { make in
-            make.top.equalToSuperview().offset(45)
-            make.centerX.equalToSuperview()
-            make.leading.trailing.lessThanOrEqualToSuperview().inset(30)
-        }
-        
-        setupThemeButtons()
-        
-        themeStackView.snp.makeConstraints { make in
-            make.top.equalTo(titleLabel.snp.bottom).offset(22)
-            make.centerX.equalToSuperview()
-            make.height.equalTo(26)
-        }
-        
-        randomButton.snp.makeConstraints { make in
-            make.centerX.equalToSuperview()
-            make.top.equalTo(themeStackView.snp.bottom).offset(12)
-            make.height.equalTo(24)
+            make.centerY.equalTo(view.snp.top).offset(337.5)
+            make.size.equalTo(HolographicCardView.designSize)
         }
 
-        nextButton.snp.makeConstraints { make in
-            make.bottom.equalToSuperview().offset(-96)
+        randomButton.snp.makeConstraints { make in
             make.centerX.equalToSuperview()
-            make.width.equalTo(120)
-            make.height.equalTo(40)
+            make.top.equalToSuperview().offset(585)
+            make.width.height.equalTo(40)
         }
     }
-    
+
     // MARK: - Actions
-    @objc private func themeButtonClicked(_ sender: NSButton) {
-        guard let button = sender as? OnboardingThemeSwatchButton else { return }
-        themeChanged(button.theme)
-    }
-    
     @objc private func randomizeCard() {
         cardView.style = .random()
         if let theme = themes.first(where: { $0.id == cardView.style.palette.themeID }) {
@@ -206,41 +114,10 @@ class OnboardingWelcomeViewController: NSViewController {
     private func themeChanged(_ theme: Theme) {
         selectedThemeId = theme.id
         ThemeManager.shared.switchTheme(to: theme.id)
-        updateThemeSelection()
-        
-        let appearance = ThemeManager.shared.currentAppearance
-        let overlayColor = normalizedOverlayColor(for: theme, appearance: appearance)
-        let resolvedOverlayColor = overlayColor.usingColorSpace(.deviceRGB)
-        let hue = resolvedOverlayColor?.hueComponent ?? 0
-        let overridedSaturation: CGFloat? = theme == .pure ? 0 : nil
-        let overridedBrightness: CGFloat? = theme == .pure ? 0.5 : nil
-        let accentColor = theme == .pure ?
-        NSColor.black :
-        NSColor(hue: hue,
-                saturation: 1,
-                brightness: 0.37,
-                alpha: 1)
-        self.accentColor = accentColor
-
-        titleLabel.textColor = accentColor
-
-        nextButton.titleColor = Color(nsColor: accentColor)
-        nextButton.borderColors = [Color(nsColor: accentColor)]
-        nextButton.backgroundColor = Color(nsColor: NSColor(hue: hue,
-                                                            saturation: overridedSaturation ?? 0.85,
-                                                            brightness: overridedBrightness ?? 0.75,
-                                                            alpha: 0.1))
-        
-        dotBackgroundImageView.image = dotBg.tinted(with: accentColor)
-        
-        coloredBgView.layer?.backgroundColor = NSColor(hue: hue,
-                                                       saturation: overridedSaturation ?? 0.85,
-                                                       brightness: overridedBrightness ?? 0.75,
-                                                       alpha: 1).cgColor
         cardView.style.palette = .init(themeID: theme.id)
     }
-    
-    private func nextButtonTapped() {
+
+    override func nextButtonTapped(_ sender: NSButton? = nil) {
         if let defaults = LoginController.shared.accountForOnboarding?.userDefaults,
            !defaults.set(cardView.style, forCodableKey: AccountUserDefaults.DefaultsKey.profileCardStyle.rawValue) {
             let message = NSLocalizedString("oobe.welcome.cardSaveFailed", value: "Your card could not be saved. Please try again.",
@@ -248,40 +125,23 @@ class OnboardingWelcomeViewController: NSViewController {
             NSApp.presentError(NSError(domain: "Phi.ProfileCard", code: 1, userInfo: [NSLocalizedDescriptionKey: message]))
             return
         }
+        let accentColor = themes.first(where: { $0.id == selectedThemeId }).map(accentColor(for:))
         PostHogSDK.shared.capture("onboarding_completed", properties: [
             "theme_id": selectedThemeId,
             "accent_color": accentColor.map(colorToHex) ?? "",
         ])
-        nextClosure?(true)
+        super.nextButtonTapped(sender)
     }
-    
+
     // MARK: - Helpers
-    private func setupThemeButtons() {
-        themeStackView.arrangedSubviews.forEach { $0.removeFromSuperview() }
-        themeButtons.removeAll()
-        
-        for theme in themes {
-            let button = OnboardingThemeSwatchButton(theme: theme)
-            button.target = self
-            button.action = #selector(themeButtonClicked(_:))
-            themeButtons[theme.id] = button
-            themeStackView.addArrangedSubview(button)
-        }
-        
-        updateThemeSelection()
-    }
-    
-    private func updateThemeSelection() {
+    private func accentColor(for theme: Theme) -> NSColor {
+        guard theme != .pure else { return .black }
         let appearance = ThemeManager.shared.currentAppearance
-        themeButtons.forEach { themeId, button in
-            button.updateSelection(themeId == selectedThemeId, appearance: appearance)
-        }
+        let overlayColor = theme.color(for: .windowOverlayBackground, appearance: appearance).withAlphaComponent(1)
+        let hue = overlayColor.usingColorSpace(.deviceRGB)?.hueComponent ?? 0
+        return NSColor(hue: hue, saturation: 1, brightness: 0.37, alpha: 1)
     }
-    
-    private func normalizedOverlayColor(for theme: Theme, appearance: Appearance) -> NSColor {
-        theme.color(for: .windowOverlayBackground, appearance: appearance).withAlphaComponent(1)
-    }
-    
+
     private func colorToHex(_ color: NSColor) -> String {
         guard let rgbColor = color.usingColorSpace(.deviceRGB) else {
             return "#000000"
@@ -292,64 +152,6 @@ class OnboardingWelcomeViewController: NSViewController {
         let blue = Int(rgbColor.blueComponent * 255)
 
         return String(format: "#%02X%02X%02X", red, green, blue)
-    }
-
-
-}
-
-private final class OnboardingThemeSwatchButton: NSButton {
-    let theme: Theme
-    
-    private let swatchView = NSView()
-    
-    init(theme: Theme) {
-        self.theme = theme
-        super.init(frame: .zero)
-        setupUI()
-    }
-    
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-    
-    private func setupUI() {
-        isBordered = false
-        title = ""
-        wantsLayer = true
-        
-        swatchView.wantsLayer = true
-        swatchView.layer?.cornerRadius = 13
-        swatchView.layer?.masksToBounds = false
-        swatchView.shadow = {
-            let shadow = NSShadow()
-            shadow.shadowBlurRadius = 4
-            shadow.shadowOffset = NSSize(width: 0, height: -1)
-            shadow.shadowColor = NSColor.black.withAlphaComponent(0.12)
-            return shadow
-        }()
-        
-        addSubview(swatchView)
-        
-        snp.makeConstraints { make in
-            make.width.height.equalTo(26)
-        }
-        
-        swatchView.snp.makeConstraints { make in
-            make.edges.equalToSuperview()
-        }
-    }
-    
-    func updateSelection(_ selected: Bool, appearance: Appearance) {
-        let themeColor = theme.color(for: .themeColor, appearance: appearance)
-        let swatchColor = theme == .pure ? .white : themeColor
-        let selectedBorderColor = theme == .pure
-            ? NSColor.black
-            : theme.color(for: .windowOverlayBackground, appearance: appearance).withAlphaComponent(1)
-        let unselectedBorderColor = NSColor.black.withAlphaComponent(0.12)
-        
-        swatchView.layer?.backgroundColor = swatchColor.cgColor
-        swatchView.layer?.borderWidth = selected ? 2 : 0
-        swatchView.layer?.borderColor = (selected ? selectedBorderColor : unselectedBorderColor).cgColor
     }
 }
 
