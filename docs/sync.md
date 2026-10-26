@@ -206,7 +206,7 @@ reopening settings, and Finish later cannot reset this state. Settings → Sync
 shows **Set up sync again**, with confirmation before cleanup. Chromium's
 existing protocol-error recovery is unchanged.
 
-Explicit reconfiguration and successful **Remove this device from sync** share
+Explicit reconfiguration and successful **Remove this Mac from sync** share
 one native cleanup path in `SyncKeyController`. Remote self-revocation succeeds
 before removal touches local state; rejection leaves local state intact. Cleanup
 retires the engine, journals its intent, durably withdraws enrollment, discards
@@ -221,6 +221,64 @@ removal. If writing the journal itself fails, the coordinator retains the pendin
 intent for the current process and keeps the native engine paused. Account switches fence post-await global writes and preserve pending
 account journals. Setup re-fetches server state and all matching must complete
 before sync becomes eligible again.
+**Reset sync** is the removal's branch for the account's last active device
+(design: sync-service `docs/design/2026-10-26-reset-sync.md`). Settings → Sync
+shows one row in its **Removal** section. When the pane's device list shows this
+Mac as the account's only active device, the row is **Reset sync** with a
+destructive **Reset…** button; otherwise it is **Remove this Mac from sync**.
+The list is only a hint: the server's check at reset time is the authority. If
+the list was stale and the removal answers 409 `last_device`, the same row flips
+to **Reset sync**. The setup window has no device list and keeps the
+remove-first flow: after a 409 `last_device` it disables the removal and offers
+**Remove this device and delete all sync data**. Both ask again in a
+destructive `NSAlert` before anything is sent.
+`SyncKeyController.resetSyncAndRemoveThisDevice()` then follows the same
+server-first rule as the removal:
+
+1. It writes a client-generated operation UUID to the marker journal as
+   `resetOperationId`, reusing one already there, before the request.
+2. It calls `PUT /keys/v1/reset-operations/{operation}` with this device's key
+   id. The server deletes every sync row of the account; it keeps no receipt
+   and answers a retry from the account's state, so a retry after a lost
+   success answers `reset` again.
+3. On `reset` it runs the shared cleanup above with device removal (rotation
+   included); the marker deletion at its end drops the UUID. The device then
+   unlocks to the first-device setup, because `GET /keys/v1/account` answers
+   404. The cleanup is the self-revoke one, unchanged. Chromium's per-Profile
+   sync metadata is kept inert, as after a self-revoke: the key withdrawal
+   stops each Profile's engine, and Chromium clears that metadata itself at the
+   next setup, because the Profiles are registered under new UUIDs and the
+   namespace change restarts the engine from scratch.
+4. 409 `not_last_device` and 404 `device_not_found` deleted nothing. The
+   journal forgets the UUID, local state stays and the ordinary removal is
+   enabled again. The UI shows fixed copy: for `not_last_device`, that another
+   device joined and nothing was deleted; for `device_not_found`, the "removal
+   unavailable" copy. Settings → Sync then reloads its device list without
+   stopping the poll, so the row flips back to **Remove this Mac from sync**.
+5. Any other failure keeps the UUID for the next attempt; the UI copy is fixed
+   and details go only to the log.
+
+A journaled operation is an unfinished reconfiguration: from the moment
+`resetOperationId` is written, `SyncKeyController.requiresReconfiguration` is
+true, also while the request is in flight. A reset whose answer this Mac never
+recorded (lost response, crash before the cleanup journal) therefore needs no
+engine round to surface. After a relaunch the envelope answers 404, so there is
+no account key and no round, but Settings → Sync shows **Set up sync again**
+instead of the first-device setup, the setup window refuses to start
+(`returnToSettings`), and an account switch away and back keeps the journal.
+Its confirmation names the deletion (`sync.reconfigure.resumeResetBody`)
+instead of saying the synced data is kept. Without this rule, a same-account
+first-device setup followed by the stale marker's `not_my_birthday` would
+replay the journaled UUID against the freshly created account. In-process, the
+same reset can also surface as `not_my_birthday` on the next round, because it
+deleted the account's store birthday. Either way, **Set up sync again**
+resumes it: `reconfigureSync()` needs only the token and the device key id. It
+retries the journaled operation with the same UUID and, on `reset`, runs the
+cleanup with device removal; a refusal turns it back into an ordinary
+reconfiguration, and any other failure leaves sync paused for another attempt. The client maps a refusal only from its body `code`: the
+legacy revoke's 409 is `lastActiveDevice` only for `last_device`, and any other
+409 is an ordinary failure.
+
 Login initialization requested during cleanup is deferred until cleanup exits,
 then resolves the current account again. Multiple requests coalesce; sign-out
 does not resurrect a previous account, and removal alone does not request startup.
@@ -506,7 +564,7 @@ all of these hold:
 
 | Precondition | Meaning |
 | --- | --- |
-| Unpaired, usable session | The enrollment is not paired; the controller is unlocked, not retired, on the current account, and no reconfiguration is pending |
+| Unpaired, usable session | The enrollment is not paired; the controller is unlocked, not retired, on the current account, not running a removal or account reset, and no reconfiguration is pending. Leaving the account and replacing this Mac's data are mutually exclusive: the setup window also disables its footer while its removal or reset request is in flight |
 | No sync history | No Space or Profile cursor with an account entity, no progress marker or store birthday, no bookmark, pin or rule cursor with an entity or baseline, a readable and empty Profile deletion journal |
 | Nothing running | No import into any Space; no agent task in a Space the reset deletes or in any Space of a Profile it deletes |
 | Profiles | The Profile list is readable; the Default Profile and non-assignable Profiles (the agent fallback) are never deletable; every Profile being deleted is unmapped |
@@ -1273,6 +1331,20 @@ settings, Spaces, bookmarks, pinned tabs and URL rules.
   user-data backup therefore restores the marker that belongs to that backup,
   and the replay it triggers re-lands the missing rows instead of emitting
   tombstones for them.
+- `marker.json` also carries the confirmed cleanup's journal fields
+  (`requiresReconfiguration`, `removalPending`, `resetOperationId`). The first
+  two are written by `SyncKeyController` only after the engine is retired.
+  `resetOperationId` is written before the reset request, while the engine may
+  still run, so the engine never takes it from its in-memory mirror: every
+  engine save carries the value on disk forward (`saveMarkerFile`). Without that
+  a round landing during the request would erase the UUID.
+- `PhiSyncMarkerStore.update` is the only read-modify-write path for
+  `marker.json`. It holds a per-file lock across load, mutation and save, so
+  the engine's carry-forward and the controller's journal writes
+  (`journalResetOperation`, the refusal path of `requestAccountReset`, and the
+  cleanup journal in `clearLocalSyncState`) cannot interleave and lose a field.
+  A plain `save` is only for a whole-file write by a single owner, such as the
+  legacy migration.
 - Known limitation: the first whole-scale adoption of settings is not
   atomic, so a crash between "values written" and "adoption flag written"
   replays the page and performs that adoption a second time. This remains a limitation of the native adoption sequence.
@@ -2542,8 +2614,12 @@ rollback and migration. The pairing reset is covered by `PhiLocalDataResetTests`
 (preconditions, order, reruns, postconditions), `LocalStorePairingResetTests` (the
 store wipe, forced `default-space`, counts), `SyncPairingLocalResetMarkerTests`
 (the marker and its clearing hooks), `SelfRevokeTests` (cleanup clears the marker;
-the controller's no-history check) and the first-replay cases in
-`PhiSyncEngineSpaceTests` and `PhiSyncEngineOwnedItemsTests`. Use the [testing guide](testing.md) for hosted execution;
+the controller's no-history check; the account reset's journal, cleanup and
+refusals) and the first-replay cases in
+`PhiSyncEngineSpaceTests` and `PhiSyncEngineOwnedItemsTests`. The account reset is also covered by `DevicesSettingRemoveDeviceTests` (the
+offer and its outcomes), `KeyEnvelopeAPIClientTests` (body-code mapping) and the
+hostless `build-scripts/test-sync-pairing.sh` (journal, resume) and
+`test-sync-devices.sh` (wire mapping). Use the [testing guide](testing.md) for hosted execution;
 compiling an XCTest bundle does not execute it.
 
 The [convergence harness](../Tests/SyncConvergence/README.md) exercises production

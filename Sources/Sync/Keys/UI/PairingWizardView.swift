@@ -17,12 +17,17 @@ struct PairingWizardView: View {
     let controller: SyncKeyController
     let onDismiss: () -> Void
 
-    /// A nonnil note disables removal because this is the account's last active device. Keep it sticky for
-    /// this window: the modal cannot add a second device. Carried from ProfilePairingGateView.
+    /// A nonnil note disables removal because this is the account's last active device, and offers the
+    /// account reset instead. Cleared only when the server refuses the reset (another device appeared, or
+    /// the account was re-enrolled without this Mac), which makes the ordinary removal worth retrying.
     @State private var removeBlockedNote: String?
-    /// Transient removal failure (offline, 5xx, Keychain), shown in the same slot without disabling retry.
-    /// Clear at each new attempt.
+    /// Transient removal or reset failure (offline, 5xx, Keychain), shown under the note without
+    /// disabling retry. Clear at each new attempt.
     @State private var removeErrorNote: String?
+    /// A removal or the account reset is in flight. Every footer control (both destructive buttons,
+    /// Add all as new, Finish later and the phase actions) is inert until it returns, so no setup step
+    /// (in particular "Replace this Mac's data") can start while this Mac is leaving the account.
+    @State private var isLeaving = false
 
     init(viewModel: PairingWizardViewModel, controller: SyncKeyController,
          onDismiss: @escaping () -> Void) {
@@ -353,6 +358,9 @@ struct PairingWizardView: View {
                 Spacer(minLength: 0)
                 actions
             }
+            // Leaving and setting up are mutually exclusive: nothing here may start while a removal or
+            // reset request is in flight.
+            .disabled(isLeaving)
             // The app-modal's sole alternative exit appears on every page, including confirmation.
             Button(NSLocalizedString("sync.pairing.removeThisDevice",
                                      value: "Remove this device from sync…",
@@ -360,9 +368,17 @@ struct PairingWizardView: View {
                 confirmAndRemoveThisDevice()
             }
             .buttonStyle(.bordered)
-            .disabled(removeBlockedNote != nil || viewModel.isApplying || viewModel.isPreparing)
-            if let note = removeBlockedNote ?? removeErrorNote {
-                Text(note).font(.callout).themedForeground(.textSecondary)
+            .disabled(removeBlockedNote != nil || isLeaving || viewModel.isApplying || viewModel.isPreparing)
+            if let removeBlockedNote {
+                Text(removeBlockedNote).font(.callout).themedForeground(.textSecondary)
+                Button(SelfRevokeStrings.resetOffer, role: .destructive) {
+                    confirmAndResetSync()
+                }
+                .buttonStyle(.bordered)
+                .disabled(isLeaving || viewModel.isApplying || viewModel.isPreparing)
+            }
+            if let removeErrorNote {
+                Text(removeErrorNote).font(.callout).themedForeground(.textSecondary)
             }
         }
         .padding(.horizontal, 24)
@@ -490,13 +506,15 @@ struct PairingWizardView: View {
         !isSubmitting
     }
 
-    /// Confirm again, then retire before cleanup. Do not preflight device count: this client has no list
-    /// endpoint. Request removal directly and disable on refusal, as in
-    /// ProfilePairingGateView.confirmAndRemoveThisDevice.
+    /// Confirm again, then retire before cleanup. Do not preflight the device count: the server decides
+    /// `last_device` under its lock, so request removal directly and disable on refusal. `isLeaving`
+    /// keeps the rest of the footer inert while the request is in flight.
     private func confirmAndRemoveThisDevice() {
-        guard SelfRevokeStrings.confirmRemoval() else { return }
+        guard !isLeaving, SelfRevokeStrings.confirmRemoval() else { return }
         removeErrorNote = nil
+        isLeaving = true
         Task { @MainActor in
+            defer { isLeaving = false }
             do {
                 try await controller.removeThisDeviceFromSync()
                 onDismiss()
@@ -505,6 +523,31 @@ struct PairingWizardView: View {
             } catch {
                 // R12: detailed errors go only to logs; UI uses fixed text.
                 AppLogWarn("[phi-sync] self-revoke failed (\(PhiSyncLog.describe(error)))")
+                removeErrorNote = SelfRevokeStrings.removalUnavailable
+            }
+        }
+    }
+
+    /// The account reset, offered only after a `last_device` refusal. The second confirmation is a
+    /// synchronous `NSAlert` that awaits nothing while up. Success leaves setup like a removal does.
+    /// `isLeaving` keeps the rest of the footer inert while the request is in flight.
+    private func confirmAndResetSync() {
+        guard !isLeaving, SelfRevokeStrings.confirmReset() else { return }
+        removeErrorNote = nil
+        isLeaving = true
+        Task { @MainActor in
+            defer { isLeaving = false }
+            do {
+                try await controller.resetSyncAndRemoveThisDevice()
+                onDismiss()
+            } catch KeyAPIError.notLastDevice, KeyAPIError.deviceNotFound {
+                // Nothing was deleted and this is no longer the last device (or no longer
+                // enrolled): the ordinary removal is the next step, so it is enabled again.
+                removeBlockedNote = nil
+                removeErrorNote = SelfRevokeStrings.removalUnavailable
+            } catch {
+                // R12: detailed errors go only to logs; UI uses fixed text.
+                AppLogWarn("[phi-sync] account reset failed (\(PhiSyncLog.describe(error)))")
                 removeErrorNote = SelfRevokeStrings.removalUnavailable
             }
         }

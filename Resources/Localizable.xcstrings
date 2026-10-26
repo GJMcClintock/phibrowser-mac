@@ -113606,65 +113606,6 @@
         }
       }
     },
-    "sync.devices.removeThisDevice" : {
-      "comment" : "Devices settings - button that removes this device from sync",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Dieses Gerät aus der Synchronisierung entfernen…"
-          }
-        },
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Remove this device from sync…"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Eliminar este dispositivo de la sincronización…"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Supprimer cet appareil de la synchronisation…"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "このデバイスを同期から削除…"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "동기화에서 이 기기 제거…"
-          }
-        },
-        "nl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Verwijder dit apparaat uit synchronisatie…"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "将此设备从同步中移除…"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "從同步中移除此裝置…"
-          }
-        }
-      }
-    },
     "sync.devices.setUp" : {
       "comment" : "Devices settings - button that starts sync setup on this device",
       "localizations" : {
@@ -118205,6 +118146,17 @@
         }
       }
     },
+    "sync.reconfigure.resumeResetBody" : {
+      "comment" : "Confirmation before Set up sync again finishes an account reset the user confirmed earlier but that did not complete",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This finishes the reset you confirmed earlier: this Mac is removed from sync and all sync data stored for this account is deleted. Your local browsing data stays on this Mac."
+          }
+        }
+      }
+    },
     "sync.reconfigure.title" : {
       "comment" : "Action to explicitly reset local sync state and configure it again",
       "extractionState" : "manual",
@@ -118621,65 +118573,6 @@
         }
       }
     },
-    "sync.recovery.explanation" : {
-      "comment" : "Explain existing recovery options without offering retrieval",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Um auf einem anderen Gerät beizutreten, genehmige dessen Anfrage hier oder verwende deinen gesicherten Wiederherstellungscode. Der Code wird nur bei der ersten Einrichtung der Synchronisierung angezeigt."
-          }
-        },
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "To join on another device, approve its request here or use your saved recovery code. The code is shown only when sync is first set up."
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Para unirte desde otro dispositivo, aprueba aquí su solicitud o usa tu código de recuperación guardado. El código se muestra solo la primera vez que se configura la sincronización."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Pour rejoindre depuis un autre appareil, approuvez sa demande ici ou utilisez votre code de récupération enregistré. Le code n'est affiché que lors de la première configuration de la synchronisation."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "別のデバイスで参加するには、そのデバイスからのリクエストをここで承認するか、保存した復旧コードを使用してください。復旧コードは、同期を最初に設定したときにのみ表示されます。"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "다른 기기에서 참여하려면 여기에서 그 기기의 요청을 승인하거나 저장해 둔 복구 코드를 사용하세요. 복구 코드는 동기화를 처음 설정할 때만 표시돼요."
-          }
-        },
-        "nl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Om een ander apparaat toe te voegen keur je hier het verzoek van dat apparaat goed, of gebruik je je bewaarde herstelcode. De code wordt alleen getoond wanneer synchronisatie voor het eerst wordt ingesteld."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "若要在另一台设备上加入，请在此处批准该设备的请求，或使用你保存的恢复代码。该代码仅在首次设置同步时显示。"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "若要在另一部裝置上加入，請在這裡核准其請求，或使用你先前儲存的復原代碼。該代碼只會在初次設定同步時顯示。"
-          }
-        }
-      }
-    },
     "sync.recovery.save.confirm" : {
       "comment" : "Sync setup - button confirming the user saved the recovery code",
       "localizations" : {
@@ -119036,61 +118929,90 @@
         }
       }
     },
-    "sync.recovery.title" : {
-      "comment" : "Recovery guidance and device removal",
+    "sync.removal.sectionTitle" : {
+      "comment" : "Sync settings - header of the section that removes this Mac from sync",
       "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Wiederherstellung und Entfernung"
-          }
-        },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Recovery and removal"
+            "value" : "Removal"
           }
-        },
-        "es" : {
+        }
+      }
+    },
+    "sync.removal.rowTitle" : {
+      "comment" : "Sync settings - title of the row that removes this Mac from sync",
+      "localizations" : {
+        "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Recuperación y eliminación"
+            "value" : "Remove this Mac from sync"
           }
-        },
-        "fr" : {
+        }
+      }
+    },
+    "sync.removal.rowDescription" : {
+      "comment" : "Sync settings - description under the row that removes this Mac from sync",
+      "localizations" : {
+        "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Récupération et suppression"
+            "value" : "This Mac will stop syncing. Your local browsing data stays on this Mac."
           }
-        },
-        "ja" : {
+        }
+      }
+    },
+    "sync.removal.rowAction" : {
+      "comment" : "Sync settings - button on the row that removes this Mac from sync; opens a confirmation",
+      "localizations" : {
+        "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "復旧と削除"
+            "value" : "Remove…"
           }
-        },
-        "ko" : {
+        }
+      }
+    },
+    "sync.removal.resetRowTitle" : {
+      "comment" : "Sync settings - title of the row, shown when this Mac is the account's only active device, that removes it and deletes all of the account's sync data",
+      "localizations" : {
+        "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "복구 및 제거"
+            "value" : "Reset sync"
           }
-        },
-        "nl" : {
+        }
+      }
+    },
+    "sync.removal.resetRowDescription" : {
+      "comment" : "Sync settings - description under the Reset sync row",
+      "localizations" : {
+        "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Herstel en verwijdering"
+            "value" : "This is the only device set up for sync. Resetting removes this Mac from sync and deletes all sync data stored for this account. Your local browsing data stays on this Mac."
           }
-        },
-        "zh-Hans" : {
+        }
+      }
+    },
+    "sync.removal.resetRowAction" : {
+      "comment" : "Sync settings - destructive button on the Reset sync row; opens the delete-all-sync-data confirmation",
+      "localizations" : {
+        "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "恢复与移除"
+            "value" : "Reset…"
           }
-        },
-        "zh-Hant" : {
+        }
+      }
+    },
+    "sync.removal.resetRefusedNotLastDevice" : {
+      "comment" : "Reset sync - error shown when the server refused the reset because another device joined the account in the meantime",
+      "localizations" : {
+        "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "復原與移除"
+            "value" : "Another device has joined this account since, so nothing was deleted. You can remove this Mac from sync instead."
           }
         }
       }
@@ -119331,61 +119253,57 @@
         }
       }
     },
-    "sync.removal.lastDevice" : {
-      "comment" : "Last device removal restriction does not prevent deferring setup",
+    "sync.removal.lastDeviceResetOffer" : {
+      "comment" : "Remove this device from sync - note shown when this is the account's last device, introducing the option to delete all sync data",
       "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Dies ist das letzte autorisierte Gerät und kann noch nicht entfernt werden. Richte die Synchronisierung zuerst auf einem anderen Gerät ein. Du kannst diese Einrichtung trotzdem später abschließen."
-          }
-        },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "This is the last authorized device and can’t be removed yet. Set up sync on another device first. You can still finish this setup later."
+            "value" : "This is the last device set up for sync. You can remove it and delete all sync data stored for this account, or set up sync on another device first."
           }
-        },
-        "es" : {
+        }
+      }
+    },
+    "sync.removal.resetConfirmAction" : {
+      "comment" : "Delete all sync data - confirmation dialog button that removes this device and deletes the account's sync data",
+      "localizations" : {
+        "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Este es el último dispositivo autorizado y aún no se puede eliminar. Configura primero la sincronización en otro dispositivo. Aun así, puedes finalizar esta configuración más tarde."
+            "value" : "Delete All Sync Data"
           }
-        },
-        "fr" : {
+        }
+      }
+    },
+    "sync.removal.resetConfirmBody" : {
+      "comment" : "Delete all sync data - confirmation dialog message explaining what deleting the account's sync data does",
+      "localizations" : {
+        "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Ceci est le dernier appareil autorisé et il ne peut pas encore être supprimé. Configurez d'abord la synchronisation sur un autre appareil. Vous pouvez toujours terminer cette configuration plus tard."
+            "value" : "Every device will be removed from sync, and all data stored on the sync server for this account will be deleted. Your local browsing data stays on this Mac. To use sync again, you’ll need to set it up from scratch."
           }
-        },
-        "ja" : {
+        }
+      }
+    },
+    "sync.removal.resetConfirmTitle" : {
+      "comment" : "Delete all sync data - confirmation dialog title, shown before the last device removes itself and deletes the account's sync data",
+      "localizations" : {
+        "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "これは最後の承認済みデバイスのため、まだ削除できません。先に別のデバイスで同期を設定してください。この設定はあとで完了することもできます。"
+            "value" : "Delete all sync data for this account?"
           }
-        },
-        "ko" : {
+        }
+      }
+    },
+    "sync.removal.resetOffer" : {
+      "comment" : "Remove this device from sync - button shown on the account's last device that removes it and deletes all of the account's sync data",
+      "localizations" : {
+        "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "이 기기는 마지막 승인된 기기라서 아직 제거할 수 없어요. 먼저 다른 기기에서 동기화를 설정하세요. 이 설정은 나중에 완료할 수도 있어요."
-          }
-        },
-        "nl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Dit is het laatste geautoriseerde apparaat en kan nog niet worden verwijderd. Stel eerst synchronisatie in op een ander apparaat. Je kunt het instellen later alsnog voltooien."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "这是最后一台已授权的设备，目前还无法移除。请先在另一台设备上设置同步。你仍然可以稍后完成此设置。"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "這是最後一部已授權的裝置，目前無法移除。請先在另一部裝置上設定同步。你仍可以稍後再完成此設定。"
+            "value" : "Remove this device and delete all sync data…"
           }
         }
       }

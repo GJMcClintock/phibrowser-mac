@@ -10,8 +10,12 @@ import Foundation
 final class PreviewMarkerStore {
     var file = PhiSyncMarkerFile()
     var failSave = false
+    func load() -> PhiSyncMarkerFile { file }
     func save(_ file: PhiSyncMarkerFile) -> Bool {
         if failSave { return false }; self.file = file; return true
+    }
+    @discardableResult func update(_ mutate: (inout PhiSyncMarkerFile) -> Void) -> Bool {
+        var next = file; mutate(&next); return save(next)
     }
 }
 

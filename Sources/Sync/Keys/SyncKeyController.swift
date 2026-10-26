@@ -88,7 +88,21 @@ final class SyncKeyController {
     private var cleaningLocalState = false
     private let runtimeRequiresReconfiguration: () -> Bool
     private let runtimeRemovalPending: () -> Bool
-    var requiresReconfiguration: Bool { markerStore?.load().requiresReconfiguration == true || runtimeRequiresReconfiguration() }
+    /// True while confirmed cleanup is unfinished. A journaled account reset counts: its
+    /// `resetOperationId` is the durable mark of a reset whose outcome this Mac has not
+    /// recorded yet, so it must resume through Set up sync again (`reconfigureSync()`) and
+    /// never be replayed against an account set up afresh. While the reset request is in
+    /// flight the flag is momentarily true as well, which keeps the pairing reset out.
+    var requiresReconfiguration: Bool {
+        let journal = markerStore?.load()
+        return journal?.requiresReconfiguration == true || journal?.resetOperationId != nil
+            || runtimeRequiresReconfiguration()
+    }
+
+    /// Whether Set up sync again will finish a journaled account reset (and so delete the
+    /// account's sync data) rather than only clear this Mac's sync setup. The confirmation
+    /// copy follows it.
+    var resetResumePending: Bool { markerStore?.load().resetOperationId != nil }
 
     private let isPairingComplete: @MainActor () -> Bool
     /// `ProfileManager.isProfileListEnumerated`: until the list has been read once, an
@@ -449,9 +463,11 @@ final class SyncKeyController {
         let profileDeletionIntents = profileDeletionIntents
         return PhiLocalDataReset(sync: PhiLocalDataReset.SyncAccess(
             isPaired: { [weak self] in self?.isPairingComplete() ?? true },
+            // A removal or account reset in flight (`cleaningLocalState`) is not a usable
+            // session: this Mac is leaving the account, so the pairing reset must not start.
             isSessionUsable: { [weak self] in
                 guard let self else { return false }
-                return !self.isRetired && self.manager.currentARK != nil
+                return !self.isRetired && !self.cleaningLocalState && self.manager.currentARK != nil
                     && !self.requiresReconfiguration && self.isCurrentAccount()
             },
             syncHistory: {
@@ -500,15 +516,84 @@ final class SyncKeyController {
         try await clearLocalSyncState(removingDevice: true)
     }
 
+    /// The account reset, offered only after `removeThisDeviceFromSync()` was refused with
+    /// `last_device` and the user confirmed a second time. Server first, like self-revoke:
+    /// the operation UUID is journaled, the server deletes the account's sync data, and
+    /// only then does the shared cleanup run. A refusal (`notLastDevice`, `deviceNotFound`)
+    /// deleted nothing, so local state stays and the journal forgets the operation; any
+    /// other failure keeps the UUID so the next attempt retries the same operation.
+    ///
+    /// The journaled UUID is the durable "unfinished" mark: from the moment it is written,
+    /// `requiresReconfiguration` is true. After a lost response or a crash, a relaunched
+    /// Mac (envelope gone, so `.needsJoin`, no ARK, no engine round) therefore offers Set up
+    /// sync again, which resumes the operation, and the setup window refuses to start.
+    func resetSyncAndRemoveThisDevice() async throws {
+        guard !isRetired, !cleaningLocalState else { throw CancellationError() }
+        cleaningLocalState = true
+        defer { cleaningLocalState = false }
+        let deviceKeyId = try manager.deviceKeyProviderForTesting.deviceKeyId()
+        let operationId = markerStore?.load().resetOperationId ?? UUID()
+        try journalResetOperation(operationId)
+        try await requestAccountReset(operationId: operationId, deviceKeyId: deviceKeyId)
+        guard !isRetired, isCurrentAccount() else { throw CancellationError() }
+        try await clearLocalSyncState(removingDevice: true)
+    }
+
     /// Called only after explicit reconfiguration confirmation. Ordinary setup/retry
-    /// never calls this method. A partial removal also resumes through this path.
+    /// never calls this method. A partial removal also resumes through this path, and so
+    /// does an account reset whose outcome this Mac never recorded (a lost response, or a
+    /// crash between the server's answer and the end of cleanup): the journaled operation
+    /// is retried first with the same UUID. The server answers a finished reset with
+    /// `reset` again, and a refusal turns this back into an ordinary reconfiguration.
+    /// A journaled UUID alone is enough to get here (see `requiresReconfiguration`); the
+    /// resume needs only the token and the device key id, not the account key.
     func reconfigureSync() async throws {
         guard !isRetired, !cleaningLocalState, isCurrentAccount(), requiresReconfiguration else {
             throw CancellationError()
         }
         cleaningLocalState = true
         defer { cleaningLocalState = false }
-        try await clearLocalSyncState(removingDevice: markerStore?.load().removalPending == true || runtimeRemovalPending())
+        var removingDevice = markerStore?.load().removalPending == true || runtimeRemovalPending()
+        if let operationId = markerStore?.load().resetOperationId {
+            do {
+                let deviceKeyId = try manager.deviceKeyProviderForTesting.deviceKeyId()
+                try await requestAccountReset(operationId: operationId, deviceKeyId: deviceKeyId)
+                removingDevice = true
+            } catch KeyAPIError.notLastDevice, KeyAPIError.deviceNotFound {
+                AppLogInfo("[phi-sync] pending account reset was refused; reconfiguring without it")
+            }
+            guard !isRetired, isCurrentAccount() else { throw CancellationError() }
+        }
+        try await clearLocalSyncState(removingDevice: removingDevice)
+    }
+
+    /// Records the reset's operation UUID before the request goes out. Nil `markerStore`
+    /// is unwired/test construction, which has no journal to write.
+    /// The write goes through `update`, because the engine may save the same file meanwhile.
+    private func journalResetOperation(_ operationId: UUID) throws {
+        guard let markerStore else { return }
+        guard markerStore.load().resetOperationId != operationId else { return }
+        guard markerStore.update({ $0.resetOperationId = operationId }) else {
+            throw NativeSyncResetError.cleanupFailed
+        }
+    }
+
+    /// Sends the journaled reset. The server's two refusals deleted nothing, so the journal
+    /// forgets the operation before the refusal propagates; every other error leaves it.
+    private func requestAccountReset(operationId: UUID, deviceKeyId: String) async throws {
+        do {
+            try await profileKeys.resetAccount(operationId: operationId, deviceKeyId: deviceKeyId)
+            AppLogInfo("[phi-sync] account reset accepted by the server")
+        } catch let error as KeyAPIError {
+            switch error {
+            case .notLastDevice, .deviceNotFound: break
+            default: throw error
+            }
+            AppLogInfo("[phi-sync] account reset refused (\(PhiSyncLog.describe(error)))")
+            // A failed save leaves a UUID the server will refuse again; nothing depends on it.
+            markerStore?.update { $0.resetOperationId = nil }
+            throw error
+        }
     }
 
     private func clearLocalSyncState(removingDevice: Bool) async throws {
@@ -520,10 +605,11 @@ final class SyncKeyController {
         // Keep the account-scoped marker as a cleanup journal until every other
         // step succeeds. Its original birthday and progress token remain intact.
         if let markerStore {
-            var journal = markerStore.load()
-            journal.requiresReconfiguration = true
-            journal.removalPending = removingDevice
-            guard markerStore.save(journal) else { throw NativeSyncResetError.cleanupFailed }
+            let journaled = markerStore.update { journal in
+                journal.requiresReconfiguration = true
+                journal.removalPending = removingDevice
+            }
+            guard journaled else { throw NativeSyncResetError.cleanupFailed }
         }
         try invalidateEnrollment()
         // A pairing reset in progress belongs to the enrollment just invalidated.
@@ -1151,7 +1237,7 @@ final class SyncKeyController {
                 let transient = status == 0 || status == 401 || status == 403 || status == 408
                     || status == 429 || status >= 500
                 return transient ? .heldTransient : .definitiveFailure
-            case .decode, .lastActiveDevice: return .definitiveFailure
+            case .decode, .lastActiveDevice, .notLastDevice, .deviceNotFound: return .definitiveFailure
             }
         case let error as ProfileKeyManagerError:
             switch error {
@@ -1186,7 +1272,7 @@ final class SyncKeyController {
             if status == 401 || status == 403 { return .signInExpired }
             if status >= 500 || status == 429 || status == 408 { return .serverError }
             return .other
-        case .decode, .lastActiveDevice: return .other
+        case .decode, .lastActiveDevice, .notLastDevice, .deviceNotFound: return .other
         }
     }
 

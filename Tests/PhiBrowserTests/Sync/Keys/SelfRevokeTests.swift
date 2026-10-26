@@ -202,6 +202,259 @@ final class SelfRevokeTests: XCTestCase {
                       "Step 5 also erases migration leftovers")
     }
 
+    // MARK: - Account reset (docs/sync.md, "Enrollment and setup")
+
+    /// The reset runs the self-revoke cleanup after the server answered, with the
+    /// operation UUID journaled before the request and gone with the marker.
+    func testASuccessfulAccountResetRunsTheSharedCleanup() async throws {
+        let api = FakeAPI()
+        let ledger = Ledger()
+        let store = MemoryMappingStore()
+        store.map = ["Default": "uuid-a"]
+        let rotator = RecordingDeviceKeyStore(ledger: ledger)
+        let spaceStore = PhiSyncEngineSpaceTests.MemorySpaceStore()
+        spaceStore.table.cursors["u1"] = PhiSpaceCursor()
+        let marker = MemoryMarkerStore(file: PhiSyncMarkerFile(marker: Data("m".utf8), storeBirthday: "B"))
+        let suite = "SelfRevokeTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        for key in PhiSyncEngine.stateKeys { defaults.set("x", forKey: key) }
+
+        let controller = try await makeController(api: api, ledger: ledger, store: store,
+                                                  rotator: rotator, spaceStore: spaceStore,
+                                                  defaults: defaults, markerStore: marker)
+        try await controller.resetSyncAndRemoveThisDevice()
+
+        let journaled = try XCTUnwrap(marker.saves.first?.resetOperationId, "the UUID is journaled first")
+        XCTAssertEqual(api.resetCalls.map(\.operationId), [journaled])
+        XCTAssertTrue(api.revokedDeviceKeyIds.isEmpty, "the reset is not a revoke")
+        XCTAssertEqual(ledger.steps.first, "retire")
+        XCTAssertEqual(rotator.rotations, 1)
+        XCTAssertNil(controller.manager.currentARK)
+        XCTAssertTrue(store.map.isEmpty)
+        XCTAssertEqual(spaceStore.table, PhiSpaceSyncTable())
+        XCTAssertTrue(PhiSyncEngine.stateKeys.allSatisfy { defaults.object(forKey: $0) == nil })
+        XCTAssertTrue(marker.deleted)
+    }
+
+    /// Both refusals deleted nothing server-side: nothing local changes and the
+    /// journal forgets the operation.
+    func testAResetRefusalLeavesLocalStateAndClearsTheJournal() async throws {
+        for refusal in [KeyAPIError.notLastDevice, KeyAPIError.deviceNotFound] {
+            let api = FakeAPI()
+            api.resetError = refusal
+            let ledger = Ledger()
+            let store = MemoryMappingStore()
+            store.map = ["Default": "uuid-a"]
+            let rotator = RecordingDeviceKeyStore(ledger: ledger)
+            let original = PhiSyncMarkerFile(marker: Data("m".utf8), storeBirthday: "B")
+            let marker = MemoryMarkerStore(file: original)
+            let suite = "SelfRevokeTests.\(UUID().uuidString)"
+            let defaults = UserDefaults(suiteName: suite)!
+            defer { defaults.removePersistentDomain(forName: suite) }
+
+            let controller = try await makeController(api: api, ledger: ledger, store: store,
+                                                      rotator: rotator,
+                                                      spaceStore: PhiSyncEngineSpaceTests.MemorySpaceStore(),
+                                                      defaults: defaults, markerStore: marker)
+            do {
+                try await controller.resetSyncAndRemoveThisDevice()
+                XCTFail("expected \(refusal)")
+            } catch let error as KeyAPIError {
+                switch error {
+                case .notLastDevice, .deviceNotFound: break
+                default: XCTFail("unexpected \(error)")
+                }
+            }
+            XCTAssertEqual(api.resetCalls.count, 1)
+            XCTAssertTrue(ledger.steps.isEmpty, "nothing is torn down when the server refuses")
+            XCTAssertEqual(rotator.rotations, 0)
+            XCTAssertEqual(store.map, ["Default": "uuid-a"])
+            XCTAssertNotNil(controller.manager.currentARK)
+            XCTAssertEqual(marker.file, original, "the journal forgets the operation and nothing else")
+            XCTAssertFalse(marker.deleted)
+        }
+    }
+
+    /// A transport failure leaves the outcome unknown: local state stays and the
+    /// journal keeps the UUID, which the next attempt sends again.
+    func testATransportFailureKeepsTheJournaledOperation() async throws {
+        let api = FakeAPI()
+        api.resetError = KeyAPIError.transport(URLError(.timedOut))
+        let ledger = Ledger()
+        let store = MemoryMappingStore()
+        store.map = ["Default": "uuid-a"]
+        let rotator = RecordingDeviceKeyStore(ledger: ledger)
+        let marker = MemoryMarkerStore(file: PhiSyncMarkerFile(marker: Data("m".utf8), storeBirthday: "B"))
+        let suite = "SelfRevokeTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+
+        let controller = try await makeController(api: api, ledger: ledger, store: store,
+                                                  rotator: rotator,
+                                                  spaceStore: PhiSyncEngineSpaceTests.MemorySpaceStore(),
+                                                  defaults: defaults, markerStore: marker)
+        do {
+            try await controller.resetSyncAndRemoveThisDevice()
+            XCTFail("expected the transport error")
+        } catch KeyAPIError.transport {}
+        let pending = try XCTUnwrap(marker.file.resetOperationId)
+        XCTAssertTrue(ledger.steps.isEmpty)
+        XCTAssertEqual(store.map, ["Default": "uuid-a"])
+        XCTAssertFalse(marker.deleted)
+
+        api.resetError = nil
+        try await controller.resetSyncAndRemoveThisDevice()
+        XCTAssertEqual(api.resetCalls.map(\.operationId), [pending, pending])
+        XCTAssertTrue(marker.deleted)
+    }
+
+    /// Leaving the account and replacing this Mac's data are mutually exclusive: while the
+    /// account reset request is in flight, the pairing reset refuses as an unusable session,
+    /// before it touches anything. Once the request returns, the reset completes normally.
+    func testThePairingResetRefusesWhileAnAccountResetIsInFlight() async throws {
+        let api = FakeAPI()
+        let ledger = Ledger()
+        let rotator = RecordingDeviceKeyStore(ledger: ledger)
+        let marker = MemoryMarkerStore(file: PhiSyncMarkerFile(marker: Data("m".utf8), storeBirthday: "B"))
+        let suite = "SelfRevokeTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let recorder = TouchRecorder()
+        let controller = try await makeController(api: api, ledger: ledger, store: MemoryMappingStore(),
+                                                  rotator: rotator,
+                                                  spaceStore: PhiSyncEngineSpaceTests.MemorySpaceStore(),
+                                                  defaults: defaults, markerStore: marker,
+                                                  localResetAccess: recorder.access(),
+                                                  isPairingComplete: { false },
+                                                  profileDeletionIntents: { EmptyIntentStore() })
+        var enteredContinuation: AsyncStream<Void>.Continuation?
+        let entered = AsyncStream<Void> { enteredContinuation = $0 }
+        var releaseContinuation: AsyncStream<Void>.Continuation?
+        let release = AsyncStream<Void> { releaseContinuation = $0 }
+        let enteredSignal = try XCTUnwrap(enteredContinuation)
+        let releaseSignal = try XCTUnwrap(releaseContinuation)
+        api.beforeResetOnce = {
+            enteredSignal.yield()
+            for await _ in release { break }
+        }
+
+        let leaving = Task { try await controller.resetSyncAndRemoveThisDevice() }
+        for await _ in entered { break }          // the reset request is parked in flight
+        let reset = try XCTUnwrap(controller.localDataReset())
+        do {
+            try await reset.clear(LocalResetRequest())
+            XCTFail("the pairing reset must not run while this Mac is leaving the account")
+        } catch let error as PhiLocalDataResetError {
+            XCTAssertEqual(error, .sessionUnavailable)
+        }
+        XCTAssertFalse(recorder.touched)
+
+        releaseSignal.yield()
+        try await leaving.value
+        XCTAssertEqual(api.resetCalls.count, 1)
+        XCTAssertEqual(rotator.rotations, 1)
+        XCTAssertTrue(marker.deleted)
+        XCTAssertNil(controller.manager.currentARK)
+    }
+
+    /// A journaled reset whose outcome was never recorded (lost response, crash, relaunch):
+    /// only the UUID is on disk, no `requiresReconfiguration` flag, and the account key is
+    /// gone because the envelope answers 404. That journal alone must read as an unfinished
+    /// reconfiguration, so the pane offers Set up sync again instead of a first-device setup.
+    private func journaledResetController(api: FakeAPI, ledger: Ledger, rotator: RecordingDeviceKeyStore,
+                                          marker: MemoryMarkerStore,
+                                          defaults: UserDefaults) async throws -> SyncKeyController {
+        let controller = try await makeController(api: api, ledger: ledger, store: MemoryMappingStore(),
+                                                  rotator: rotator,
+                                                  spaceStore: PhiSyncEngineSpaceTests.MemorySpaceStore(),
+                                                  defaults: defaults, markerStore: marker)
+        controller.manager.discardARK()
+        return controller
+    }
+
+    func testAJournaledResetAloneRequiresReconfiguration() async throws {
+        let ledger = Ledger()
+        let marker = MemoryMarkerStore(file: PhiSyncMarkerFile(marker: Data("m".utf8), storeBirthday: "B",
+                                                               resetOperationId: UUID()))
+        let suite = "SelfRevokeTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let controller = try await journaledResetController(api: FakeAPI(), ledger: ledger,
+                                                            rotator: RecordingDeviceKeyStore(ledger: ledger),
+                                                            marker: marker, defaults: defaults)
+        XCTAssertNil(marker.file.requiresReconfiguration)
+        XCTAssertTrue(controller.requiresReconfiguration)
+        XCTAssertTrue(controller.resetResumePending)
+
+        marker.file.resetOperationId = nil
+        XCTAssertFalse(controller.requiresReconfiguration)
+        XCTAssertFalse(controller.resetResumePending)
+    }
+
+    /// The flag is true from the moment the UUID is journaled, before the request returns.
+    func testTheResetRequiresReconfigurationWhileItsRequestIsInFlight() async throws {
+        let api = FakeAPI()
+        let ledger = Ledger()
+        let marker = MemoryMarkerStore(file: PhiSyncMarkerFile(marker: Data("m".utf8), storeBirthday: "B"))
+        let suite = "SelfRevokeTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let controller = try await makeController(api: api, ledger: ledger, store: MemoryMappingStore(),
+                                                  rotator: RecordingDeviceKeyStore(ledger: ledger),
+                                                  spaceStore: PhiSyncEngineSpaceTests.MemorySpaceStore(),
+                                                  defaults: defaults, markerStore: marker)
+        XCTAssertFalse(controller.requiresReconfiguration)
+        var observed: Bool?
+        api.beforeResetOnce = { @MainActor in observed = controller.requiresReconfiguration }
+        try await controller.resetSyncAndRemoveThisDevice()
+        XCTAssertEqual(observed, true)
+        XCTAssertFalse(controller.requiresReconfiguration, "the finished cleanup deletes the journal")
+    }
+
+    /// Set up sync again from the journal alone sends the journaled UUID once, then runs the
+    /// cleanup with device removal (key rotation included) and deletes the marker.
+    func testReconfiguringFromAJournaledResetFinishesTheReset() async throws {
+        let api = FakeAPI()
+        let ledger = Ledger()
+        let rotator = RecordingDeviceKeyStore(ledger: ledger)
+        let operation = UUID()
+        let marker = MemoryMarkerStore(file: PhiSyncMarkerFile(marker: Data("m".utf8), storeBirthday: "B",
+                                                               resetOperationId: operation))
+        let suite = "SelfRevokeTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let controller = try await journaledResetController(api: api, ledger: ledger, rotator: rotator,
+                                                            marker: marker, defaults: defaults)
+        try await controller.reconfigureSync()
+        XCTAssertEqual(api.resetCalls.map(\.operationId), [operation])
+        XCTAssertEqual(rotator.rotations, 1, "a resumed reset rotates the device key like a removal")
+        XCTAssertTrue(marker.deleted)
+        XCTAssertFalse(controller.requiresReconfiguration)
+    }
+
+    /// The resume's refusal deleted nothing: the UUID is forgotten, the reconfiguration still
+    /// clears this Mac's sync setup, and there is no rotation.
+    func testAJournaledResetRefusedOnResumeBecomesAnOrdinaryReconfiguration() async throws {
+        let api = FakeAPI()
+        api.resetError = KeyAPIError.deviceNotFound
+        let ledger = Ledger()
+        let rotator = RecordingDeviceKeyStore(ledger: ledger)
+        let marker = MemoryMarkerStore(file: PhiSyncMarkerFile(marker: Data("m".utf8), storeBirthday: "B",
+                                                               resetOperationId: UUID()))
+        let suite = "SelfRevokeTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let controller = try await journaledResetController(api: api, ledger: ledger, rotator: rotator,
+                                                            marker: marker, defaults: defaults)
+        try await controller.reconfigureSync()
+        XCTAssertEqual(api.resetCalls.count, 1)
+        XCTAssertNil(marker.file.resetOperationId)
+        XCTAssertEqual(rotator.rotations, 0)
+        XCTAssertFalse(controller.requiresReconfiguration)
+        XCTAssertFalse(controller.resetResumePending)
+    }
+
     // MARK: - Pairing local data reset (docs/sync.md, "Replacing this Mac's data at pairing")
 
     /// Device removal invalidates the enrollment a pairing reset belonged to, so it drops the
