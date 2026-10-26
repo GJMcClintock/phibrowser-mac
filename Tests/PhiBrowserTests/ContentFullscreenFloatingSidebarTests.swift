@@ -131,16 +131,56 @@ final class ContentFullscreenFloatingSidebarTests: XCTestCase {
         defer { exitFullscreen(tab) }
         let panel = try showPanel(in: slot)
         XCTAssertTrue(window.firstResponder === webView, "precondition: the fullscreen page has the keyboard")
-        // Stands in for a sidebar row that takes the keyboard when clicked.
-        let row = FocusableView(frame: NSRect(x: 10, y: 10, width: 40, height: 20))
-        panel.addSubview(row)
-        XCTAssertTrue(window.makeFirstResponder(row), "precondition: the panel takes the keyboard")
+        _ = try focusRow(in: panel, of: window)
 
         try XCTUnwrap(slot.shell?.split).floatingSidebarHost.hideFloatingSidebar(animated: false)
         RunLoop.main.run(until: Date().addingTimeInterval(0.1))
 
         XCTAssertTrue(window.firstResponder === webView,
                       "the page has the keyboard again, not \(String(describing: window.firstResponder))")
+    }
+
+    /// The pointer leaving the panel hides it with an animation.
+    func testThePanelHidingAsThePointerLeavesGivesTheKeyboardBackToTheFullscreenPage() throws {
+        let (slot, session, webView) = try makeSlot()
+        let window = try XCTUnwrap(slot.shell?.window)
+        let tab = try XCTUnwrap(session.browserState.focusingTab)
+
+        tab.isInContentFullscreen = true
+        defer { exitFullscreen(tab) }
+        let panel = try showPanel(in: slot)
+        _ = try focusRow(in: panel, of: window)
+
+        let host = try XCTUnwrap(slot.shell?.split).floatingSidebarHost
+        host.hideFloatingSidebar(animated: true)
+        RunLoop.main.run(until: Date().addingTimeInterval(
+            FloatingSidebarHostViewController.floatingSidebarHideDuration + 0.2))
+
+        XCTAssertFalse(host.isVisible, "precondition: the panel has hidden")
+        XCTAssertTrue(window.firstResponder === webView,
+                      "the page has the keyboard again, not \(String(describing: window.firstResponder))")
+    }
+
+    /// The panel shown again and clicked before the keyboard goes back keeps
+    /// the keyboard.
+    func testAPanelFocusedAgainBeforeTheKeyboardGoesBackKeepsIt() throws {
+        let (slot, session, _) = try makeSlot()
+        let window = try XCTUnwrap(slot.shell?.window)
+        let tab = try XCTUnwrap(session.browserState.focusingTab)
+
+        tab.isInContentFullscreen = true
+        defer { exitFullscreen(tab) }
+        let panel = try showPanel(in: slot)
+        let row = try focusRow(in: panel, of: window)
+
+        let host = try XCTUnwrap(slot.shell?.split).floatingSidebarHost
+        host.hideFloatingSidebar(animated: false)
+        host.showFloatingSidebar()
+        XCTAssertTrue(window.makeFirstResponder(row), "precondition: the panel takes the keyboard again")
+        RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+
+        XCTAssertTrue(window.firstResponder === row,
+                      "the panel keeps the keyboard, not \(String(describing: window.firstResponder))")
     }
 
     /// The keyboard somewhere else (the omnibox, the AI chat) stays there
@@ -212,9 +252,7 @@ final class ContentFullscreenFloatingSidebarTests: XCTestCase {
         defer { exitFullscreen(tab) }
         let panel = try showPanel(in: controller)
         XCTAssertTrue(window.firstResponder === webView, "precondition: the fullscreen page has the keyboard")
-        let row = FocusableView(frame: NSRect(x: 10, y: 10, width: 40, height: 20))
-        panel.addSubview(row)
-        XCTAssertTrue(window.makeFirstResponder(row), "precondition: the panel takes the keyboard")
+        _ = try focusRow(in: panel, of: window)
 
         controller.mainSplitViewController.webContentContainerViewController.floatingSidebarHost
             .hideFloatingSidebar(animated: false)
@@ -254,6 +292,22 @@ final class ContentFullscreenFloatingSidebarTests: XCTestCase {
         let panel = try XCTUnwrap(host.floatingSidebarContainerView, file: file, line: line)
         controller.window?.contentView?.layoutSubtreeIfNeeded()
         return panel
+    }
+
+    /// Stands in for a sidebar row that takes the keyboard when clicked.
+    /// Hiding a view that holds the keyboard moves it to the next valid key
+    /// view, which for a real row is some other view of the window.
+    private func focusRow(in panel: NSView, of window: NSWindow,
+                          file: StaticString = #filePath,
+                          line: UInt = #line) throws -> NSView {
+        let row = FocusableView(frame: NSRect(x: 10, y: 10, width: 40, height: 20))
+        panel.addSubview(row)
+        let next = FocusableView(frame: NSRect(x: 600, y: 10, width: 40, height: 20))
+        try XCTUnwrap(window.contentView, file: file, line: line).addSubview(next)
+        row.nextKeyView = next
+        XCTAssertTrue(window.makeFirstResponder(row), "precondition: the panel takes the keyboard",
+                      file: file, line: line)
+        return row
     }
 
     /// The strip at the left edge, which comes up a moment after the column

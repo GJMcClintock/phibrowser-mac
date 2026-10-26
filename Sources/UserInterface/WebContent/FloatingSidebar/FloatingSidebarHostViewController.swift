@@ -549,17 +549,21 @@ final class FloatingSidebarHostViewController: NSViewController {
     /// back as the panel goes, as the page container does when the extension
     /// side panel closes, and like it one turn later: a forced hide can run
     /// inside Chromium's synchronous bridge push or a window's teardown.
-    /// Hiding the panel leaves the keyboard with the window meanwhile.
+    /// The window holds the keyboard meanwhile: left in the panel, hiding the
+    /// panel would pass it to the next valid key view elsewhere in the window.
     private func returnKeyboardToFullscreenPage(from panel: NSView) {
-        guard let responder = view.window?.firstResponder as? NSView,
-              responder.isDescendant(of: panel) else { return }
-        DispatchQueue.main.async { [weak self, weak panel] in
-            guard let self, let panel, let state = self.browserState,
-                  state.focusingTab?.isInContentFullscreen == true,
-                  let window = self.view.window else { return }
+        guard browserState?.focusingTab?.isInContentFullscreen == true,
+              let window = view.window,
+              let responder = window.firstResponder as? NSView,
+              responder.isDescendant(of: panel),
+              window.makeFirstResponder(nil) else { return }
+        DispatchQueue.main.async { [weak self, weak window] in
+            // Whatever took the keyboard since, the panel shown again
+            // included, keeps it.
+            guard let self, let window, let state = self.browserState,
+                  state.focusingTab?.isInContentFullscreen == true else { return }
             let current = window.firstResponder
-            guard current == nil || current === window
-                    || (current as? NSView)?.isDescendant(of: panel) == true else { return }
+            guard current == nil || current === window else { return }
             state.windowController?.mainSplitViewController.webContentContainerViewController.focusWebContent()
         }
     }
