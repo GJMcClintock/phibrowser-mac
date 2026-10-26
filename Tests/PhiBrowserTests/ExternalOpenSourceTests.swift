@@ -12,13 +12,15 @@ import XCTest
 /// reach, that `handleExternalOpen` and the held-URL flush consult it, rests
 /// on the call sites.
 final class ExternalOpenSourceTests: XCTestCase {
-    func testASystemOpenTakesEveryStep() {
+    func testASystemOpenTakesEveryStepButActivation() {
+        // macOS has already activated Phi before it hands the link over.
         XCTAssertEqual(
             ExternalOpenSource.system.steps,
             ExternalOpenSource.Steps(resumesBrowserAuthentication: true,
                                      handlesDeeplinks: true,
                                      waitsForBrowserAccess: true,
-                                     restoresWhenWindowless: true))
+                                     restoresWhenWindowless: true,
+                                     activatesPhi: false))
     }
 
     func testAPhiChatLinkIsNeverASignInCallback() {
@@ -40,5 +42,12 @@ final class ExternalOpenSourceTests: XCTestCase {
         // The defect: with every window closed it opened in a bare window and
         // the closed windows never came back.
         XCTAssertTrue(ExternalOpenSource.phiChat.steps.restoresWhenWindowless)
+    }
+
+    func testAPhiChatLinkActivatesPhiFirst() {
+        // The defect: Phi stayed inactive, so Chromium opened the link by the
+        // profile of a window used before, not the one in front, and Phi
+        // stayed behind Phi Chat.
+        XCTAssertTrue(ExternalOpenSource.phiChat.steps.activatesPhi)
     }
 }

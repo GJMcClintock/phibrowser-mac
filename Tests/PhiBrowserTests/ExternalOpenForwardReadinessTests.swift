@@ -12,15 +12,18 @@ import XCTest
 /// it, rests on the call sites.
 final class ExternalOpenForwardReadinessTests: XCTestCase {
     /// The defaults describe a batch that may go: rules loaded, a window
-    /// registered, Kiosk off, no visible regular window required and no
-    /// windowless restore in flight. Each test flips what its name says.
+    /// registered, Kiosk off, no visible regular window required, no
+    /// windowless restore in flight, no activation required and Phi active.
+    /// Each test flips what its name says.
     private static func forwards(
         hasLoadedURLRules: Bool = true,
         opensInKiosk: Bool = false,
         hasWindow: Bool = true,
         requiresVisibleRegularWindow: Bool = false,
         hasVisibleRegularBrowserWindow: Bool = true,
-        isSessionRestoreInFlight: Bool = false
+        isSessionRestoreInFlight: Bool = false,
+        requiresActiveApp: Bool = false,
+        isAppActive: Bool = true
     ) -> Bool {
         AppController.mayForwardExternalOpenNow(
             hasLoadedURLRules: hasLoadedURLRules,
@@ -29,7 +32,9 @@ final class ExternalOpenForwardReadinessTests: XCTestCase {
             requiresSpaceReadiness: true,
             requiresVisibleRegularWindow: requiresVisibleRegularWindow,
             hasVisibleRegularBrowserWindow: hasVisibleRegularBrowserWindow,
-            isSessionRestoreInFlight: isSessionRestoreInFlight)
+            isSessionRestoreInFlight: isSessionRestoreInFlight,
+            requiresActiveApp: requiresActiveApp,
+            isAppActive: isAppActive)
     }
 
     func testAReadyBatchForwards() {
@@ -73,5 +78,26 @@ final class ExternalOpenForwardReadinessTests: XCTestCase {
     func testAColdKioskOpenForwardsOnceARegularWindowShows() {
         XCTAssertTrue(Self.forwards(opensInKiosk: true,
                                     requiresVisibleRegularWindow: true))
+    }
+
+    func testAPhiChatBatchWaitsForPhiToBecomeActive() {
+        // The defect: forwarded in the same turn as the activation request,
+        // Chromium still saw the profile used before Phi Chat came to front.
+        XCTAssertFalse(Self.forwards(requiresActiveApp: true,
+                                     isAppActive: false))
+    }
+
+    func testAPhiChatBatchForwardsOncePhiIsActive() {
+        XCTAssertTrue(Self.forwards(requiresActiveApp: true))
+    }
+
+    func testASystemBatchDoesNotWaitForActivation() {
+        // macOS activated Phi before handing it over; nothing to wait for.
+        XCTAssertTrue(Self.forwards(isAppActive: false))
+    }
+
+    func testActivationDoesNotLiftTheRestoreWait() {
+        XCTAssertFalse(Self.forwards(isSessionRestoreInFlight: true,
+                                     requiresActiveApp: true))
     }
 }

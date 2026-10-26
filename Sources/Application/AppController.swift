@@ -80,6 +80,7 @@ import PostHog
     private var pendingColdOpenForwardURLs: [ExternalOpenURL] = []
     private var pendingColdOpenRequiresSpaceReadiness = false
     private var pendingColdOpenRequiresVisibleRegularWindow = false
+    private var pendingColdOpenRequiresActiveApp = false
     private var requestedRegularWindowForPendingKioskOpen = false
     private var pendingOpenURLsAwaitingBrowserAccess: [ExternalOpenURL] = []
     private var pendingBrowserAccessOpenRequiresRegularWindow = false
@@ -210,6 +211,10 @@ import PostHog
         NotificationCenter.default.addObserver(self,
                                                selector: #selector(mainAccountChanged(_:)),
                                                name: .mainAccountChanged,
+                                               object: nil)
+        NotificationCenter.default.addObserver(self,
+                                               selector: #selector(forwardPendingOpenURLsOnActivation(_:)),
+                                               name: NSApplication.didBecomeActiveNotification,
                                                object: nil)
         NotificationCenter.default.addObserver(self,
                                                selector: #selector(refreshSpacesMenuVisibility),
@@ -490,6 +495,12 @@ import PostHog
                                     sourceAppBundleId: String?,
                                     source: ExternalOpenSource) {
         let steps = source.steps
+        // Before the login gate, as macOS does for another application's
+        // link. Only the legacy call brings Phi forward from inactive.
+        if steps.activatesPhi, !NSApp.isActive {
+            AppLogDebug("[coldopen] activating Phi for a Phi Chat open")
+            NSApp.activate(ignoringOtherApps: true)
+        }
         if PhiBuildCapabilities.supportsAuthentication,
            steps.resumesBrowserAuthentication {
             for url in urls where AuthManager.shared.resumeExternalBrowserAuthentication(with: url) {
@@ -587,9 +598,12 @@ import PostHog
             SpaceManager.shared.beginSessionRestoreForExternalOpenIfEligible()
         }
 
+        let requiresActiveApp =
+            requests.contains { $0.source.steps.activatesPhi }
         let isCurrentRequestReady = isReadyToForwardOpenURLs(
             requiresSpaceReadiness: requiresSpaceReadiness,
-            requiresVisibleRegularWindow: requiresRegularWindowBeforeKiosk
+            requiresVisibleRegularWindow: requiresRegularWindowBeforeKiosk,
+            requiresActiveApp: requiresActiveApp
         )
 
         if !pendingColdOpenForwardURLs.isEmpty {
@@ -599,23 +613,19 @@ import PostHog
             pendingColdOpenRequiresVisibleRegularWindow =
                 pendingColdOpenRequiresVisibleRegularWindow
                     || requiresRegularWindowBeforeKiosk
+            pendingColdOpenRequiresActiveApp =
+                pendingColdOpenRequiresActiveApp || requiresActiveApp
             if isReadyToForwardOpenURLs(
                 requiresSpaceReadiness:
                     pendingColdOpenRequiresSpaceReadiness,
                 requiresVisibleRegularWindow:
-                    pendingColdOpenRequiresVisibleRegularWindow
+                    pendingColdOpenRequiresVisibleRegularWindow,
+                requiresActiveApp: pendingColdOpenRequiresActiveApp
             ) {
                 coldOpenURLForwardWorkItem?.cancel()
                 coldOpenURLForwardWorkItem = nil
-                let urlsToForward = pendingColdOpenForwardURLs
-                pendingColdOpenForwardURLs.removeAll()
-                coldOpenURLForwardAttempts = 0
-                pendingColdOpenRequiresSpaceReadiness = false
-                pendingColdOpenRequiresVisibleRegularWindow = false
-                requestedRegularWindowForPendingKioskOpen = false
-                forwardOpenURLsToChromium(
+                forwardPendingOpenURLsToChromium(
                     application: application,
-                    requests: urlsToForward,
                     label: "coalesced"
                 )
             } else {
@@ -638,7 +648,9 @@ import PostHog
         // is what creates one, and waiting would only run the retries out.
         // Order-dependent: it must stay below the restore begun above, which
         // has already marked itself in flight, and below the queue, whose URLs
-        // (a login flush among them) keep their place.
+        // (a login flush among them) keep their place. It does not wait for
+        // Phi to become active either: no window is there to become main, and
+        // the one this forward creates activates Phi when it shows.
         let rulesLoaded = SpaceManager.shared.hasLoadedURLRules
         let noWindowComing = SpaceManager.shared.mayForwardExternalOpenWithoutWindow
         if arrivedWithBrowserAccess, rulesLoaded, noWindowComing {
@@ -653,7 +665,9 @@ import PostHog
             "[coldopen] urls wait for a window: "
                 + "arrivedWithBrowserAccess=\(arrivedWithBrowserAccess) "
                 + "rulesLoaded=\(rulesLoaded) "
-                + "windowlessWithNothingComing=\(noWindowComing)"
+                + "windowlessWithNothingComing=\(noWindowComing) "
+                + "appActive=\(NSApp.isActive) "
+                + "requiresActiveApp=\(requiresActiveApp)"
         )
 
         pendingColdOpenForwardURLs.append(contentsOf: requests)
@@ -662,12 +676,15 @@ import PostHog
         pendingColdOpenRequiresVisibleRegularWindow =
             pendingColdOpenRequiresVisibleRegularWindow
                 || requiresRegularWindowBeforeKiosk
+        pendingColdOpenRequiresActiveApp =
+            pendingColdOpenRequiresActiveApp || requiresActiveApp
         scheduleColdOpenForwardRetry(application: application)
     }
 
     private func isReadyToForwardOpenURLs(
         requiresSpaceReadiness: Bool,
-        requiresVisibleRegularWindow: Bool
+        requiresVisibleRegularWindow: Bool,
+        requiresActiveApp: Bool
     ) -> Bool {
         let windows = SpaceSessionControllersManager.shared
         return Self.mayForwardExternalOpenNow(
@@ -680,7 +697,9 @@ import PostHog
             hasVisibleRegularBrowserWindow:
                 windows.hasVisibleRegularBrowserWindow,
             isSessionRestoreInFlight:
-                SpaceManager.shared.isSessionRestoreInFlight
+                SpaceManager.shared.isSessionRestoreInFlight,
+            requiresActiveApp: requiresActiveApp,
+            isAppActive: NSApp.isActive
         )
     }
 
@@ -693,6 +712,11 @@ import PostHog
     /// `SpaceManager.presentHostedWindow`, so Phi is not brought to the front,
     /// and Chromium picks the window by its last-used profile at the moment of
     /// the forward, before the restored windows have settled.
+    ///
+    /// `requiresActiveApp`: the batch holds a source that activates Phi
+    /// itself (`ExternalOpenSource.Steps.activatesPhi`). Activation lands
+    /// asynchronously, and only once it has does a window become main and
+    /// Chromium's last-used profile follow it.
     static func mayForwardExternalOpenNow(
         hasLoadedURLRules: Bool,
         opensInKiosk: Bool,
@@ -700,14 +724,18 @@ import PostHog
         requiresSpaceReadiness: Bool,
         requiresVisibleRegularWindow: Bool,
         hasVisibleRegularBrowserWindow: Bool,
-        isSessionRestoreInFlight: Bool
+        isSessionRestoreInFlight: Bool,
+        requiresActiveApp: Bool,
+        isAppActive: Bool
     ) -> Bool {
         let spaceReady = !requiresSpaceReadiness
             || (hasLoadedURLRules && (opensInKiosk || hasWindow))
         let regularWindowReady = !requiresVisibleRegularWindow
             || hasVisibleRegularBrowserWindow
         let restoreSettled = !isSessionRestoreInFlight
+        let activeAppReady = !requiresActiveApp || isAppActive
         return spaceReady && regularWindowReady && restoreSettled
+            && activeAppReady
     }
 
     private func scheduleColdOpenForwardRetry(application: NSApplication) {
@@ -724,7 +752,8 @@ import PostHog
                 requiresSpaceReadiness:
                     self.pendingColdOpenRequiresSpaceReadiness,
                 requiresVisibleRegularWindow:
-                    self.pendingColdOpenRequiresVisibleRegularWindow
+                    self.pendingColdOpenRequiresVisibleRegularWindow,
+                requiresActiveApp: self.pendingColdOpenRequiresActiveApp
             )
             if !isReady,
                self.pendingColdOpenRequiresVisibleRegularWindow {
@@ -752,17 +781,44 @@ import PostHog
                 return
             }
             let label = isReady ? "deferred" : "deferred-timeout"
-            let urlsToForward = self.pendingColdOpenForwardURLs
-            self.pendingColdOpenForwardURLs.removeAll()
-            self.coldOpenURLForwardAttempts = 0
-            self.pendingColdOpenRequiresSpaceReadiness = false
-            self.pendingColdOpenRequiresVisibleRegularWindow = false
-            self.requestedRegularWindowForPendingKioskOpen = false
-            self.forwardOpenURLsToChromium(application: application, requests: urlsToForward, label: label)
+            self.forwardPendingOpenURLsToChromium(application: application, label: label)
         }
         coldOpenURLForwardWorkItem = work
         DispatchQueue.main.asyncAfter(deadline: .now() + Self.coldOpenURLForwardDelay, execute: work)
         AppLogDebug("[coldopen] urls call bridge scheduled in \(Self.coldOpenURLForwardDelay)s (attempt \(coldOpenURLForwardAttempts + 1)/\(Self.coldOpenURLForwardMaxAttempts))")
+    }
+
+    /// Forwards the queued batch as soon as Phi becomes active, instead of on
+    /// the next retry, unless something else still holds it. A batch waiting
+    /// for activation (a Phi Chat link) is what this is for. AppKit posts
+    /// this after the window that became main, so Chromium's last-used
+    /// profile already follows it.
+    @objc private func forwardPendingOpenURLsOnActivation(_ notification: Notification) {
+        guard !pendingColdOpenForwardURLs.isEmpty,
+              isReadyToForwardOpenURLs(
+                requiresSpaceReadiness: pendingColdOpenRequiresSpaceReadiness,
+                requiresVisibleRegularWindow:
+                    pendingColdOpenRequiresVisibleRegularWindow,
+                requiresActiveApp: pendingColdOpenRequiresActiveApp
+              ) else { return }
+        coldOpenURLForwardWorkItem?.cancel()
+        coldOpenURLForwardWorkItem = nil
+        forwardPendingOpenURLsToChromium(application: NSApp, label: "activated")
+    }
+
+    /// Forwards the queued batch and clears the queue with every flag it
+    /// gathered. The caller cancels a scheduled retry first.
+    private func forwardPendingOpenURLsToChromium(application: NSApplication,
+                                                  label: String) {
+        let urlsToForward = pendingColdOpenForwardURLs
+        pendingColdOpenForwardURLs.removeAll()
+        coldOpenURLForwardAttempts = 0
+        pendingColdOpenRequiresSpaceReadiness = false
+        pendingColdOpenRequiresVisibleRegularWindow = false
+        pendingColdOpenRequiresActiveApp = false
+        requestedRegularWindowForPendingKioskOpen = false
+        forwardOpenURLsToChromium(application: application,
+                                  requests: urlsToForward, label: label)
     }
 
     private func forwardOpenURLsToChromium(application: NSApplication,

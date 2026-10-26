@@ -51,7 +51,13 @@ change and syncs as an ordinary host string.
    Each URL keeps its sender's bundle id through the browser-access queue and
    the cold-launch coalescing queue. Links the Phi Chat app opens join the
    same path, handed over by Chromium (`openPhiChatLinks:`, chromium ADR
-   0019), with no sender.
+   0019), with no sender. A Phi Chat link first activates Phi, before the
+   login gate, because macOS has already done so for another application's
+   link: Chromium picks the window by the profile that last became main
+   while Phi was active. A batch holding one is forwarded only once Phi is
+   active: at once on `didBecomeActive` if nothing else holds it, otherwise
+   on a later retry, and on the retry timeout if activation never comes. With
+   no window and none coming it does not wait for activation.
 2. Authentication resume and deep links are handled as before, for opens from
    macOS only: a Phi Chat link is never either (`ExternalOpenSource.steps`).
 3. Once rules are loaded, `forwardOpenURLsToChromium` gives every URL whose
@@ -77,7 +83,8 @@ window request would be dropped and Chromium would pick its window before the
 restored ones settle. Until then it waits on 0.5 s retries, at most 8 (30 for
 a cold Kiosk open), and then goes out anyway. An open that arrives with
 browser access while every window is closed and none is coming back goes out
-at once.
+at once. Otherwise a batch holding a Phi Chat link also waits for Phi to be
+active (step 1).
 
 When an external ask has no window to host the chooser, the URL opens in the
 rule's default destination: a new Kiosk for a Kiosk default, otherwise that

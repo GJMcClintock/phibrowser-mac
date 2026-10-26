@@ -135,6 +135,13 @@ enum ExternalOpenSource {
         let waitsForBrowserAccess: Bool
         /// Lands after the session restore when every window is closed.
         let restoresWhenWindowless: Bool
+        /// Activates Phi first and is forwarded once Phi is active. macOS
+        /// activates Phi before it hands over another application's link; a
+        /// Phi Chat link comes from Chromium with Phi not activated. Chromium
+        /// picks the profile of the window that last became main while Phi
+        /// was active, so this source activates Phi itself and waits for it
+        /// before forwarding.
+        let activatesPhi: Bool
     }
 
     /// Pure, so it is pinned by table (`ExternalOpenSourceTests`). Page
@@ -146,12 +153,14 @@ enum ExternalOpenSource {
             return Steps(resumesBrowserAuthentication: true,
                          handlesDeeplinks: true,
                          waitsForBrowserAccess: true,
-                         restoresWhenWindowless: true)
+                         restoresWhenWindowless: true,
+                         activatesPhi: false)
         case .phiChat:
             return Steps(resumesBrowserAuthentication: false,
                          handlesDeeplinks: false,
                          waitsForBrowserAccess: true,
-                         restoresWhenWindowless: true)
+                         restoresWhenWindowless: true,
+                         activatesPhi: true)
         }
     }
 }
