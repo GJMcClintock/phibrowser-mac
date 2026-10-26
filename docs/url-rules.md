@@ -69,6 +69,16 @@ change and syncs as an ordinary host string.
    before the target, so a Kiosk rule set to ask prompts instead of opening a
    Kiosk silently.
 
+A batch reaches step 3 once rules are loaded, a browser window is registered
+(a Kiosk open needs none, but a cold one waits for a regular window to show)
+and no windowless session restore is in flight
+(`AppController.mayForwardExternalOpenNow`). Forwarded mid-restore, the link's
+window request would be dropped and Chromium would pick its window before the
+restored ones settle. Until then it waits on 0.5 s retries, at most 8 (30 for
+a cold Kiosk open), and then goes out anyway. An open that arrives with
+browser access while every window is closed and none is coming back goes out
+at once.
+
 When an external ask has no window to host the chooser, the URL opens in the
 rule's default destination: a new Kiosk for a Kiosk default, otherwise that
 Space.

@@ -554,7 +554,8 @@ import PostHog
     /// window). Cold launch retries in `coldOpenURLForwardDelay` steps up to
     /// `coldOpenURLForwardMaxAttempts`. Standard opens then forward as a
     /// last-resort; a cold Kiosk open asks Chromium to surface a regular window
-    /// and keeps waiting so the Kiosk activates last.
+    /// and keeps waiting so the Kiosk activates last. Every open also waits
+    /// out a windowless session restore in flight (`mayForwardExternalOpenNow`).
     ///
     /// One open skips the registered-window half: one that arrived with
     /// browser access while the app is windowless with no window on its way
@@ -668,17 +669,44 @@ import PostHog
         requiresSpaceReadiness: Bool,
         requiresVisibleRegularWindow: Bool
     ) -> Bool {
-        let opensInKiosk =
-            PhiPreferences.GeneralSettings.openExternalLinksInKiosk.loadValue()
+        let windows = SpaceSessionControllersManager.shared
+        return Self.mayForwardExternalOpenNow(
+            hasLoadedURLRules: SpaceManager.shared.hasLoadedURLRules,
+            opensInKiosk:
+                PhiPreferences.GeneralSettings.openExternalLinksInKiosk.loadValue(),
+            hasWindow: windows.getFirstAvailableWindowId() != nil,
+            requiresSpaceReadiness: requiresSpaceReadiness,
+            requiresVisibleRegularWindow: requiresVisibleRegularWindow,
+            hasVisibleRegularBrowserWindow:
+                windows.hasVisibleRegularBrowserWindow,
+            isSessionRestoreInFlight:
+                SpaceManager.shared.isSessionRestoreInFlight
+        )
+    }
+
+    /// The rule behind `isReadyToForwardOpenURLs`. Pure and static so it is
+    /// pinned by table (`ExternalOpenForwardReadinessTests`).
+    ///
+    /// A windowless session restore in flight holds every open, not only a
+    /// cold Kiosk one, even once a restored window exists. Forwarded
+    /// mid-restore, the link's Show is dropped by
+    /// `SpaceManager.presentHostedWindow`, so Phi is not brought to the front,
+    /// and Chromium picks the window by its last-used profile at the moment of
+    /// the forward, before the restored windows have settled.
+    static func mayForwardExternalOpenNow(
+        hasLoadedURLRules: Bool,
+        opensInKiosk: Bool,
+        hasWindow: Bool,
+        requiresSpaceReadiness: Bool,
+        requiresVisibleRegularWindow: Bool,
+        hasVisibleRegularBrowserWindow: Bool,
+        isSessionRestoreInFlight: Bool
+    ) -> Bool {
         let spaceReady = !requiresSpaceReadiness
-            || (SpaceManager.shared.hasLoadedURLRules
-                && (opensInKiosk
-                    || SpaceSessionControllersManager.shared
-                        .getFirstAvailableWindowId() != nil))
+            || (hasLoadedURLRules && (opensInKiosk || hasWindow))
         let regularWindowReady = !requiresVisibleRegularWindow
-            || SpaceSessionControllersManager.shared.hasVisibleRegularBrowserWindow
-        let restoreSettled = !requiresVisibleRegularWindow
-            || !SpaceManager.shared.isSessionRestoreInFlight
+            || hasVisibleRegularBrowserWindow
+        let restoreSettled = !isSessionRestoreInFlight
         return spaceReady && regularWindowReady && restoreSettled
     }
 
