@@ -38,7 +38,6 @@ class PasswordManagerViewController: OnboardingBaseViewController {
     private let containerPadding: CGFloat = 8
     private let thirdPartyIconSize: CGFloat = 20
     private let thirdPartyIconSpacing: CGFloat = 10
-    private let thirdPartyIconAlpha: CGFloat = 0.6
 
     // MARK: - Subviews
 
@@ -90,7 +89,6 @@ class PasswordManagerViewController: OnboardingBaseViewController {
         for img in icons {
             let iv = NSImageView(image: img)
             iv.imageScaling = .scaleProportionallyUpOrDown
-            iv.alphaValue = thirdPartyIconAlpha
             iv.snp.makeConstraints { make in
                 make.width.height.equalTo(thirdPartyIconSize)
             }
