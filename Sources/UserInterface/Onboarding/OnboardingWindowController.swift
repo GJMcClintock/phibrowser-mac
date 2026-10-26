@@ -122,6 +122,7 @@ class OnboardingWindowController: NSWindowController {
 
         
         self.init(window: window)
+        HolographicCardView.prepareArtwork()
         self.presentsGuestMigrationRecovery = presentsGuestMigrationRecovery
         setupContentViewController()
     }

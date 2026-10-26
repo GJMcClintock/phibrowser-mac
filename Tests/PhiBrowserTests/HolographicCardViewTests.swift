@@ -159,7 +159,7 @@ final class HolographicCardViewTests: XCTestCase {
 
     func testExportIsReadableEvenBeforeEntranceAndHasNoSideCutouts() async throws {
         let view = HolographicCardView(frame: .zero)
-        view.name = "任凯 — A very long profile name"
+        view.name = "张三 — A very long profile name"
         view.memberID = "12345"
         view.joinedDate = "2026.10"
         let exported = await view.frontImage(scale: 1)
@@ -243,9 +243,9 @@ final class HolographicCardViewTests: XCTestCase {
         let card = try XCTUnwrap(controller.view as? HolographicCardView)
         XCTAssertFalse(card.animatesIdleTilt)
         controller.profile = Profile(id: 12345, auth0_id: "fixture", email: "fixture@example.com",
-            name: "任凯", picture: "", last_login: "", created_at: "2026-10-15T12:00:00.123Z")
-        XCTAssertEqual(card.name, "任凯")
-        XCTAssertEqual(card.memberID, "12345")
+            name: "张三", picture: "", last_login: "", created_at: "2026-10-15T12:00:00.123Z")
+        XCTAssertEqual(card.name, "张三")
+        XCTAssertEqual(card.memberID, "f16d05ec6b29248d")
         XCTAssertEqual(card.joinedDate, "2026.10")
         controller.profile?.name = "Updated Name"
         XCTAssertEqual(card.name, "Updated Name")

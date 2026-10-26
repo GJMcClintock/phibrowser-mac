@@ -34,6 +34,13 @@ final class HolographicCardView: NSView {
         return SHA256.hash(data: Data(sub.utf8)).prefix(8).map { String(format: "%02x", $0) }.joined()
     }
 
+    /// Builds artwork ahead of time; a card stays hidden until its artwork is ready.
+    static func prepareArtwork(for style: HolographicCardStyle = .default) {
+        Task.detached(priority: .utility) {
+            _ = await HolographicCardArtwork.cache.material(for: style)
+        }
+    }
+
     var name = "Phi" { didSet { updateCopy() } }
     var memberID = "" { didSet { updateCopy() } }
     var joinedDate = "" { didSet { updateCopy() } }
