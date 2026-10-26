@@ -49,8 +49,11 @@ change and syncs as an ordinary host string.
 
 1. `application(_:open:)` captures the sender first (`ExternalOpenSender`).
    Each URL keeps its sender's bundle id through the browser-access queue and
-   the cold-launch coalescing queue.
-2. Authentication resume and deep links are handled as before.
+   the cold-launch coalescing queue. Links the Phi Chat app opens join the
+   same path, handed over by Chromium (`openPhiChatLinks:`, chromium ADR
+   0019), with no sender.
+2. Authentication resume and deep links are handled as before, for opens from
+   macOS only: a Phi Chat link is never either (`ExternalOpenSource.steps`).
 3. Once rules are loaded, `forwardOpenURLsToChromium` gives every URL whose
    sender matches an App rule to that rule:
    - "Ask every time" is checked first, whatever the target, and shows the

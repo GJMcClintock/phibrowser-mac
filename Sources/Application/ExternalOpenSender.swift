@@ -115,10 +115,53 @@ struct ExternalOpenSender: Equatable {
     }
 }
 
-/// One URL from `application(_:open:)` with the bundle id of the application
-/// that sent it. The association is per URL so batches from different
-/// senders can coalesce while Phi waits for a window or browser access.
+/// Where an external open came from. Both sources take the one external-open
+/// path in `AppController`; `steps` is what tells them apart there.
+enum ExternalOpenSource {
+    /// macOS handed the URLs over: an Apple event from another application,
+    /// or Handoff.
+    case system
+    /// The Phi Chat app opened them and Chromium handed them over
+    /// (`openPhiChatLinks:`, chromium ADR 0019).
+    case phiChat
+
+    /// The steps of the external-open path a source takes.
+    struct Steps: Equatable {
+        /// Offered to an in-flight browser sign-in as its callback.
+        let resumesBrowserAuthentication: Bool
+        /// Offered to `DeeplinkHandler` before it opens as a page.
+        let handlesDeeplinks: Bool
+        /// Held behind the login window until the browser may be used.
+        let waitsForBrowserAccess: Bool
+        /// Lands after the session restore when every window is closed.
+        let restoresWhenWindowless: Bool
+    }
+
+    /// Pure, so it is pinned by table (`ExternalOpenSourceTests`). Page
+    /// content chooses a Phi Chat link, so it never acts as one of Phi's own
+    /// URLs: no sign-in callback, no deeplink. That row is a security boundary.
+    var steps: Steps {
+        switch self {
+        case .system:
+            return Steps(resumesBrowserAuthentication: true,
+                         handlesDeeplinks: true,
+                         waitsForBrowserAccess: true,
+                         restoresWhenWindowless: true)
+        case .phiChat:
+            return Steps(resumesBrowserAuthentication: false,
+                         handlesDeeplinks: false,
+                         waitsForBrowserAccess: true,
+                         restoresWhenWindowless: true)
+        }
+    }
+}
+
+/// One URL from an external open, with its source and, for a system open,
+/// the bundle id of the application that sent it. The association is per URL
+/// so batches from different senders can coalesce while Phi waits for a
+/// window or browser access.
 struct ExternalOpenURL {
     let url: URL
     let sourceAppBundleId: String?
+    let source: ExternalOpenSource
 }

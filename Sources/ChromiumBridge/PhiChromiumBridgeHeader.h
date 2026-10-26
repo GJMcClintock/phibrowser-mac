@@ -997,6 +997,20 @@ typedef NS_ENUM(NSInteger, PhiGhostMaterializeOutcome) {
 - (void)contentSurfaceCreated:(int64_t)windowId
                   hostingView:(NSView *)hostingView;
 
+/// The Phi Chat app opened `urlStrings`: a link in a chat answer
+/// (phinomenonPrivate.openExternalUrl), a new-tab link, a navigation leaving
+/// the chat page, or a context-menu search / "Go to". They are external links
+/// (chromium ADR 0019): open them the way links from other applications are
+/// opened, behind browser access, after the session restore when every window
+/// is closed, under the Kiosk setting and the Space URL rules, and give them
+/// back through application:openURLs:. They come from no other application,
+/// and page content chooses them, so they are never a deeplink or a sign-in
+/// callback. Return YES once the client has taken them: Chromium then drops
+/// them. NO, or a client without this method, has Chromium open them itself as
+/// before. Main thread only. Callers must guard with respondsToSelector:
+/// (skew).
+- (BOOL)openPhiChatLinks:(NSArray<NSString *> *)urlStrings;
+
 @end
 
 @protocol PhiChromiumBridgeProtocol <NSObject>

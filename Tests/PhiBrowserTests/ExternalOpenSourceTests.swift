@@ -1,0 +1,44 @@
+// Copyright 2026 Phinomenon Inc.
+//
+// Use of this source code is governed by an Apache license that can be
+// found in the LICENSE file.
+
+import XCTest
+@testable import Phi
+
+/// Pins which steps of the external-open path each source takes
+/// (`ExternalOpenSource.steps`). Links from other applications and the Phi
+/// Chat app's links share one path in `AppController`; what the rule cannot
+/// reach, that `handleExternalOpen` and the held-URL flush consult it, rests
+/// on the call sites.
+final class ExternalOpenSourceTests: XCTestCase {
+    func testASystemOpenTakesEveryStep() {
+        XCTAssertEqual(
+            ExternalOpenSource.system.steps,
+            ExternalOpenSource.Steps(resumesBrowserAuthentication: true,
+                                     handlesDeeplinks: true,
+                                     waitsForBrowserAccess: true,
+                                     restoresWhenWindowless: true))
+    }
+
+    func testAPhiChatLinkIsNeverASignInCallback() {
+        // Page content chooses the link: it must not complete a sign-in.
+        XCTAssertFalse(ExternalOpenSource.phiChat.steps.resumesBrowserAuthentication)
+    }
+
+    func testAPhiChatLinkIsNeverADeeplink() {
+        // Page content chooses the link: it must not drive Phi's own actions.
+        XCTAssertFalse(ExternalOpenSource.phiChat.steps.handlesDeeplinks)
+    }
+
+    func testAPhiChatLinkWaitsForBrowserAccess() {
+        // Signed out, it waits behind the login window like any external link.
+        XCTAssertTrue(ExternalOpenSource.phiChat.steps.waitsForBrowserAccess)
+    }
+
+    func testAPhiChatLinkLandsAfterTheWindowlessRestore() {
+        // The defect: with every window closed it opened in a bare window and
+        // the closed windows never came back.
+        XCTAssertTrue(ExternalOpenSource.phiChat.steps.restoresWhenWindowless)
+    }
+}

@@ -471,14 +471,27 @@ import PostHog
         // dispatching right now and is gone once this call returns.
         let sender = ExternalOpenSender.captureCurrent()
         handleExternalOpen(application, urls: urls,
-                           sourceAppBundleId: sender.bundleId)
+                           sourceAppBundleId: sender.bundleId,
+                           source: .system)
+    }
+
+    /// Links the Phi Chat app opened, handed over by Chromium
+    /// (`PhiChromiumCoordinator.openPhiChatLinks`). External links like those
+    /// from other applications, but from none of them, so no App rule applies.
+    @MainActor
+    func openPhiChatLinks(_ urls: [URL]) {
+        handleExternalOpen(NSApp, urls: urls, sourceAppBundleId: nil,
+                           source: .phiChat)
     }
 
     @MainActor
     private func handleExternalOpen(_ application: NSApplication,
                                     urls: [URL],
-                                    sourceAppBundleId: String?) {
-        if PhiBuildCapabilities.supportsAuthentication {
+                                    sourceAppBundleId: String?,
+                                    source: ExternalOpenSource) {
+        let steps = source.steps
+        if PhiBuildCapabilities.supportsAuthentication,
+           steps.resumesBrowserAuthentication {
             for url in urls where AuthManager.shared.resumeExternalBrowserAuthentication(with: url) {
                 return
             }
@@ -505,9 +518,10 @@ import PostHog
                 || ApplicationState.shared.canOpenExternalLinksInKiosk)
 
         let requests = urls.map {
-            ExternalOpenURL(url: $0, sourceAppBundleId: sourceAppBundleId)
+            ExternalOpenURL(url: $0, sourceAppBundleId: sourceAppBundleId,
+                            source: source)
         }
-        if !canOpenBrowser {
+        if !canOpenBrowser, steps.waitsForBrowserAccess {
             pendingOpenURLsAwaitingBrowserAccess.append(contentsOf: requests)
             pendingBrowserAccessOpenRequiresRegularWindow =
                 pendingBrowserAccessOpenRequiresRegularWindow
@@ -517,7 +531,8 @@ import PostHog
                 LoginController.shared.showLoginWindow()
             }
         } else {
-            if let url = urls.first, DeeplinkHandler.handle(url) {
+            if steps.handlesDeeplinks, let url = urls.first,
+               DeeplinkHandler.handle(url) {
                 return
             }
             scheduleForwardOpenURLsToChromium(
@@ -566,7 +581,8 @@ import PostHog
         // the link lands in the restored active window. A Kiosk cold open
         // waits for Chromium's ordinary launch window instead; starting a
         // second restore here could create an extra regular window.
-        if !opensInKiosk {
+        if !opensInKiosk,
+           requests.contains(where: { $0.source.steps.restoresWhenWindowless }) {
             SpaceManager.shared.beginSessionRestoreForExternalOpenIfEligible()
         }
 
@@ -1060,7 +1076,8 @@ import PostHog
            userActivity.activityType == NSUserActivityTypeBrowsingWeb,
            let url = userActivity.webpageURL {
             // Handoff is not an Apple event open, so it has no sender.
-            handleExternalOpen(application, urls: [url], sourceAppBundleId: nil)
+            handleExternalOpen(application, urls: [url], sourceAppBundleId: nil,
+                               source: .system)
             restorationHandler([])
             return true
         }
@@ -1260,13 +1277,18 @@ import PostHog
             return
         }
 
-        let requests = pendingOpenURLsAwaitingBrowserAccess
+        var requests = pendingOpenURLsAwaitingBrowserAccess
         pendingOpenURLsAwaitingBrowserAccess.removeAll()
         let requiresRegularWindowBeforeKiosk =
             pendingBrowserAccessOpenRequiresRegularWindow
         pendingBrowserAccessOpenRequiresRegularWindow = false
-        if let url = requests.first?.url, DeeplinkHandler.handle(url) {
-            return
+        // Only an open from macOS may be a deeplink. One that is takes the
+        // other macOS opens held with it, as before; Phi Chat links held
+        // beside them still open.
+        if let first = requests.first(where: { $0.source.steps.handlesDeeplinks }),
+           DeeplinkHandler.handle(first.url) {
+            requests.removeAll { $0.source.steps.handlesDeeplinks }
+            guard !requests.isEmpty else { return }
         }
         if opensInKiosk && !requiresRegularWindowBeforeKiosk {
             claimPostLoginPresentationForHotKioskOpen()

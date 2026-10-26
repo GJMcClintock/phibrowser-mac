@@ -2046,6 +2046,18 @@ extension PhiChromiumCoordinator: PhiChromiumBridgeDelegate {
         return DeeplinkHandler.handle(urlString)
     }
 
+    /// The Phi Chat app's links, which Chromium hands over as external links
+    /// (chromium ADR 0019). Taken whatever the app's state: the external-open
+    /// path decides what happens to them. A batch with a link `URL` cannot
+    /// hold is declined whole, and Chromium opens it itself.
+    func openPhiChatLinks(_ urlStrings: [String]) -> Bool {
+        let urls = urlStrings.compactMap(URL.init(string:))
+        guard urls.count == urlStrings.count,
+              let appController = AppController.shared else { return false }
+        MainActor.assumeIsolated { appController.openPhiChatLinks(urls) }
+        return true
+    }
+
     /// A navigation matched a Space URL rule whose action is "ask every time"
     /// and Chromium cancelled it. Dims the source window and presents the
     /// destination chooser (current Space first, Kiosk in a separate final
