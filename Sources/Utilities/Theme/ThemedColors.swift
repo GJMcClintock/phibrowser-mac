@@ -37,6 +37,9 @@ public extension ThemedColor {
     /// Default window background color.
     static let windowBackground = ThemedColor(role: .windowBackground)
 
+    /// Neutral background for the omnibox and tab search, independent of Space theme colors.
+    static let searchPanelBackground = ThemedColor(lightHex: 0xFFFFFF, darkHex: 0x383838)
+
     /// Opaque content overlay background shared by the bookmark bar and split views.
     static let contentOverlayBackground = ThemedColor { theme, appearance in
         if appearance.isLight {

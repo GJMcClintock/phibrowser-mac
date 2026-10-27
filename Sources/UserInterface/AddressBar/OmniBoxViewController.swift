@@ -21,7 +21,7 @@ class OmniBoxViewController: NSViewController {
     private lazy var backgroundContainer: NSView = {
         let view = NSView()
         view.wantsLayer = true
-        view.phiLayer?.setBackgroundColor(.contentOverlayBackground)
+        view.phiLayer?.setBackgroundColor(.searchPanelBackground)
         view.layer?.cornerRadius = 14
         view.layer?.cornerCurve = .continuous
         view.layer?.borderWidth = 1
