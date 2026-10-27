@@ -283,6 +283,21 @@ Login initialization requested during cleanup is deferred until cleanup exits,
 then resolves the current account again. Multiple requests coalesce; sign-out
 does not resurrect a previous account, and removal alone does not request startup.
 
+Account deletion (Settings → Account, `AccountDeletionLocalDataRemoval`) is not
+a sync cleanup path. Its finalize deletes the account-scoped device key item
+(`device-x25519-v1:<sub>`) of the account that booked the deletion and makes no
+revoke or reset call. The booking's subject is captured before the request is
+sent and re-checked when the response arrives, before a renewed token is
+reused, before the code is submitted and before the finalize. Under a different
+sign-in each of these refuses before acting and drops the booking; a finalize
+refusal runs no cleanup. Reopening the flow under another account drops the
+stale booking and starts a fresh request. The account's server rows are removed by the account-deletion
+orchestrator through sync-service's account purge, not by the Mac. The legacy
+shared item `device-x25519-v1` stays untouched. A later registration with the
+same Auth0 `sub` is therefore a fresh first-device enrollment. Unlike self-revoke,
+which must rotate the key, deletion may leave the item absent because the server
+no longer holds a device row for it.
+
 Withdrawing eligibility synchronously blocks
 in-flight native writes, stops the invalidation schedule, and notifies Chromium.
 A generation fence also rejects old rounds after rapid re-enrollment.
