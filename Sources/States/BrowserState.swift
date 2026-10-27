@@ -3863,7 +3863,6 @@ class BrowserState {
         // paired one-shot marker of its own, reused across peek
         // replacements.
         if let opener = tabs.first(where: { $0.guid == openerTabId }) {
-            opener.pauseVideosForPeek()
             var openerKey: String?
             if let localGuid = opener.guidInLocalDB, !localGuid.isEmpty {
                 if !Self.isAIChatId(localGuid) {

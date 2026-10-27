@@ -198,7 +198,6 @@ class Tab: WebContentRepresentable {
     var onFocusGained: (() -> Void)?
     
     @Published private(set) var webContentWrapper: (WebContentWrapper & NSObject)?
-    private var peekLinkActivationGuard: PeekLinkActivationGuard?
     private var wantsTransparentChatCanvas = false
     private var chatCanvas: EmbeddedChatCanvas?
     let parent: Tab? = nil
@@ -330,7 +329,6 @@ class Tab: WebContentRepresentable {
     
     private func setupObservers<Wrapper: WebContentWrapper & NSObject>(for wrapper: Wrapper?) {
         MainActor.assumeIsolated {
-            peekLinkActivationGuard = wrapper.flatMap { PeekLinkActivationGuard(wrapper: $0) }
             chatCanvas = nil
             if wantsTransparentChatCanvas { enableTransparentChatCanvas() }
         }
@@ -395,16 +393,9 @@ class Tab: WebContentRepresentable {
             .store(in: &cancellables)
         
         wrapper.publisher(for: \.isLoading)
-            .sink { [weak self, weak wrapper] loading in
+            .sink { [weak self] loading in
                 guard let self else { return }
                 self.isLoading = loading
-                // A newly created wrapper may not have a page target until
-                // its first navigation. Retry after that document loads.
-                if !loading, self.peekLinkActivationGuard == nil, let wrapper {
-                    MainActor.assumeIsolated {
-                        self.peekLinkActivationGuard = PeekLinkActivationGuard(wrapper: wrapper)
-                    }
-                }
                 if !loading, self.wantsTransparentChatCanvas {
                     MainActor.assumeIsolated { self.enableTransparentChatCanvas() }
                 }
@@ -573,15 +564,6 @@ class Tab: WebContentRepresentable {
         chatCanvas?.apply()
     }
 
-    func pauseVideosForPeek() {
-        MainActor.assumeIsolated {
-            if peekLinkActivationGuard == nil, let wrapper = webContentWrapper {
-                peekLinkActivationGuard = PeekLinkActivationGuard(wrapper: wrapper)
-            }
-            peekLinkActivationGuard?.pauseVideos()
-        }
-    }
-    
     func setFaviconSnapshotUpdater(_ updater: @escaping (Data, String) -> Void) {
         faviconSnapshotUpdater = updater
     }
