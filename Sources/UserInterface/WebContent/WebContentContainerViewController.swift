@@ -260,14 +260,11 @@ class WebContentContainerViewController: NSViewController {
     /// NSDraggingDestination callbacks never fire in that mode.
     var splitTabDropContainer: SplitTabDropContainer { contentContainer }
 
-    /// NTP-colored backdrop pinned under every other subview of
+    /// Neutral loading backdrop pinned under every other subview of
     /// `contentContainer`, tracing the page panel's exact geometry
     /// (`WebContentViewController.splitViewContainer`: same insets, corner
-    /// radius, and `.contentOverlayBackground` fill). Visible in the
-    /// zero-tab gap of a freshly spawned Space window whose seed NTP hasn't
-    /// mounted yet: without it that gap shows the window background, so the
-    /// page area pops from window color to NTP color when the tab lands; with
-    /// it the page area reads as an NTP from the first frame. Once a content
+    /// radius). Uses `.windowBackground` so a custom theme's bright navigation
+    /// color does not flash while the first tab is mounting. Once a content
     /// surface is installed the page card above it is clear, and this
     /// backdrop shows through wherever the page has not painted: before a
     /// cold page's first frame, under an evicted frame, in a split's gap
@@ -278,7 +275,7 @@ class WebContentContainerViewController: NSViewController {
         view.wantsLayer = true
         view.layer?.cornerCurve = .continuous
         view.layer?.cornerRadius = LiquidGlassCompatible.webContentContainerCornerRadius
-        view.phiLayer?.setBackgroundColor(ThemedColor.contentOverlayBackground)
+        view.phiLayer?.setBackgroundColor(ThemedColor.windowBackground)
         return view
     }()
 
@@ -650,7 +647,7 @@ class WebContentContainerViewController: NSViewController {
             // keep this backing opaque so the black alpha is not applied twice.
             self.pageAreaBackdrop.phiLayer?.setBackgroundColor(
                 separated && self.hasContentSurface
-                    ? .separatedContentFrameBackground : .contentOverlayBackground
+                    ? .separatedContentFrameBackground : .windowBackground
             )
         }
         guard let controller = currentWebContentController else {

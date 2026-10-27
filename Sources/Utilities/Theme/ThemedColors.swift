@@ -40,14 +40,8 @@ public extension ThemedColor {
     /// Neutral background for the omnibox and tab search, independent of Space theme colors.
     static let searchPanelBackground = ThemedColor(lightHex: 0xFFFFFF, darkHex: 0x383838)
 
-    /// Opaque content overlay background shared by the bookmark bar and split views.
-    static let contentOverlayBackground = ThemedColor { theme, appearance in
-        if appearance.isLight {
-            return .white
-        } else {
-            return windowOverlayBackground.resolve(theme: theme, appearance: appearance).withAlphaComponent(1)
-        }
-    }
+    /// Neutral content overlay background, independent of Space theme colors.
+    static let contentOverlayBackground = ThemedColor(lightHex: 0xFFFFFF, darkHex: 0x212121)
 
     /// Shared frame around separated page and Chat/panel cards.
     static let separatedContentFrameBackground = ThemedColor { _, appearance in

@@ -9,6 +9,32 @@ import XCTest
 
 @MainActor
 final class ThemePaletteTests: XCTestCase {
+    func testWindowBackgroundStaysNeutralAcrossThemesAndAdjustments() {
+        let custom = Theme(id: "custom-background", name: "Custom Background")
+        custom.setColor(light: .red, dark: .blue, for: .windowBackground)
+        let palette = ThemePalette(hue: 0.6, saturation: 0.8, colorCount: 3)
+
+        for base in Theme.builtInThemes + [.incognito, custom] {
+            let variants = [
+                base,
+                palette.applying(to: base),
+                base.makeSnapshot().makeTheme(),
+                ThemeColorAdjustment.applyingSaturation(
+                    light: 0.9, dark: 0.9, darkWindowBackground: 0.9, to: base
+                ),
+                ThemeColorAdjustment.applyingPureBrightness(sliderValue: 100, to: base)
+            ]
+            for theme in variants {
+                XCTAssertEqual(theme.colorPair(for: .windowBackground),
+                               ColorPair(light: NSColor(hex: 0xFFFFFF), dark: NSColor(hex: 0x212121)))
+                XCTAssertEqual(ThemedColor.windowBackground.resolve(theme: theme, appearance: .light),
+                               NSColor(hex: 0xFFFFFF))
+                XCTAssertEqual(ThemedColor.windowBackground.resolve(theme: theme, appearance: .dark),
+                               NSColor(hex: 0x212121))
+            }
+        }
+    }
+
     func testSettingsIndicatorUsesSavedLegacyColorsWithoutCreatingPalette() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let account = Account(userID: "theme-indicator-test-" + UUID().uuidString)

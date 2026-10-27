@@ -1559,10 +1559,9 @@ final class PhiBrowserTests: XCTestCase {
             saturation: 0.40,
             alpha: 0.8
         )
-        assertHSB(
+        assertColor(
             restoredTheme.color(for: .windowBackground, appearance: .dark),
-            saturation: 0.40,
-            alpha: 1
+            equals: NSColor(hex: 0x212121)
         )
         assertColor(
             restoredTheme.color(for: .themeColor, appearance: .light),
@@ -1603,10 +1602,9 @@ final class PhiBrowserTests: XCTestCase {
             brightness: 0.20,
             alpha: 0.8
         )
-        assertHSB(
+        assertColor(
             restoredTheme.color(for: .windowBackground, appearance: .dark),
-            brightness: 0.25,
-            alpha: 1
+            equals: NSColor(hex: 0x212121)
         )
         XCTAssertEqual(
             Theme.pure
@@ -1734,7 +1732,7 @@ final class PhiBrowserTests: XCTestCase {
         )
         assertColor(
             restoredTheme.color(for: .windowBackground, appearance: .dark),
-            equals: NSColor(hex: 0x302010, alpha: 1)
+            equals: NSColor(hex: 0x212121)
         )
     }
 
