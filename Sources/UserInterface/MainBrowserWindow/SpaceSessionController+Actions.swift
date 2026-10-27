@@ -142,8 +142,8 @@ extension SpaceSessionController {
             // anywhere else lands on the real control and dismisses the
             // omnibox at the same time. Only above a Peek or Reader panel does
             // it need the host panel, which floats over those child windows
-            // (see attachAndShowOmniBoxHostPanel) at the cost of replaying
-            // outside clicks.
+            // (see attachAndShowOmniBoxHostPanel) and is shrunk to the box so
+            // outside clicks stay real there too.
             omniBoxOverlayClicksThrough = !omniBoxNeedsFloatingHost
             let hostView: NSView?
             if omniBoxOverlayClicksThrough {
@@ -168,8 +168,18 @@ extension SpaceSessionController {
             }
             if let hostView {
                 hostView.addSubview(omnibackgroundView)
-                omnibackgroundView.snp.remakeConstraints { make in
-                    make.edges.equalToSuperview()
+                if omniBoxOverlayClicksThrough {
+                    omnibackgroundView.snp.remakeConstraints { make in
+                        make.edges.equalToSuperview()
+                    }
+                } else {
+                    // The panel is sized to the box; the backdrop keeps the
+                    // content area's size and is placed by
+                    // `syncOmniBoxHostPanelFrame`, not by its superview.
+                    omnibackgroundView.snp.removeConstraints()
+                    omnibackgroundView.translatesAutoresizingMaskIntoConstraints = true
+                    omnibackgroundView.autoresizingMask = []
+                    syncOmniBoxHostPanelFrame()
                 }
 
                 // Add omniBox container to background view

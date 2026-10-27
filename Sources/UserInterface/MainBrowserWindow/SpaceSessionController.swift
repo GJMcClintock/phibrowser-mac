@@ -132,6 +132,17 @@ class SpaceSessionController: NSWindowController {
     /// window's view hierarchy beneath it.
     private(set) var omniBoxHostPanel: NSPanel?
     private var omniBoxHostResizeObserver: NSObjectProtocol?
+    /// Follows the box's frame while the panel hosts it: the panel is shrunk
+    /// to the box, so it must move and grow with it (suggestions, resizes).
+    private var omniBoxFrameObserver: NSObjectProtocol?
+    /// Dismisses the panel-hosted omnibox on a press in any other window.
+    /// The panel covers only the box, so that press is a real click on the
+    /// control beneath, not one the overlay swallowed and has to replay.
+    private var omniBoxOutsideClickMonitor: Any?
+    /// Room the panel keeps around the box for its shadow and the 1.1× scale
+    /// of the show/hide animation. Stays inside the page area for the usual
+    /// box width, so the sidebar and header are never under the panel.
+    private static let omniBoxHostPanelMargin: CGFloat = 60
     /// While set, the omnibox is hosted inside the window's own view tree
     /// instead of the host panel, and its backdrop lets every click outside
     /// the box fall through to the view beneath (`EventBlockBgView.
@@ -199,6 +210,34 @@ class SpaceSessionController: NSWindowController {
             window.addChildWindow(panel, ordered: .above)
         }
         panel.ignoresMouseEvents = false
+        if let box = omniBoxContainerViewController?.omniBoxController?.view {
+            box.postsFrameChangedNotifications = true
+            if let observer = omniBoxFrameObserver {
+                NotificationCenter.default.removeObserver(observer)
+            }
+            omniBoxFrameObserver = NotificationCenter.default.addObserver(
+                forName: NSView.frameDidChangeNotification,
+                object: box,
+                queue: .main
+            ) { [weak self] _ in
+                self?.syncOmniBoxHostPanelFrame()
+            }
+        }
+        if omniBoxOutsideClickMonitor == nil {
+            omniBoxOutsideClickMonitor = NSEvent.addLocalMonitorForEvents(
+                matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]
+            ) { [weak self] event in
+                guard let self, let panel = self.omniBoxHostPanel, event.window !== panel,
+                      self.omniBoxContainerViewController?.hasShown == true else { return event }
+                // The click proceeds untouched; the omnibox leaves one turn later.
+                DispatchQueue.main.async { [weak self] in
+                    guard let container = self?.omniBoxContainerViewController,
+                          container.hasShown else { return }
+                    container.hideOmniBox()
+                }
+                return event
+            }
+        }
         syncOmniBoxHostPanelFrame()
         panel.makeKeyAndOrderFront(nil)
         return panel
@@ -211,14 +250,46 @@ class SpaceSessionController: NSWindowController {
               omniBoxContainerViewController?.hasShown != true else { return }
         panel.parent?.removeChildWindow(panel)
         panel.orderOut(nil)
+        if let observer = omniBoxFrameObserver {
+            NotificationCenter.default.removeObserver(observer)
+            omniBoxFrameObserver = nil
+        }
+        if let monitor = omniBoxOutsideClickMonitor {
+            NSEvent.removeMonitor(monitor)
+            omniBoxOutsideClickMonitor = nil
+        }
     }
 
-    private func syncOmniBoxHostPanelFrame() {
+    /// The panel covers the box alone, not the content area: everything
+    /// around the box stays a real, clickable part of the window beneath. The
+    /// backdrop inside the panel still spans the whole content area — offset
+    /// so it lines up with the window — which is what lets the omnibox lay
+    /// itself out exactly as it does when hosted in the window; the panel
+    /// merely clips that layout to the box plus a margin for its shadow.
+    func syncOmniBoxHostPanelFrame() {
         guard let window = self.window,
               let panel = omniBoxHostPanel,
               let contentView = window.contentView else { return }
-        let inWindow = contentView.convert(contentView.bounds, to: nil)
-        panel.setFrame(window.convertToScreen(inWindow), display: true)
+        let fullInWindow = contentView.convert(contentView.bounds, to: nil)
+        let fullOnScreen = window.convertToScreen(fullInWindow)
+        var region = fullOnScreen
+        if let box = omniBoxContainerViewController?.omniBoxController?.view,
+           box.superview != nil, !box.frame.isEmpty {
+            // The backdrop's coordinate space is the content area's.
+            let boxInBackdrop = box.convert(box.bounds, to: omnibackgroundView)
+            region = NSRect(x: fullOnScreen.minX + boxInBackdrop.minX,
+                            y: fullOnScreen.minY + boxInBackdrop.minY,
+                            width: boxInBackdrop.width,
+                            height: boxInBackdrop.height)
+                .insetBy(dx: -Self.omniBoxHostPanelMargin, dy: -Self.omniBoxHostPanelMargin)
+                .intersection(fullOnScreen)
+            if region.isEmpty { region = fullOnScreen }
+        }
+        panel.setFrame(region, display: true)
+        omnibackgroundView.frame = NSRect(x: fullOnScreen.minX - region.minX,
+                                          y: fullOnScreen.minY - region.minY,
+                                          width: fullOnScreen.width,
+                                          height: fullOnScreen.height)
     }
     
     lazy var omnibackgroundView: EventBlockBgView = {
