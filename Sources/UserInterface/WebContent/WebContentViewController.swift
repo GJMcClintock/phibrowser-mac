@@ -369,6 +369,9 @@ class WebContentViewController: NSViewController {
     /// Test-only view of the page / AI Chat split.
     var contentSplitViewForTesting: NSSplitView { contentSplitViewController.splitView }
 
+    /// Test-only collapse state of the AI Chat split item.
+    var isAIChatCollapsedForTesting: Bool? { aiChatSplitViewItem?.isCollapsed }
+
     /// Whether this page paints the themed vibrancy backdrop in the margins
     /// around its card. Follows its container's
     /// (`WebContentContainerViewController.paintsOwnBackdrop`): a hosted
@@ -882,6 +885,9 @@ class WebContentViewController: NSViewController {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] isCollapsed in
                 guard let self else { return }
+                // Stale delivery: the item has moved on and the newer value
+                // is queued behind this one (see `observeTabAIChatState`).
+                guard isCollapsed == self.aiChatSplitViewItem?.isCollapsed else { return }
                 self.updateAIChatSidebarMetrics(isExpanded: !isCollapsed)
                 
                 // Ignore KVO while we are already synchronizing state ourselves.
@@ -1079,6 +1085,23 @@ class WebContentViewController: NSViewController {
             .sink { [weak self, weak splitViewItem, weak tab] collapsed in
                 guard let self, let splitViewItem, let tab else { return }
 
+                // Both mirrors (this one and the split item's KVO in
+                // `setupAIChatObserver`) land a turn late, after the
+                // `isUpdatingAIChatState` guard is long cleared. A delivery
+                // the tab has already moved past is stale, with the newer
+                // value queued behind it: acting on it flips the split back,
+                // whose late KVO flips the tab back in turn — two stale
+                // values chasing each other for good (an extension panel
+                // reopened while an AI Chat expand was still in flight).
+                guard collapsed == tab.aiChatCollapsed else {
+                    // A dropped expand never showed the chat: its explicit
+                    // open trigger must not be reported for the next open.
+                    if !collapsed {
+                        _ = self.browserState?.consumeAIChatSidebarOpenTrigger()
+                    }
+                    return
+                }
+
                 // Prevent observer feedback loops.
                 guard !self.isUpdatingAIChatState else { return }
 
@@ -1113,8 +1136,10 @@ class WebContentViewController: NSViewController {
         tab.$aiChatEnabled
             .dropFirst() // The initial value is handled by the explicit sync step.
             .receive(on: DispatchQueue.main)
-            .sink { [weak self, weak splitViewItem] enabled in
-                guard let self, let splitViewItem else { return }
+            .sink { [weak self, weak splitViewItem, weak tab] enabled in
+                guard let self, let splitViewItem, let tab else { return }
+                // Stale delivery (see `observeTabAIChatState`).
+                guard enabled == tab.aiChatEnabled else { return }
 
                 // Ignore recursive updates triggered by our own state sync.
                 guard !self.isUpdatingAIChatState else { return }

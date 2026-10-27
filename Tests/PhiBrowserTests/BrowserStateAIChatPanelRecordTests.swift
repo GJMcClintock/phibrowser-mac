@@ -7,7 +7,7 @@ import XCTest
 @testable import Phi
 
 /// Records what `BrowserState` hands the Chromium bridge for the AI Chat panel.
-private final class FakeAIChatPanelBridge: AIChatPanelBridging {
+final class FakeAIChatPanelBridge: AIChatPanelBridging {
     var pushes: [(record: String?, tabId: Int)] = []
     var panelRequests: [(url: String, customGuid: String, windowId: Int)] = []
 
