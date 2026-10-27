@@ -50054,6 +50054,18 @@
         }
       }
     },
+    "notifications.card.workingStatus" : {
+      "comment" : "Notification card - Status beside the agent avatar while the agent is still working on a task",
+      "extractionState" : "extracted_with_value",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Working"
+          }
+        }
+      }
+    },
     "notifications.contextMenu.disablePopupAction" : {
       "comment" : "Notification menu option - Disable auto popup for notification cards",
       "extractionState" : "extracted_with_value",

@@ -136,8 +136,10 @@ class FloatingSidebarViewController: NSViewController, BrowserThemeContextProvid
                 manager: NotificationCardManager.shared,
                 layoutMode: .sidebar,
                 presentation: messageCardPresentation,
-                onRun: { card in
-                    NotificationCardManager.shared.decide(card: card, decision: .accept)
+                onRun: { [weak self] card in
+                    NotificationCardManager.shared.accept(card) { conversationId in
+                        await self?.state.showCardConversationInAIChatPanel(conversationId) ?? false
+                    }
                 },
                 onDismiss: { _ in
                     NotificationCardManager.shared.hideCard()
@@ -459,14 +461,19 @@ class FloatingSidebarViewController: NSViewController, BrowserThemeContextProvid
             }
             .store(in: &cancellables)
 
-        NotificationCardManager.shared.$currentIndex
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in
-                if NotificationCardManager.shared.currentCard != nil {
-                    self?.updateMessageCardHeight()
-                }
+        // Re-measure whenever the shown card can change size: paging, a new card,
+        // or a card replaced in place (a working card's progress or its result).
+        Publishers.Merge(
+            NotificationCardManager.shared.$currentIndex.map { _ in () },
+            NotificationCardManager.shared.$allCards.map { _ in () }
+        )
+        .receive(on: DispatchQueue.main)
+        .sink { [weak self] in
+            if NotificationCardManager.shared.currentCard != nil {
+                self?.updateMessageCardHeight()
             }
-            .store(in: &cancellables)
+        }
+        .store(in: &cancellables)
     }
 
     private func setupConfigObserverIfNeeded() {
