@@ -3740,7 +3740,13 @@ extension SidebarTabListViewController: NSOutlineViewDelegate {
             rowView.identifier = identifier
             return rowView
         case .bookmark, .bookmarkFolder:
-            return BookmarkRowView(/*insets:  NSEdgeInsets(top: 0, left: 0, bottom: 0, right: 0)*/)
+            let identifier = NSUserInterfaceItemIdentifier("BookmarkRow")
+            if let rowView = outlineView.makeView(withIdentifier: identifier, owner: self) as? BookmarkRowView {
+                return rowView
+            }
+            let rowView = BookmarkRowView()
+            rowView.identifier = identifier
+            return rowView
         default:
             return nil
         }
