@@ -125,22 +125,23 @@ enum ExternalOpenSource {
     /// (`openPhiChatLinks:`, chromium ADR 0019).
     case phiChat
 
-    /// The steps of the external-open path a source takes.
+    /// The steps of the external-open path a source takes. The browser-access
+    /// gate is not one: every source waits behind it.
     struct Steps: Equatable {
         /// Offered to an in-flight browser sign-in as its callback.
         let resumesBrowserAuthentication: Bool
         /// Offered to `DeeplinkHandler` before it opens as a page.
         let handlesDeeplinks: Bool
-        /// Held behind the login window until the browser may be used.
-        let waitsForBrowserAccess: Bool
         /// Lands after the session restore when every window is closed.
         let restoresWhenWindowless: Bool
         /// Activates Phi first and is forwarded once Phi is active. macOS
-        /// activates Phi before it hands over another application's link; a
-        /// Phi Chat link comes from Chromium with Phi not activated. Chromium
-        /// picks the profile of the window that last became main while Phi
-        /// was active, so this source activates Phi itself and waits for it
-        /// before forwarding.
+        /// activates Phi before it hands over another application's link,
+        /// unless that link was opened in the background (`open -g`,
+        /// AppleScript `open location` without `activate`, `NSWorkspace.open`
+        /// with `activates` false). A Phi Chat link comes from Chromium with
+        /// Phi not activated. Chromium picks the profile of the window that
+        /// last became main while Phi was active, so this source activates
+        /// Phi itself and waits for it before forwarding.
         let activatesPhi: Bool
     }
 
@@ -152,13 +153,11 @@ enum ExternalOpenSource {
         case .system:
             return Steps(resumesBrowserAuthentication: true,
                          handlesDeeplinks: true,
-                         waitsForBrowserAccess: true,
                          restoresWhenWindowless: true,
                          activatesPhi: false)
         case .phiChat:
             return Steps(resumesBrowserAuthentication: false,
                          handlesDeeplinks: false,
-                         waitsForBrowserAccess: true,
                          restoresWhenWindowless: true,
                          activatesPhi: true)
         }

@@ -13,12 +13,12 @@ import XCTest
 /// on the call sites.
 final class ExternalOpenSourceTests: XCTestCase {
     func testASystemOpenTakesEveryStepButActivation() {
-        // macOS has already activated Phi before it hands the link over.
+        // macOS has already activated Phi before it hands the link over,
+        // unless that link was opened in the background.
         XCTAssertEqual(
             ExternalOpenSource.system.steps,
             ExternalOpenSource.Steps(resumesBrowserAuthentication: true,
                                      handlesDeeplinks: true,
-                                     waitsForBrowserAccess: true,
                                      restoresWhenWindowless: true,
                                      activatesPhi: false))
     }
@@ -31,11 +31,6 @@ final class ExternalOpenSourceTests: XCTestCase {
     func testAPhiChatLinkIsNeverADeeplink() {
         // Page content chooses the link: it must not drive Phi's own actions.
         XCTAssertFalse(ExternalOpenSource.phiChat.steps.handlesDeeplinks)
-    }
-
-    func testAPhiChatLinkWaitsForBrowserAccess() {
-        // Signed out, it waits behind the login window like any external link.
-        XCTAssertTrue(ExternalOpenSource.phiChat.steps.waitsForBrowserAccess)
     }
 
     func testAPhiChatLinkLandsAfterTheWindowlessRestore() {

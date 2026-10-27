@@ -53,7 +53,9 @@ change and syncs as an ordinary host string.
    same path, handed over by Chromium (`openPhiChatLinks:`, chromium ADR
    0019), with no sender. A Phi Chat link first activates Phi, before the
    login gate, because macOS has already done so for another application's
-   link: Chromium picks the window by the profile that last became main
+   link unless it was opened in the background (`open -g`, AppleScript
+   `open location` without `activate`, `NSWorkspace.open` with `activates`
+   false): Chromium picks the window by the profile that last became main
    while Phi was active. A batch holding one is forwarded only once Phi is
    active: at once on `didBecomeActive` if nothing else holds it, otherwise
    on a later retry, and on the retry timeout if activation never comes. With
@@ -83,8 +85,8 @@ window request would be dropped and Chromium would pick its window before the
 restored ones settle. Until then it waits on 0.5 s retries, at most 8 (30 for
 a cold Kiosk open), and then goes out anyway. An open that arrives with
 browser access while every window is closed and none is coming back goes out
-at once. Otherwise a batch holding a Phi Chat link also waits for Phi to be
-active (step 1).
+at once, unless earlier opens are still queued: it then joins them. Otherwise
+a batch holding a Phi Chat link also waits for Phi to be active (step 1).
 
 When an external ask has no window to host the chooser, the URL opens in the
 rule's default destination: a new Kiosk for a Kiosk default, otherwise that

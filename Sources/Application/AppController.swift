@@ -496,7 +496,9 @@ import PostHog
                                     source: ExternalOpenSource) {
         let steps = source.steps
         // Before the login gate, as macOS does for another application's
-        // link. Only the legacy call brings Phi forward from inactive.
+        // link unless that link was opened in the background
+        // (`ExternalOpenSource.Steps.activatesPhi`). Only the legacy call
+        // brings Phi forward from inactive.
         if steps.activatesPhi, !NSApp.isActive {
             AppLogDebug("[coldopen] activating Phi for a Phi Chat open")
             NSApp.activate(ignoringOtherApps: true)
@@ -532,7 +534,7 @@ import PostHog
             ExternalOpenURL(url: $0, sourceAppBundleId: sourceAppBundleId,
                             source: source)
         }
-        if !canOpenBrowser, steps.waitsForBrowserAccess {
+        if !canOpenBrowser {
             pendingOpenURLsAwaitingBrowserAccess.append(contentsOf: requests)
             pendingBrowserAccessOpenRequiresRegularWindow =
                 pendingBrowserAccessOpenRequiresRegularWindow
@@ -615,13 +617,7 @@ import PostHog
                     || requiresRegularWindowBeforeKiosk
             pendingColdOpenRequiresActiveApp =
                 pendingColdOpenRequiresActiveApp || requiresActiveApp
-            if isReadyToForwardOpenURLs(
-                requiresSpaceReadiness:
-                    pendingColdOpenRequiresSpaceReadiness,
-                requiresVisibleRegularWindow:
-                    pendingColdOpenRequiresVisibleRegularWindow,
-                requiresActiveApp: pendingColdOpenRequiresActiveApp
-            ) {
+            if isPendingColdOpenBatchReady {
                 coldOpenURLForwardWorkItem?.cancel()
                 coldOpenURLForwardWorkItem = nil
                 forwardPendingOpenURLsToChromium(
@@ -679,6 +675,18 @@ import PostHog
         pendingColdOpenRequiresActiveApp =
             pendingColdOpenRequiresActiveApp || requiresActiveApp
         scheduleColdOpenForwardRetry(application: application)
+    }
+
+    /// Whether the queued batch (`pendingColdOpenForwardURLs`) may go out, by
+    /// the requirements gathered from every open it holds. Coalescing, the
+    /// retry and the activation flush all ask this one check.
+    private var isPendingColdOpenBatchReady: Bool {
+        isReadyToForwardOpenURLs(
+            requiresSpaceReadiness: pendingColdOpenRequiresSpaceReadiness,
+            requiresVisibleRegularWindow:
+                pendingColdOpenRequiresVisibleRegularWindow,
+            requiresActiveApp: pendingColdOpenRequiresActiveApp
+        )
     }
 
     private func isReadyToForwardOpenURLs(
@@ -748,13 +756,7 @@ import PostHog
             guard let self else { return }
             self.coldOpenURLForwardWorkItem = nil
             self.coldOpenURLForwardAttempts += 1
-            let isReady = self.isReadyToForwardOpenURLs(
-                requiresSpaceReadiness:
-                    self.pendingColdOpenRequiresSpaceReadiness,
-                requiresVisibleRegularWindow:
-                    self.pendingColdOpenRequiresVisibleRegularWindow,
-                requiresActiveApp: self.pendingColdOpenRequiresActiveApp
-            )
+            let isReady = self.isPendingColdOpenBatchReady
             if !isReady,
                self.pendingColdOpenRequiresVisibleRegularWindow {
                 if !SpaceSessionControllersManager.shared
@@ -795,12 +797,7 @@ import PostHog
     /// profile already follows it.
     @objc private func forwardPendingOpenURLsOnActivation(_ notification: Notification) {
         guard !pendingColdOpenForwardURLs.isEmpty,
-              isReadyToForwardOpenURLs(
-                requiresSpaceReadiness: pendingColdOpenRequiresSpaceReadiness,
-                requiresVisibleRegularWindow:
-                    pendingColdOpenRequiresVisibleRegularWindow,
-                requiresActiveApp: pendingColdOpenRequiresActiveApp
-              ) else { return }
+              isPendingColdOpenBatchReady else { return }
         coldOpenURLForwardWorkItem?.cancel()
         coldOpenURLForwardWorkItem = nil
         forwardPendingOpenURLsToChromium(application: NSApp, label: "activated")
