@@ -748,6 +748,25 @@ class ProfileCardView: NSView {
     }
     
     private let cardContainerView = NSView()
+    private lazy var randomButton: HoverableButtonNSView = {
+        let image = NSImage(resource: .oobeDice)
+        let title = NSLocalizedString("settings.account.card.randomizeButton", value: "Randomize",
+            comment: "Account settings - Randomly choose a profile card theme, background texture and ornament")
+        let button = HoverableButtonNSView(
+            config: HoverableButtonConfig(
+                title: title,
+                image: image,
+                imageSize: NSSize(width: image.size.width * 0.6, height: image.size.height * 0.6),
+                backgroundColor: .clear,
+                hoverBackgroundColor: ThemedColor(light: .black.withAlphaComponent(0.1), dark: .white.withAlphaComponent(0.18)),
+                imageTintColor: .textPrimary,
+                cornerRadius: 12),
+            target: self,
+            selector: #selector(randomizeProfileCard))
+        button.toolTip = title
+        button.setAccessibilityLabel(title)
+        return button
+    }()
     private lazy var downloadButton = NSButton(title: "", target: self, action: #selector(downloadProfileImage))
     private let profileCardViewController = ProfileCardViewController()
     var userInfo: Profile? {
@@ -786,6 +805,14 @@ class ProfileCardView: NSView {
             make.edges.equalToSuperview()
         }
 
+        addSubview(randomButton)
+
+        randomButton.snp.makeConstraints { make in
+            make.centerX.equalToSuperview()
+            make.top.equalTo(cardContainerView.snp.bottom).offset(Metrics.shadowPadding + 4)
+            make.width.height.equalTo(24)
+        }
+
         downloadButton.title = NSLocalizedString("settings.account.sharing.downloadImageButton", value: "Download image", comment: "Account settings - Button to download profile card as image")
         downloadButton.bezelStyle = .rounded
         downloadButton.image = NSImage(systemSymbolName: "arrow.down.circle", accessibilityDescription: nil)
@@ -794,9 +821,13 @@ class ProfileCardView: NSView {
 
         downloadButton.snp.makeConstraints { make in
             make.centerX.equalToSuperview()
-            make.top.equalTo(cardContainerView.snp.bottom).offset(Metrics.shadowPadding + 4)
+            make.top.equalTo(randomButton.snp.bottom).offset(8)
             make.bottom.equalToSuperview()
         }
+    }
+
+    @objc private func randomizeProfileCard() {
+        profileCardViewController.randomizeCard()
     }
 
     @objc private func downloadProfileImage() {

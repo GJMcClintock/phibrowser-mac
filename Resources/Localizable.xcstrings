@@ -57745,6 +57745,28 @@
         }
       }
     },
+    "settings.account.card.randomizeButton" : {
+      "comment" : "Account settings - Randomly choose a profile card theme, background texture and ornament",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Randomize"
+          }
+        }
+      }
+    },
+    "settings.account.card.saveFailed" : {
+      "comment" : "Account settings - Error when the randomized profile card style cannot be saved",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your card could not be saved. Please try again."
+          }
+        }
+      }
+    },
     "settings.account.displayName.fallback" : {
       "comment" : "Account settings - Default display name when user name is not available",
       "extractionState" : "extracted_with_value",

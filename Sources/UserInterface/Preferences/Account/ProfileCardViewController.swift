@@ -52,6 +52,20 @@ final class ProfileCardViewController: NSViewController {
         return style
     }
 
+    func randomizeCard() {
+        guard let defaults = AccountController.shared.account?.userDefaults else { return }
+        let style = HolographicCardStyle.random()
+        guard defaults.set(style, forCodableKey: AccountUserDefaults.DefaultsKey.profileCardStyle.rawValue) else {
+            let message = NSLocalizedString("settings.account.card.saveFailed", value: "Your card could not be saved. Please try again.",
+                comment: "Account settings - Error when the randomized profile card style cannot be saved")
+            NSApp.presentError(NSError(domain: "Phi.ProfileCard", code: 1, userInfo: [NSLocalizedDescriptionKey: message]))
+            return
+        }
+        // Persist first because switching themes reloads the saved card style.
+        ThemeManager.shared.switchTheme(to: style.palette.themeID)
+        applyCurrentTheme()
+    }
+
     func snapshotAndExport() {
         Task { await exportImage() }
     }
