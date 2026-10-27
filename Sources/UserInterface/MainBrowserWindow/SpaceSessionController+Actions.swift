@@ -60,10 +60,6 @@ extension SpaceSessionController {
         DispatchQueue.main.async { [weak self] in
             guard let self, self.browserState.isInPlaceholderMode, self.isPresentedOrLegacy,
                   self.omniBoxContainerViewController?.hasShown != true else { return }
-            // Leave the rest of the window clickable under this omnibox: the
-            // user did not ask for it, so it must not stand between them and
-            // the next Space, tab or button (see `omniBoxOverlayClicksThrough`).
-            self.omniBoxOverlayClicksThrough = true
             self.toggleOmniBox(fromAddressBar: false)
         }
     }
@@ -141,19 +137,34 @@ extension SpaceSessionController {
                 addressViewPresent: addressView != nil
             )
             
-            // The omnibox host stays above Reader, Peek and the browser's
-            // other content (see attachAndShowOmniBoxHostPanel). The
-            // click-through omnibox lives in the window's own tree instead,
-            // like tab search, and its backdrop owns nothing but the box.
+            // The omnibox normally lives in the window's own tree, like tab
+            // search, with a backdrop that owns nothing but the box: a click
+            // anywhere else lands on the real control and dismisses the
+            // omnibox at the same time. Only above a Peek or Reader panel does
+            // it need the host panel, which floats over those child windows
+            // (see attachAndShowOmniBoxHostPanel) at the cost of replaying
+            // outside clicks.
+            omniBoxOverlayClicksThrough = !omniBoxNeedsFloatingHost
             let hostView: NSView?
             if omniBoxOverlayClicksThrough {
                 hostView = isHosted ? shellSplit?.view : contentViewController?.view
                 omnibackgroundView.clickThroughOutside = { [weak self] in
                     self?.omniBoxContainerViewController?.omniBoxController?.view
                 }
+                omnibackgroundView.clickedThroughOutside = { [weak self] in
+                    // One turn later: the click is mid-dispatch to the view
+                    // beneath, and the overlay must not leave the hierarchy
+                    // under it.
+                    DispatchQueue.main.async {
+                        guard let container = self?.omniBoxContainerViewController,
+                              container.hasShown else { return }
+                        container.hideOmniBox()
+                    }
+                }
             } else {
                 hostView = attachAndShowOmniBoxHostPanel()?.contentView
                 omnibackgroundView.clickThroughOutside = nil
+                omnibackgroundView.clickedThroughOutside = nil
             }
             if let hostView {
                 hostView.addSubview(omnibackgroundView)

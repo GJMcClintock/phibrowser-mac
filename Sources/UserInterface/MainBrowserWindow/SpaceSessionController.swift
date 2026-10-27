@@ -136,14 +136,22 @@ class SpaceSessionController: NSWindowController {
     /// instead of the host panel, and its backdrop lets every click outside
     /// the box fall through to the view beneath (`EventBlockBgView.
     /// clickThroughOutside`): Space pips, the Space swipe, pinned tabs,
-    /// bookmarks and the header's buttons all take the click directly instead
-    /// of dismissing the omnibox first. A click replayed from the panel never
-    /// satisfied press-tracking controls, so the panel is not used here. Set
-    /// for the omnibox opened over an empty window
-    /// (`openOmniBoxForEmptyWindowIfConfigured`), which has no reader or peek
-    /// panel to float above; switching away, opening a tab, Escape or ⌘T
-    /// dismiss it. Cleared when that omnibox hides.
+    /// bookmarks and the header's buttons all take the click directly, and
+    /// the omnibox dismisses alongside it. A click replayed from the panel
+    /// never satisfied press-tracking controls, so the panel is only used
+    /// when it must float above a Peek or Reader panel
+    /// (`omniBoxNeedsFloatingHost`). Decided per open in `toggleOmniBox`;
+    /// cleared when the omnibox hides.
     var omniBoxOverlayClicksThrough = false
+
+    /// Peek and Reader are child windows above the shell, so an omnibox hosted
+    /// in the window's view tree would sit beneath them: those opens keep the
+    /// floating host panel.
+    var omniBoxNeedsFloatingHost: Bool {
+        let focusingTab = browserState.focusingTab
+        return browserState.visiblePeek(focusingTab: focusingTab) != nil
+            || !browserState.visibleReaderOverlays(focusingTab: focusingTab).isEmpty
+    }
 
     var centeredOmniBoxHorizontalInset: CGFloat { 0 }
 
