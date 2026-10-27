@@ -643,6 +643,8 @@ private extension CommandWrapper {
             return NSLocalizedString("settings.shortcuts.command.toggleReaderView", value: "Toggle Reader View", comment: "Shortcuts settings - Command title for switching the current page between Reader View and the normal page")
         case .PHI_SAVE_FOR_LATER:
             return NSLocalizedString("settings.shortcuts.command.saveToFolio", value: "Save to Folio", comment: "Shortcuts settings - Command title for saving the current page for later as markdown plus a webpage copy")
+        case .PHI_WATCH_PAGE:
+            return NSLocalizedString("settings.shortcuts.command.watchPage", value: "Watch This Page", comment: "Shortcuts settings - Command title for saving the current page into Folio as a watched page that is re-checked for changes")
         case .IDC_FIND:
             return NSLocalizedString("settings.shortcuts.command.findOnPage", value: "Find", comment: "Shortcuts settings - Command title for finding text on the current page")
         case .IDC_FIND_NEXT:

@@ -76,6 +76,8 @@ extension SaveForLaterService {
             AppLogDebug("[SaveForLater] service session ended; legacy pipeline")
         }
         serviceAvailable = false
+        // Nothing will report these jobs now; their polls stop on their own.
+        pendingServiceJobs.removeAll()
     }
 
     /// The General settings folder picker landed on a new folder. The
@@ -175,6 +177,7 @@ extension SaveForLaterService {
     /// toast; `job` events settle captures this app started whose poll
     /// gave up before the job finished (a video gist can take minutes).
     private static func holdEventStream() async {
+        sweepPendingServiceJobs()
         do {
             let (events, _) = try await FolioServiceClient.shared.events()
             for try await event in events {
@@ -243,9 +246,20 @@ extension SaveForLaterService {
         let windowId: Int
         let title: String
         let isWatch: Bool
+        let startedAt = Date()
     }
 
     private static var pendingServiceJobs: [String: PendingServiceJob] = [:]
+
+    /// A job the stream never reported (a restart between its end and the
+    /// reconnect, say) is forgotten after this long rather than kept for
+    /// the session; its toast is lost either way.
+    private static let pendingServiceJobMaxAge: TimeInterval = 60 * 60
+
+    private static func sweepPendingServiceJobs() {
+        let cutoff = Date().addingTimeInterval(-pendingServiceJobMaxAge)
+        pendingServiceJobs = pendingServiceJobs.filter { $0.value.startedAt > cutoff }
+    }
 
     /// How long a native-initiated capture is polled before the event
     /// stream is left to report it.
@@ -323,7 +337,11 @@ extension SaveForLaterService {
             return
         }
         pendingServiceJobs[job.id] = pending
-        await poll(jobId: job.id)
+        // Accepted is the contract the caller waits for, as on the legacy
+        // path; the outcome arrives by poll or event. Awaiting the poll
+        // here held the tab's in-flight guard for the whole budget, so a
+        // long capture greyed Save and Watch out for minutes.
+        Task { @MainActor in await poll(jobId: job.id) }
     }
 
     /// `GET /jobs/{id}` every second and a half for up to three minutes.
@@ -492,9 +510,9 @@ extension SaveForLaterService {
     }
 
     /// `saveForLater.openOriginal { path }`: the original the page cannot
-    /// open itself. A PDF (and a webpage copy) opens as a tab of the
-    /// page's own window — the active Profile's — and an EPUB goes to
-    /// whatever the Mac opens EPUBs with. The path is jailed as above.
+    /// open itself. A PDF (and a webpage copy) opens as a tab of a regular
+    /// window, never of the Folio kiosk, and an EPUB goes to whatever the
+    /// Mac opens EPUBs with. The path is jailed as above.
     nonisolated static func handleOpenOriginal(_ context: ExtensionMessageContext) {
         guard libraryGate(context),
               let data = context.payload.data(using: .utf8),
@@ -508,14 +526,42 @@ extension SaveForLaterService {
             }
             switch url.pathExtension.lowercased() {
             case "pdf", "mhtml":
-                let state = payload.tabId.flatMap { findTab($0)?.state }
-                    ?? SpaceSessionControllersManager.shared.activeWindowController?.browserState
-                state?.createTab(url.absoluteString, customGuid: nil, focusAfterCreate: true)
+                openOriginalTab(url.absoluteString, requestedBy: payload.tabId)
             case "epub":
                 NSWorkspace.shared.open(url)
             default:
                 AppLogDebug("[SaveForLater] openOriginal: not an original")
             }
+        }
+    }
+
+    /// Shows an original in a window that can leave it again. The page's
+    /// own tab sits in the Folio kiosk, which has no tab strip or address
+    /// bar, so a tab opened there would trap the window on the file: the
+    /// request goes to a regular window instead, the one the request came
+    /// from when it is not a kiosk, else the active one, else any, else a
+    /// new kiosk of the ordinary, toolbar-bearing kind.
+    @MainActor
+    private static func openOriginalTab(_ url: String, requestedBy tabId: Int?) {
+        let manager = SpaceSessionControllersManager.shared
+        let regular: (SpaceSessionController?) -> BrowserState? = { controller in
+            guard let controller, !(controller is KioskBrowserWindowController) else {
+                return nil
+            }
+            return controller.browserState
+        }
+        let origin = tabId.flatMap { findTab($0) }.flatMap { found in
+            manager.getAllWindows().first { $0.browserState === found.state }
+        }
+        let state = regular(origin)
+            ?? regular(manager.activeWindowController)
+            ?? manager.getAllWindows().compactMap(regular).first
+        if let state {
+            state.createTab(url, customGuid: nil, focusAfterCreate: true)
+            return
+        }
+        if AppController.shared?.openNewKioskWindow(url: url, bringToFront: true) != true {
+            AppLogDebug("[SaveForLater] openOriginal: no window to show it in")
         }
     }
 }

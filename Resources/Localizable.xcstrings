@@ -71883,7 +71883,7 @@
       "localizations" : {
         "de" : {
           "stringUnit" : {
-            "state" : "translated",
+            "state" : "needs_review",
             "value" : "Bei jedem Sichern werden ein Markdown-Artikel und eine Webseitenkopie nebeneinander abgelegt. Profile können in ihren eigenen Einstellungen einen anderen Ordner festlegen."
           }
         },
@@ -71895,43 +71895,43 @@
         },
         "es" : {
           "stringUnit" : {
-            "state" : "translated",
+            "state" : "needs_review",
             "value" : "Cada guardado escribe un artículo en markdown y una copia de la página web, uno junto al otro. Los perfiles pueden reemplazar esta carpeta en su propia configuración."
           }
         },
         "fr" : {
           "stringUnit" : {
-            "state" : "translated",
+            "state" : "needs_review",
             "value" : "Chaque enregistrement écrit un article Markdown et une copie de la page web, côte à côte. Les profils peuvent remplacer ce dossier dans leurs propres réglages."
           }
         },
         "ja" : {
           "stringUnit" : {
-            "state" : "translated",
+            "state" : "needs_review",
             "value" : "保存するたびに、Markdownの記事とWebページのコピーが並んで書き込まれます。プロファイルごとの設定でこのフォルダを変更できます。"
           }
         },
         "ko" : {
           "stringUnit" : {
-            "state" : "translated",
+            "state" : "needs_review",
             "value" : "저장할 때마다 마크다운 아티클과 웹페이지 사본이 나란히 기록돼요. 프로필마다 자체 설정에서 이 폴더를 다르게 지정할 수 있어요."
           }
         },
         "nl" : {
           "stringUnit" : {
-            "state" : "translated",
+            "state" : "needs_review",
             "value" : "Elke bewaaractie schrijft een markdown-artikel en een webpaginakopie naast elkaar. Profielen kunnen in hun eigen instellingen een andere map instellen."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
-            "state" : "translated",
+            "state" : "needs_review",
             "value" : "每次存储都会并排写入一篇 Markdown 文章和一份网页副本。个人资料可在各自的设置中覆盖此文件夹。"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
-            "state" : "translated",
+            "state" : "needs_review",
             "value" : "每次儲存都會寫入一篇 Markdown 文章和一份網頁副本，兩者並列存放。各設定檔可以在自己的設定中覆寫此檔案夾。"
           }
         }

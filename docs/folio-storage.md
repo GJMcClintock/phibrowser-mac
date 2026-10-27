@@ -606,6 +606,7 @@ next poll as new.
   "status": "active",
   "error": null,
   "consecutiveFailures": 0,
+  "nextAttempt": null,
   "seen": { "<entry guid>": "2026-10-21T16:00:00Z" },
   "read": ["<entry guid>"]
 }
@@ -616,9 +617,15 @@ each was first seen, trimmed to the last two thousand; a deleted or expired
 entry is not fetched again because of it. `read` marks the entries the
 person has opened, so the library can show unread counts without writing
 into the entry's file every time it is opened. `etag` and `lastModified`
-make a poll a conditional request. Repeated failures set `status: error`
-and stop the schedule the same way a watch does; the subscription file and
-its `schedule` line are untouched.
+make a poll a conditional request. A failure sets `nextAttempt`: the
+schedule's interval doubled per consecutive failure, a day at most, or
+longer when a `429`/`503` said `retry-after`; three in a row also set
+`status: error` so the page can say so. The feed is tried again when
+`nextAttempt` passes, never switched off by failures alone; a success
+clears both. The subscription file and its `schedule` line are untouched.
+Expiry under `keep` counts from the entry's `published` date or the day
+it landed, whichever is later, skips any entry the person highlighted,
+and never removes what the same poll added.
 
 **OPML** import is an import run whose record has no directory: the file
 is kept as its `export.opml` and each outline becomes a subscription file,

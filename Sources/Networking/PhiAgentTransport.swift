@@ -214,14 +214,22 @@ final class PhiAgentTransport: Sendable {
         guard let http = response as? HTTPURLResponse else {
             throw PhiAgentTransportError.invalidResponse
         }
-        // Lines are the natural slice of an event stream; the terminator is
-        // put back so the consumer sees the same bytes on both routes.
+        // The raw bytes, cut at newlines so a consumer sees whole lines as
+        // they arrive. Not `bytes.lines`: that sequence drops empty lines,
+        // and an empty line is what ends an event in `text/event-stream`,
+        // so through it no event would ever be delivered on this route.
         let body = AsyncThrowingStream<Data, Error> { continuation in
             let reader = Task {
+                var chunk = Data()
                 do {
-                    for try await line in bytes.lines {
-                        continuation.yield(Data((line + "\n").utf8))
+                    for try await byte in bytes {
+                        chunk.append(byte)
+                        if byte == 0x0A {
+                            continuation.yield(chunk)
+                            chunk = Data()
+                        }
                     }
+                    if !chunk.isEmpty { continuation.yield(chunk) }
                     continuation.finish()
                 } catch {
                     continuation.finish(throwing: error)
@@ -332,12 +340,14 @@ final class PhiAgentTransport: Sendable {
             return PhiAgentHTTPResponse(statusCode: response.statusCode, body: response.body)
         } catch let error as ServiceBrokerHTTPError {
             switch error {
-            case .connectionClosed, .timedOut, .peerAuthentication, .invalidResponse:
+            case .connectionClosed, .peerAuthentication, .invalidResponse:
                 AppLogDebug("[PhiAgentTransport] broker route failed: \(error)")
                 throw RouteFailure(underlying: error)
             case .cancelled:
                 throw CancellationError()
-            case .invalidRequest, .responseTooLarge:
+            case .timedOut, .invalidRequest, .responseTooLarge:
+                // A call that ran out its own budget says nothing about the
+                // route; re-sending it over another route would run it twice.
                 throw error
             }
         }
@@ -348,8 +358,7 @@ final class PhiAgentTransport: Sendable {
         case .cannotConnectToHost,
              .cannotFindHost,
              .networkConnectionLost,
-             .notConnectedToInternet,
-             .timedOut:
+             .notConnectedToInternet:
             return true
         default:
             return false

@@ -127,6 +127,11 @@ class DiffableOutlineView: NSOutlineView {
         }
     }
 
+#if DEBUG
+    /// Local stale-row diagnostics only: rows are mid-update while true.
+    var isApplyingSnapshotForDiagnostics: Bool { isApplyingSnapshot }
+#endif
+
     func resetDiffableSnapshot(_ snapshot: DiffableOutlineSnapshot<AnyHashable>? = nil) {
         // A reset from a reentrant callback must survive the active apply.
         snapshotResetGeneration &+= 1

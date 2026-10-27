@@ -387,6 +387,9 @@ final class KioskBrowserWindowController: SpaceSessionController {
     /// resize never shows a different ground.
     @MainActor
     func applyFolioChrome(background: NSColor, text: NSColor) {
+        // The window is opaque; a translucent page colour would show the
+        // black behind it, so it is applied solid.
+        let background = background.withAlphaComponent(1)
         window?.backgroundColor = background
         (contentViewController as? KioskBrowserContentViewController)?
             .applyFolioChrome(background: background, text: text)

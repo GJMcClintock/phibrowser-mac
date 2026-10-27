@@ -131,7 +131,8 @@ final class FolioServiceClient: Sendable {
         if let service { payload["service"] = service }
         if let profileId, !profileId.isEmpty { payload["profileId"] = profileId }
         let body = try JSONSerialization.data(withJSONObject: payload)
-        let response = try await send("/imports", method: "POST", body: body)
+        let response = try await send("/imports", method: "POST", body: body,
+                                      timeout: Self.importTimeout)
         return try decode(ImportAccepted.self, from: response)
     }
 
@@ -256,10 +257,16 @@ final class FolioServiceClient: Sendable {
         AuthManager.shared.getAccessTokenSyncly() ?? ""
     }
 
+    /// The budget for a call that answers at once; an import, which copies
+    /// the chosen file before it replies, gets its own.
+    private static let callTimeout: TimeInterval = 15
+    private static let importTimeout: TimeInterval = 180
+
     private func send(
         _ path: String,
         method: String = "GET",
-        body: Data? = nil
+        body: Data? = nil,
+        timeout: TimeInterval = FolioServiceClient.callTimeout
     ) async throws -> PhiAgentHTTPResponse {
         let token = bearer()
         guard !token.isEmpty else { throw Failure.unauthorized }
@@ -272,7 +279,7 @@ final class FolioServiceClient: Sendable {
                 "Accept": "application/json",
             ],
             body: body,
-            timeout: 15
+            timeout: timeout
         ))
     }
 

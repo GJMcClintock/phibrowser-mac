@@ -245,9 +245,10 @@ extension Shortcuts {
                         .PHI_CAPTURE_AREA,
                         .PHI_SHARE_PAGE,
                         .PHI_SAVE_FOR_LATER,
+                        .PHI_WATCH_PAGE,
                         .IDC_PRINT]
                 if !SaveForLaterService.featureEnabled {
-                    commands.removeAll { $0 == .PHI_SAVE_FOR_LATER }
+                    commands.removeAll { $0 == .PHI_SAVE_FOR_LATER || $0 == .PHI_WATCH_PAGE }
                 }
                 return commands
             case .edit:
@@ -756,6 +757,7 @@ extension CommandWrapper {
         .PHI_KIOSK_OPEN_IN_SPACE: .init(title: "Open Kiosk or Peek in current Space", keywords: ["kiosk", "peek", "open as tab", "open in space", "current space", "move"]),
         .PHI_KIOSK_CHOOSE_SPACE: .init(title: "Show Kiosk \"Open in\" Menu", keywords: ["kiosk", "choose space", "open in", "menu"]),
         .PHI_SAVE_FOR_LATER: .init(title: "Save to Folio", keywords: ["save", "save to folio", "folio", "read later", "markdown", "archive"]),
+        .PHI_WATCH_PAGE: .init(title: "Watch This Page", keywords: ["watch", "watch this page", "folio", "changes", "monitor"]),
         .PHI_SELECT_NEXT_SPACE: .init(title: "Next Space", keywords: ["space", "next space", "forward"]),
         .PHI_SELECT_PREVIOUS_SPACE: .init(title: "Previous Space", keywords: ["space", "previous space", "backward"]),
         .PHI_SELECT_SPACE_0: .init(title: "Go to Space 1", keywords: ["space", "space1"]),

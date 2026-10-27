@@ -51,6 +51,44 @@ result fields or `{ "error": <code> }`.
 
 ## App broker: `saveForLater.*` (extension to app)
 
+### What the app serves today
+
+The service era moved the file operations below into HTTP routes on
+phi-agent (`folio-impl.md`); the broker vocabulary that still ships in
+`ExtensionMessageRouter` is this, and the sections after it describe the
+designed contract the routes keep the semantics of:
+
+```
+getArmed       {}                                  -> { armed, ... }
+trigger        { tabId, ... }                      -> {}
+highlight      { ... }                             -> {}
+delete         { ... }                             -> {}
+reveal         { path, tabId? }                    -> {}
+openOriginal   { path, tabId? }                    -> {}
+openSettings   {}                                  -> {}
+windowChrome   { background, text }                -> {}
+fs.*           (the legacy pipeline's file access, kept for one release)
+saveResult, toast, videoGist, videoArticles        (unchanged)
+```
+
+- `reveal` and `openOriginal` take the absolute `path` the library page
+  got from the service; the app checks it against the registered folder
+  (standardised, symlinks resolved, no hidden component, an item
+  extension) and does nothing on refusal. Their reply is `{}` either
+  way: the page never waits on them.
+- `openOriginal` opens a `.pdf` or `.mhtml` as a tab of a regular window
+  (never the Folio kiosk, which has no way back) and hands an `.epub` to
+  the system.
+- `openSettings` opens the browser's General settings, where the Folio
+  folder lives.
+- `windowChrome` carries the page's sidebar colours as `#rrggbb` (an
+  alpha byte is ignored; the window is opaque) for the Folio window's
+  title bar.
+- The app does not send `importFile`, `importRun` or `folderChanged`,
+  and `save` carries no `location`: imports go through `POST /imports`,
+  Watch This Page through `POST /capture` with `location: watch`, and
+  folder changes arrive on the service's `/events` stream.
+
 ### Listing
 
 ```
@@ -151,9 +189,10 @@ openOriginal   { tabId, location, basename }                     -> { ok }
   is never a destination.
 - `delete` trashes the siblings and the item's hidden entries by its id,
   which the app reads from the head it already serves.
-- `openOriginal` opens the item's `.pdf` in a new tab of the owning
-  Profile, or hands an `.epub` to the system until Folio has a reader. The
-  extension cannot open a `file:` URL itself.
+- `openOriginal` opens the item's `.pdf` in a new tab of a regular
+  window of the owning Profile, or hands an `.epub` to the system until
+  Folio has a reader. The extension cannot open a `file:` URL itself.
+  As shipped it takes `{ path }`; see "What the app serves today".
 
 ### Versions
 

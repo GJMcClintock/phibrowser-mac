@@ -328,6 +328,13 @@ import PostHog
                 MainActor.assumeIsolated {
                     self?.refreshPrefGatedMenuItems()
                     SaveForLaterService.broadcastArmedState()
+                    // The Sentinel lifecycle reconciled at launch, before the
+                    // flags were known, and the Folio session is gated on one
+                    // of them; a stable build with the flag on would otherwise
+                    // stay on the legacy pipeline until AI is toggled.
+                    SaveForLaterService.sentinelLifecycleDidReconcile(
+                        shouldRun: AuthenticatedSentinelSessionLifecycle.shouldRun()
+                    )
                 }
             }
             AccountController.shared.reconcilePostHogIdentityForAnonymousLaunchIfNeeded(

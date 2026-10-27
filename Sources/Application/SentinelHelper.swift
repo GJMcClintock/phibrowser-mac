@@ -223,6 +223,21 @@ enum AuthenticatedSentinelSessionPolicy {
 
 @MainActor
 enum AuthenticatedSentinelSessionLifecycle {
+    /// The decision `reconcile` makes about running the Sentinel session,
+    /// for a caller that only needs the answer (Folio, once the feature
+    /// flags it is gated on have arrived).
+    static func shouldRun(
+        aiEnabled: Bool =
+            PhiPreferences.AISettings.phiAIEnabled.loadValue()
+    ) -> Bool {
+        guard PhiBuildCapabilities.supportsAI else { return false }
+        return AuthenticatedSentinelSessionPolicy.shouldRun(
+            browserAccessState: ApplicationState.shared.browserAccessState,
+            isAuthenticated: ApplicationState.shared.isAuthenticated,
+            aiEnabled: aiEnabled
+        )
+    }
+
     static func reconcile(
         aiEnabled: Bool =
             PhiPreferences.AISettings.phiAIEnabled.loadValue(),

@@ -290,7 +290,7 @@ extension AppController {
     static let uninstallPhiItemTag = 500026
     static let browserMigrationItemTag = 500038
     static let fileSaveForLaterLibraryItemTag = 500039
-    static let fileWatchPageItemTag = 500041
+    static let fileWatchPageItemTag = CommandWrapper.PHI_WATCH_PAGE.rawValue
     static let fileImportFolioItemTag = 500042
     static let viewLibraryItemTag = 500040
     static let debugMenuItemTag = 500027
@@ -996,10 +996,10 @@ extension AppController {
                 comment: "File menu - Saves the current page into Folio as a watched page that is re-checked for changes"
             ),
             action: #selector(AppController.watchTabInFolio(_:)),
-            keyEquivalent: "w"
+            keyEquivalent: ""
         )
-        watchItem.keyEquivalentModifierMask = [.command, .option]
         watchItem.tag = AppController.fileWatchPageItemTag
+        Shortcuts.updateShortcut(for: watchItem)
         watchItem.target = target
 
         let importItem = NSMenuItem(

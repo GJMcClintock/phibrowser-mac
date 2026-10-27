@@ -424,8 +424,10 @@ menus, toasts) are built in their own repositories; see their docs.
 **phibrowser-mac**
 
 - `ServiceBrokerExtensionProtocol`: Mirage's pinned extension id joins the
-  allowlist. `Resources/ServiceBrokerPolicy.json`: Mirage → `phi-agent`,
-  methods GET/POST/PUT/PATCH/DELETE, prefix `/api/folio`.
+  allowlist. The Sentinel's signed `ServiceBrokerPolicy.json` (outside
+  this repository; the entry is `docs/folio-broker-policy-entry.json`):
+  Mirage → `phi-agent`, methods GET/POST/PUT/PATCH/DELETE, prefix
+  `/api/folio`.
 - `SaveForLaterService` shrinks to: folder registration (`PUT /library`
   on readiness and preference change, through `PhiAgentTransport`), the
   File and context menu actions (`POST /capture`, with `location: watch`
