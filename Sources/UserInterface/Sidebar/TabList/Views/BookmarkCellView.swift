@@ -1066,7 +1066,7 @@ private struct SidebarBookmarkCellContentView: View {
             }
 
             if showCloseButton {
-                UnifiedTabCloseButton(action: onClose)
+                UnifiedTabCloseButton(systemImage: "minus", action: onClose)
             }
         }
         .help(state.showsTabPreview ? "" : state.title)
