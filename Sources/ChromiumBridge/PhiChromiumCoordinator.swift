@@ -1925,6 +1925,14 @@ extension PhiChromiumCoordinator: PhiChromiumBridgeDelegate {
 
     func isBackupImporting() -> Bool { isBackupImportInProgress }
 
+    /// The "New tab behavior" setting, read live: New Tab Page lets Chromium
+    /// refill an emptied window and seed a new one with a tab; Omnibox makes
+    /// it enter placeholder mode instead, and the session controller opens
+    /// the omnibox over it (`openOmniBoxForEmptyWindowIfConfigured`).
+    func shouldAutoCreateTabInEmptyWindow() -> Bool {
+        PhiPreferences.GeneralSettings.openNewTabPageOnCmdT.loadValue()
+    }
+
     func shouldAutoInstallICloudPasswords() -> Bool {
         PhiPreferences.PasswordManagerSettings.autoInstallICloudPasswords.loadValue()
     }

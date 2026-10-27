@@ -10121,12 +10121,23 @@ final class SpaceWindowSlot: ObservableObject {
         if let target = windowsBySpaceId[spaceId] {
             timing?.preparation = "live"
             timing?.mark("target.live")
+            var emptyLiveSpaceOpensOmniBox = false
             if target.browserState.tabs.isEmpty,
                !MainActor.assumeIsolated({
                    AgentSpaceManager.shared.isAgentSpace(spaceId)
                }) {
                 timing?.mark("live.initial_tab.begin")
-                target.browserState.createQuickLookupTab()
+                // Same rule as the spawn seed: a new tab is auto-created only
+                // under the New Tab Page "New tab behavior". Under Omnibox the
+                // window stays (or is put) in placeholder mode and the omnibox
+                // opens over it once the Space is presented.
+                if let bridge = ChromiumLauncher.sharedInstance().bridge,
+                   Self.emptyWindowOpensOmniBox(bridge: bridge, windowId: Int64(target.windowId)) {
+                    emptyLiveSpaceOpensOmniBox = true
+                    AppLogInfo("[SpaceWindowSlot] activate(\(spaceId)): empty live Space opens the omnibox, no seed tab")
+                } else {
+                    target.browserState.createQuickLookupTab()
+                }
                 timing?.mark("live.initial_tab.end")
             }
             if visibleController === target {
@@ -10137,6 +10148,12 @@ final class SpaceWindowSlot: ObservableObject {
                 if transition == nil {
                     onSwapSettled?()
                 }
+            }
+            if emptyLiveSpaceOpensOmniBox {
+                // Opens now when the session is already on screen; otherwise
+                // marks the omnibox as owed and `completePresentationInShell`
+                // opens it.
+                target.openOmniBoxForEmptyWindowIfConfigured()
             }
             return
         }
@@ -10406,6 +10423,20 @@ final class SpaceWindowSlot: ObservableObject {
         hostedSpawnTimings[spaceId]
     }
 
+    /// Whether a freshly spawned, empty window should open the omnibox instead
+    /// of being seeded with a new tab: the "New tab behavior" setting is
+    /// Omnibox AND Chromium put the window into placeholder mode (which it
+    /// refuses for windows that cannot hold one, e.g. Incognito — those keep
+    /// the seed tab). A new tab is auto-created only under New Tab Page.
+    static func emptyWindowOpensOmniBox(bridge: PhiChromiumBridgeProtocol, windowId: Int64) -> Bool {
+        guard !PhiPreferences.GeneralSettings.openNewTabPageOnCmdT.loadValue(),
+              bridge.responds(to: #selector(PhiChromiumBridgeProtocol
+                  .enterPlaceholderModeIfEmpty(forWindowId:))) else {
+            return false
+        }
+        return bridge.enterPlaceholderModeIfEmpty(forWindowId: windowId)
+    }
+
     private func spawnHostedSession(spaceId: String,
                                     reservedWindowId: Int = 0,
                                     timing: SpaceSwitchTiming? = nil,
@@ -10511,6 +10542,13 @@ final class SpaceWindowSlot: ObservableObject {
                                             customGuid: nil,
                                             focusAfterCreate: index == 0)
                     }
+                } else if SpaceWindowSlot.emptyWindowOpensOmniBox(bridge: bridge,
+                                                                  windowId: windowIdNumber.int64Value) {
+                    // Omnibox "New tab behavior": no seed tab. The window
+                    // starts in placeholder mode and the session opens the
+                    // omnibox once it is presented
+                    // (`openOmniBoxForEmptyWindowIfConfigured`).
+                    AppLogInfo("[SpaceWindowSlot] spawnHostedSession(\(spaceId)): empty Space opens the omnibox, no seed tab")
                 } else {
                     if let state = self.windowsBySpaceId[spaceId]?.browserState,
                        state.isIncognito {

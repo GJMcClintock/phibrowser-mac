@@ -41,6 +41,11 @@ final class OmniBoxContainerViewController: NSViewController {
     private let maxOmniBoxHeight: CGFloat = 284 // 57 (base) + 226 (max suggestions) + 1 (separator)
     private let collapsedOmniBoxHeight: CGFloat = 52 // base 52 + separator 1
     private let centeredHorizontalInset: CGFloat
+    /// The host panel covers only the page area, not the whole content view
+    /// (`SpaceSessionController.omniBoxHostCoversPageAreaOnly`): `view` then
+    /// already starts right of the sidebar, so the sidebar offset that centers
+    /// the box over the page area must not be added again.
+    var hostCoversPageAreaOnly = false
     private weak var parentView: EventBlockBgView?
     private var showFromAddressBar: Bool = false
     private weak var addressView: NSView?
@@ -650,7 +655,7 @@ final class OmniBoxContainerViewController: NSViewController {
         )
         let actualWidth = min(contentSize.width, availableWidth)
 
-        let sidebarWidth = browserState?.sidebarWidth ?? 0
+        let sidebarWidth = hostCoversPageAreaOnly ? 0 : (browserState?.sidebarWidth ?? 0)
         let rightAreaWidth = parentBounds.width - sidebarWidth
         let proposedX: CGFloat
         if sidebarWidth == 0 || rightAreaWidth < actualWidth {

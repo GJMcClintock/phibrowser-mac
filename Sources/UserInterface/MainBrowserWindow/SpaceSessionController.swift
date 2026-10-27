@@ -56,6 +56,11 @@ class SpaceSessionController: NSWindowController {
     var isPresentedOrLegacy: Bool { !isHosted || isPresented }
     
     var omniBoxContainerViewController: OmniBoxContainerViewController?
+    /// Omnibox "New tab behavior": the window entered placeholder mode while
+    /// not on screen (a Space spawned empty, a new window before its reveal),
+    /// so the omnibox it owes opens once the session is presented. See
+    /// `openOmniBoxForEmptyWindowIfConfigured`.
+    var omniBoxOwedForEmptyWindow = false
     
     var searchTabsContainerViewController: SearchTabsContainerViewController?
     
@@ -127,6 +132,15 @@ class SpaceSessionController: NSWindowController {
     /// window's view hierarchy beneath it.
     private(set) var omniBoxHostPanel: NSPanel?
     private var omniBoxHostResizeObserver: NSObjectProtocol?
+    /// While set, the omnibox host panel covers only the page area instead of
+    /// the whole content view, so the sidebar and the tab strip stay live
+    /// underneath it: Space pips, the Space swipe, pinned tabs and bookmarks
+    /// all take the click directly instead of dismissing the omnibox first.
+    /// Set for the omnibox opened over an empty window
+    /// (`openOmniBoxForEmptyWindowIfConfigured`) — there is nothing else in
+    /// that window to interact with, and switching away or opening a tab is
+    /// what dismisses it. Cleared when the host panel retires.
+    var omniBoxHostCoversPageAreaOnly = false
 
     var centeredOmniBoxHorizontalInset: CGFloat { 0 }
 
@@ -186,13 +200,23 @@ class SpaceSessionController: NSWindowController {
               omniBoxContainerViewController?.hasShown != true else { return }
         panel.parent?.removeChildWindow(panel)
         panel.orderOut(nil)
+        omniBoxHostCoversPageAreaOnly = false
     }
 
     private func syncOmniBoxHostPanelFrame() {
         guard let window = self.window,
               let panel = omniBoxHostPanel,
               let contentView = window.contentView else { return }
-        let inWindow = contentView.convert(contentView.bounds, to: nil)
+        var regionView: NSView = contentView
+        if omniBoxHostCoversPageAreaOnly {
+            let pageArea = mainSplitViewController.webContentContainerViewController.pageAreaView
+            // Only a page area that is in this window can be measured; a
+            // session mid-presentation falls back to the whole content view.
+            if pageArea.window === window, !pageArea.bounds.isEmpty {
+                regionView = pageArea
+            }
+        }
+        let inWindow = regionView.convert(regionView.bounds, to: nil)
         panel.setFrame(window.convertToScreen(inWindow), display: true)
     }
     
@@ -391,6 +415,7 @@ class SpaceSessionController: NSWindowController {
     private func setupHostedSession() {
         observeChromiumWindowClose()
         observeChromiumWindowTitle()
+        observePlaceholderModeForOmniBox()
         browserState.themeContext.themeAppearancePublisher
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _, _ in
@@ -447,6 +472,28 @@ class SpaceSessionController: NSWindowController {
     private func retitleShell(inPlaceholderMode: Bool) {
         guard isPresented else { return }
         slot?.retitleShell(presenting: self, inPlaceholderMode: inPlaceholderMode)
+    }
+
+    /// Placeholder mode under the Omnibox "New tab behavior" means the window
+    /// has nothing in it on purpose — no tab was auto-created — so the omnibox
+    /// opens over it. Both setup paths install this once; `cancellables` dies
+    /// with the controller.
+    private func observePlaceholderModeForOmniBox() {
+        browserState.$isInPlaceholderMode
+            .removeDuplicates()
+            .sink { [weak self] inPlaceholderMode in
+                guard let self else { return }
+                if inPlaceholderMode {
+                    // `@Published` emits from willSet: the property still reads
+                    // false inside this sink, so act once the write has landed.
+                    DispatchQueue.main.async { [weak self] in
+                        self?.openOmniBoxForEmptyWindowIfConfigured()
+                    }
+                } else {
+                    self.omniBoxOwedForEmptyWindow = false
+                }
+            }
+            .store(in: &cancellables)
     }
 
     /// Builds and hosts the dormant session's tree hidden, so a first switch
@@ -538,6 +585,7 @@ class SpaceSessionController: NSWindowController {
 
     private func setupWindow() {
         guard let window = self.window else { return }
+        observePlaceholderModeForOmniBox()
         
         window.contentView?.removeFromSuperview()
         
@@ -1211,6 +1259,9 @@ class SpaceSessionController: NSWindowController {
             guard let self, self.isPresented, self.window?.isKeyWindow == true else { return }
             self.mainSplitViewController.webContentContainerViewController.restoreFocusAfterPresentation()
             self.reshowOverlayPanelsAfterPresent()
+        }
+        if omniBoxOwedForEmptyWindow {
+            openOmniBoxForEmptyWindowIfConfigured()
         }
     }
 

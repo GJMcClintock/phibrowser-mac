@@ -426,6 +426,13 @@ typedef NS_ENUM(NSInteger, PhiGhostMaterializeOutcome) {
 /// Whether a backup import is in progress; preinstalled apps reads it to defer
 /// extension preinstall. Called synchronously — must not block.
 - (BOOL)isBackupImporting;
+/// Whether a window whose tab strip is (or starts out) empty should be
+/// refilled with a new tab. Mirrors the "New tab behavior" setting (Mac is the
+/// source of truth): YES for New Tab Page — the last-tab-close refill tab and
+/// the new-window seed tab are created as before; NO for Omnibox — the window
+/// enters placeholder mode instead and the Mac client opens the omnibox over
+/// it. Called synchronously on the UI thread — must not block.
+- (BOOL)shouldAutoCreateTabInEmptyWindow;
 /// Whether newly created profiles should auto-install the iCloud Passwords
 /// extension (the OOBE password-manager choice; the Mac preference is the
 /// source of truth). Read by the Chromium-side preinstall flow. Called
@@ -1615,6 +1622,16 @@ typedef NS_ENUM(NSInteger, PhiGhostMaterializeOutcome) {
 /// when every surviving window reports NotAttempting; see
 /// `windowGroupCloseDidSettle` for the settle contract this protects.
 - (PhiWindowCloseState)windowCloseStateForWindowId:(int64_t)windowId;
+
+/// Enters placeholder mode for a window whose tab strip is empty: a Browser the
+/// Mac client just created without seeding a tab (the Omnibox "New tab
+/// behavior"), for which Chromium's own last-tab-close path never fires.
+/// Returns YES when the window is in placeholder mode on return (already was,
+/// or entered now) and NO when it still needs a tab: the strip is not empty,
+/// the window cannot hold a placeholder (Incognito, non-normal windows), or
+/// `windowId` resolves to no live Browser. On NO the caller seeds a tab as
+/// before. Callers must guard with respondsToSelector: (version skew).
+- (BOOL)enterPlaceholderModeIfEmptyForWindowId:(int64_t)windowId;
 
 // Favicon service
 - (void)getFaviconForURL:(NSString *)urlString completion:(void (^)(NSData * _Nullable faviconData))completion;

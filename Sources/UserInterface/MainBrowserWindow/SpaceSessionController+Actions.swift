@@ -35,6 +35,39 @@ extension SpaceSessionController {
         }
     }
     
+    /// Omnibox "New tab behavior": a window with nothing in it gets no
+    /// auto-created tab — Chromium puts it in placeholder mode instead, whether
+    /// the last tab just closed, a Space was opened empty, or ⌘N opened a new
+    /// window — and this opens the omnibox over the placeholder, as ⌘T would.
+    /// Under New Tab Page nothing happens here: those windows get a tab.
+    /// A window not yet on screen (a spawn before its reveal) owes the open
+    /// until `completePresentationInShell` or the first key-window pass.
+    func openOmniBoxForEmptyWindowIfConfigured() {
+        guard browserState.isInPlaceholderMode,
+              !PhiPreferences.GeneralSettings.openNewTabPageOnCmdT.loadValue(),
+              !MainActor.assumeIsolated({ AgentSpaceManager.shared.isAgentOwned(browserState.spaceId) }) else {
+            omniBoxOwedForEmptyWindow = false
+            return
+        }
+        guard isPresentedOrLegacy, window?.isVisible == true else {
+            omniBoxOwedForEmptyWindow = true
+            return
+        }
+        omniBoxOwedForEmptyWindow = false
+        // One turn later: placeholder entry is delivered inside Chromium's
+        // strip mutation (or the spawn's synchronous bridge call), and the
+        // omnibox host panel must not attach mid-callback.
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.browserState.isInPlaceholderMode, self.isPresentedOrLegacy,
+                  self.omniBoxContainerViewController?.hasShown != true else { return }
+            // Leave the sidebar and tab strip clickable under this omnibox:
+            // the user did not ask for it, so it must not stand between them
+            // and the next Space or tab (see `omniBoxHostCoversPageAreaOnly`).
+            self.omniBoxHostCoversPageAreaOnly = true
+            self.toggleOmniBox(fromAddressBar: false)
+        }
+    }
+
     func handleCloseTab() -> Bool {
         if dismissLibraryIfVisible() { return true }
         if searchTabsContainerViewController?.hasShown ?? false {
@@ -103,6 +136,7 @@ extension SpaceSessionController {
                     centeredHorizontalInset: centeredOmniBoxHorizontalInset
                 )
             }
+            omniBoxContainerViewController?.hostCoversPageAreaOnly = omniBoxHostCoversPageAreaOnly
             omniBoxContainerViewController?.omniBoxController?.beginOpenTrace(
                 trigger: fromAddressBar ? "address-bar" : "omnibox",
                 addressViewPresent: addressView != nil
