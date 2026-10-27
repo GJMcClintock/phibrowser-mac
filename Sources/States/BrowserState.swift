@@ -3181,6 +3181,16 @@ class BrowserState {
         tabs.first(where: { $0.guid == tabId })
     }
     
+    /// The AI Chat panel page for the page tab `chromeTabId`, opened on
+    /// `conversationId` when one is given.
+    static func aiChatPanelURL(chromeTabId: Int, conversationId: String?) -> String {
+        var url = "chrome-extension://fenmfiepnpdlhplemgijlimpbebebljo/index.html?is_sidebar=1&tabId=\(chromeTabId)"
+        if let conversationId {
+            url += "&conv_id=\(conversationId)"
+        }
+        return url
+    }
+
     /// Create an AI Chat tab associated with the specified identifier
     /// - Parameters:
     ///   - identifier: The tab identifier to associate with
@@ -3204,11 +3214,10 @@ class BrowserState {
             return
         }
         let customGuid = Self.aiChatId(for: identifier)
-        var url = "chrome-extension://fenmfiepnpdlhplemgijlimpbebebljo/index.html?is_sidebar=1&tabId=\(chromeTabId)"
-        // A tab undo close brought back reopens its panel on the same conversation.
-        if let conversationId = pendingAIChatConversations[identifier] {
-            url += "&conv_id=\(conversationId)"
-        }
+        // A tab undo close brought back, or a notification card's conversation,
+        // opens the panel on that conversation.
+        let url = Self.aiChatPanelURL(chromeTabId: chromeTabId,
+                                      conversationId: pendingAIChatConversations[identifier])
         AppLogDebug("🤖 [AIChat] createAIChatTab windowId=\(windowId) url=\(url) customGuid=\(customGuid)")
         let windowId = self.windowId
         performWithBrowser { [aiChatPanelBridge] in
