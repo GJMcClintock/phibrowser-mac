@@ -20,6 +20,23 @@ class EventBlockBgView: NSView {
     
     var mouseDown: ((NSEvent) -> Void)?
 
+    /// When set, the overlay owns only the returned view (and its subviews):
+    /// a hit anywhere else answers nil, so the click falls through to whatever
+    /// sits beneath this view in the same window instead of being swallowed
+    /// (and `mouseDown` is never invoked for it). nil keeps the overlay modal.
+    var clickThroughOutside: (() -> NSView?)?
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        let hit = super.hitTest(point)
+        guard let keep = clickThroughOutside?() else { return hit }
+        var view = hit
+        while let current = view {
+            if current === keep { return hit }
+            view = current.superview
+        }
+        return nil
+    }
+
     // Transparent but intercepts events
     override var isOpaque: Bool { false }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }

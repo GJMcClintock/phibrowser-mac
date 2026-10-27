@@ -60,10 +60,10 @@ extension SpaceSessionController {
         DispatchQueue.main.async { [weak self] in
             guard let self, self.browserState.isInPlaceholderMode, self.isPresentedOrLegacy,
                   self.omniBoxContainerViewController?.hasShown != true else { return }
-            // Leave the sidebar and tab strip clickable under this omnibox:
-            // the user did not ask for it, so it must not stand between them
-            // and the next Space or tab (see `omniBoxHostCoversPageAreaOnly`).
-            self.omniBoxHostCoversPageAreaOnly = true
+            // Leave the rest of the window clickable under this omnibox: the
+            // user did not ask for it, so it must not stand between them and
+            // the next Space, tab or button (see `omniBoxOverlayClicksThrough`).
+            self.omniBoxOverlayClicksThrough = true
             self.toggleOmniBox(fromAddressBar: false)
         }
     }
@@ -136,15 +136,26 @@ extension SpaceSessionController {
                     centeredHorizontalInset: centeredOmniBoxHorizontalInset
                 )
             }
-            omniBoxContainerViewController?.hostCoversPageAreaOnly = omniBoxHostCoversPageAreaOnly
             omniBoxContainerViewController?.omniBoxController?.beginOpenTrace(
                 trigger: fromAddressBar ? "address-bar" : "omnibox",
                 addressViewPresent: addressView != nil
             )
             
             // The omnibox host stays above Reader, Peek and the browser's
-            // other content (see attachAndShowOmniBoxHostPanel).
-            if let hostView = attachAndShowOmniBoxHostPanel()?.contentView {
+            // other content (see attachAndShowOmniBoxHostPanel). The
+            // click-through omnibox lives in the window's own tree instead,
+            // like tab search, and its backdrop owns nothing but the box.
+            let hostView: NSView?
+            if omniBoxOverlayClicksThrough {
+                hostView = isHosted ? shellSplit?.view : contentViewController?.view
+                omnibackgroundView.clickThroughOutside = { [weak self] in
+                    self?.omniBoxContainerViewController?.omniBoxController?.view
+                }
+            } else {
+                hostView = attachAndShowOmniBoxHostPanel()?.contentView
+                omnibackgroundView.clickThroughOutside = nil
+            }
+            if let hostView {
                 hostView.addSubview(omnibackgroundView)
                 omnibackgroundView.snp.remakeConstraints { make in
                     make.edges.equalToSuperview()

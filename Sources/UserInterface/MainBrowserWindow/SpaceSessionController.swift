@@ -132,15 +132,18 @@ class SpaceSessionController: NSWindowController {
     /// window's view hierarchy beneath it.
     private(set) var omniBoxHostPanel: NSPanel?
     private var omniBoxHostResizeObserver: NSObjectProtocol?
-    /// While set, the omnibox host panel covers only the page area instead of
-    /// the whole content view, so the sidebar and the tab strip stay live
-    /// underneath it: Space pips, the Space swipe, pinned tabs and bookmarks
-    /// all take the click directly instead of dismissing the omnibox first.
-    /// Set for the omnibox opened over an empty window
-    /// (`openOmniBoxForEmptyWindowIfConfigured`) — there is nothing else in
-    /// that window to interact with, and switching away or opening a tab is
-    /// what dismisses it. Cleared when the host panel retires.
-    var omniBoxHostCoversPageAreaOnly = false
+    /// While set, the omnibox is hosted inside the window's own view tree
+    /// instead of the host panel, and its backdrop lets every click outside
+    /// the box fall through to the view beneath (`EventBlockBgView.
+    /// clickThroughOutside`): Space pips, the Space swipe, pinned tabs,
+    /// bookmarks and the header's buttons all take the click directly instead
+    /// of dismissing the omnibox first. A click replayed from the panel never
+    /// satisfied press-tracking controls, so the panel is not used here. Set
+    /// for the omnibox opened over an empty window
+    /// (`openOmniBoxForEmptyWindowIfConfigured`), which has no reader or peek
+    /// panel to float above; switching away, opening a tab, Escape or ⌘T
+    /// dismiss it. Cleared when that omnibox hides.
+    var omniBoxOverlayClicksThrough = false
 
     var centeredOmniBoxHorizontalInset: CGFloat { 0 }
 
@@ -200,23 +203,13 @@ class SpaceSessionController: NSWindowController {
               omniBoxContainerViewController?.hasShown != true else { return }
         panel.parent?.removeChildWindow(panel)
         panel.orderOut(nil)
-        omniBoxHostCoversPageAreaOnly = false
     }
 
     private func syncOmniBoxHostPanelFrame() {
         guard let window = self.window,
               let panel = omniBoxHostPanel,
               let contentView = window.contentView else { return }
-        var regionView: NSView = contentView
-        if omniBoxHostCoversPageAreaOnly {
-            let pageArea = mainSplitViewController.webContentContainerViewController.pageAreaView
-            // Only a page area that is in this window can be measured; a
-            // session mid-presentation falls back to the whole content view.
-            if pageArea.window === window, !pageArea.bounds.isEmpty {
-                regionView = pageArea
-            }
-        }
-        let inWindow = regionView.convert(regionView.bounds, to: nil)
+        let inWindow = contentView.convert(contentView.bounds, to: nil)
         panel.setFrame(window.convertToScreen(inWindow), display: true)
     }
     
@@ -941,6 +934,7 @@ class SpaceSessionController: NSWindowController {
                         $0.setEclipsedByInWindowOverlay(visible)
                     }
                     if !visible {
+                        self.omniBoxOverlayClicksThrough = false
                         self.retireOmniBoxHostPanelIfIdle()
                     }
                 } else {

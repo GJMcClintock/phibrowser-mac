@@ -240,12 +240,6 @@ class WebContentContainerViewController: NSViewController {
     private var topBarHeightConstraint: Constraint?
     private var topBarTopConstraint: Constraint?
     
-    /// The page area — the current tab's content, or the placeholder shell in
-    /// placeholder mode — without the header or tab strip. The omnibox host
-    /// panel is sized to it when it must leave the sidebar and the tab strip
-    /// clickable (`SpaceSessionController.omniBoxHostCoversPageAreaOnly`).
-    var pageAreaView: NSView { contentContainer }
-
     /// Container view for the current WebContentViewController. Also serves
     /// as the drop target for "drag a tab onto the left third → make a split".
     private lazy var contentContainer: SplitTabDropContainer = {
