@@ -180,10 +180,14 @@ final class OmniBoxContainerViewController: NSViewController {
         }
     }
 
-    /// After the overlay is removed from the window, replay the click through the window so
-    /// AppKit performs normal hit testing and tracking (native buttons, embedded views, etc.).
+    /// After the overlay is removed from the window, replay the click so AppKit performs
+    /// normal hit testing and tracking (native buttons, embedded views, etc.).
     /// `NSControl.performClick` and direct `mouseDown`/`mouseUp` on a pre-hit-tested view are
-    /// unreliable here (e.g. async delivery vs `currentEvent` / control tracking).
+    /// unreliable here (e.g. async delivery vs `currentEvent` / control tracking). The pair is
+    /// posted to the event queue rather than sent straight to the window: a control that
+    /// tracks a press pulls its release from the queue, and only a queued release — with the
+    /// target window's own coordinates — ends that tracking as a click. The physical release
+    /// of the original click goes to the overlay's panel and means nothing to the target.
     private static func forwardFirstClickToUnderlyingContent(
         at locationInWindow: NSPoint,
         in window: NSWindow,
@@ -237,8 +241,8 @@ final class OmniBoxContainerViewController: NSViewController {
             pressure: 0.0
         ) else { return }
 
-        targetWindow.sendEvent(mouseDown)
-        targetWindow.sendEvent(mouseUp)
+        NSApp.postEvent(mouseDown, atStart: false)
+        NSApp.postEvent(mouseUp, atStart: false)
     }
     
     
