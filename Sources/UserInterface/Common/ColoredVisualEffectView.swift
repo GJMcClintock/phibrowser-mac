@@ -211,7 +211,7 @@ class ColoredVisualEffectView: NSVisualEffectView {
 
     /// Sample one continuous blend in Oklab to avoid RGB brightness dips and
     /// the slope changes of separately joined color segments.
-    private static func gradientColors(_ colors: [NSColor]) -> [CGColor] {
+    static func gradientColors(_ colors: [NSColor]) -> [CGColor] {
         let components = colors.map { oklabComponents($0) }
         // Saturated endpoints need finer samples through the sRGB transfer curve.
         let intervals = 512

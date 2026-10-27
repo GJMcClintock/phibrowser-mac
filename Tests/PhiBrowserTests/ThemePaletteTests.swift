@@ -9,6 +9,63 @@ import XCTest
 
 @MainActor
 final class ThemePaletteTests: XCTestCase {
+    func testSettingsIndicatorUsesSavedLegacyColorsWithoutCreatingPalette() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let account = Account(userID: "theme-indicator-test-" + UUID().uuidString)
+        let store = LocalStore(account: account, storeDirectoryURL: directory, presentsCompatibilityAlerts: false)
+        account.localStorage = store
+        let manager = SpaceManager.makeForTesting(boundTo: account)
+        let spaceId = "legacy-theme-space"
+        let registry = ThemeManager.shared
+        let previous = registry.registeredThemes[Theme.mint.id]
+        defer {
+            if let previous { registry.registerTheme(previous) }
+        }
+
+        // A pre-palette saved theme can differ from the built-in preset.
+        let saved = Theme.mint.duplicating()
+        saved.setColor(light: NSColor(hue: 0.73, saturation: 0.4, brightness: 0.92, alpha: 0.8),
+                       dark: NSColor(hue: 0.67, saturation: 0.5, brightness: 0.31, alpha: 0.8),
+                       for: .windowOverlayBackground)
+        let data = try JSONEncoder().encode(saved.makeSnapshot())
+        registry.registerTheme(try JSONDecoder().decode(ThemeSnapshot.self, from: data)
+            .makeTheme(matching: Theme.mint))
+        account.userDefaults.setSpaceThemeIds([spaceId: saved.id])
+        manager.setOverlaySaturation(0.27, forSpaceId: spaceId, appearance: .light)
+        manager.setOverlaySaturation(0.61, forSpaceId: spaceId, appearance: .dark)
+
+        for (appearance, saturation) in [(Appearance.light, CGFloat(0.27)), (.dark, CGFloat(0.61))] {
+            let colors = ThemeColorSettingsRow.indicatorColors(
+                theme: manager.resolvedTheme(forSpaceId: spaceId), appearance: appearance)
+            XCTAssertEqual(colors.count, 1)
+            let actual = try XCTUnwrap(NSColor(cgColor: colors[0])?.usingColorSpace(.sRGB))
+            let expected = try XCTUnwrap(saved.color(for: .windowOverlayBackground, appearance: appearance)
+                .usingColorSpace(.sRGB))
+            XCTAssertEqual(actual.hueComponent, expected.hueComponent, accuracy: 0.00001)
+            XCTAssertEqual(actual.brightnessComponent, expected.brightnessComponent, accuracy: 0.00001)
+            XCTAssertEqual(actual.saturationComponent, saturation, accuracy: 0.00001)
+            XCTAssertEqual(actual.alphaComponent, 1)
+        }
+        XCTAssertNil(manager.themePalette(forSpaceId: spaceId))
+        try await store.closeForAccountDirectoryRemoval()
+        try FileManager.default.removeItem(at: directory)
+        try? FileManager.default.removeItem(at: account.userDataStorage)
+    }
+
+    func testSettingsIndicatorShowsPaletteGradientInBothAppearances() {
+        for harmony in ThemePalette.Harmony.allCases {
+            let palette = ThemePalette(hue: 0.85, saturation: 0.65, harmony: harmony)
+            for appearance in [Appearance.light, .dark] {
+                let colors = ThemeColorSettingsRow.indicatorColors(
+                    theme: palette.applying(to: .mint), appearance: appearance)
+                let endpoints = palette.colors(for: appearance).map { $0.withAlphaComponent(1).cgColor }
+                XCTAssertEqual(colors.first, endpoints.first)
+                XCTAssertEqual(colors.last, endpoints.last)
+                XCTAssertEqual(colors.count, harmony == .single ? 1 : 513)
+            }
+        }
+    }
+
     func testRebindingUnchangedThemeSourceDoesNotInvalidateReusedRows() {
         let configuration = BrowserThemeConfiguration(
             currentTheme: ThemeManager.shared.currentTheme,
