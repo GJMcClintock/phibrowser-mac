@@ -6,7 +6,7 @@
 import Cocoa
 
 final class ProfileCardViewController: NSViewController {
-    private lazy var cardView = HolographicCardView(style: currentStyle())
+    private lazy var cardView = HolographicCardView(style: currentStyle(), showsShadow: false)
     private var accentColor = NSColor.black
 
     var userName: String? {

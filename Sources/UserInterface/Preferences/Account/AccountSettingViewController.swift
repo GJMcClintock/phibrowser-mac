@@ -154,7 +154,7 @@ class AccountSettingViewController: NSViewController, SettingsPane {
         // Profile card on the left
         view.addSubview(profileCardView)
         profileCardView.snp.makeConstraints { make in
-            make.left.equalToSuperview().offset(24)  // 36 - 12(inner padding for shadow)
+            make.left.equalToSuperview().offset(24)  // Align the card content with the 36-point inset.
             make.top.equalToSuperview().offset(36)
             make.width.equalTo(264)
         }
@@ -742,9 +742,7 @@ class ProfileCardView: NSView {
     private enum Metrics {
         static let cardWidth: CGFloat = 240
         static let cardHeight: CGFloat = 240 * 423 / 292
-        /// Extra padding around the card so the drop shadow has room to render
-        /// instead of being clipped by the surrounding layout.
-        static let shadowPadding: CGFloat = 10
+        static let cardButtonSpacing: CGFloat = 14
     }
     
     private let cardContainerView = NSView()
@@ -794,7 +792,7 @@ class ProfileCardView: NSView {
 
         addSubview(cardContainerView)
         cardContainerView.snp.makeConstraints { make in
-            make.top.equalToSuperview().offset(Metrics.shadowPadding)
+            make.top.equalToSuperview()
             make.centerX.equalToSuperview()
             make.width.equalTo(Metrics.cardWidth)
             make.height.equalTo(Metrics.cardHeight)
@@ -809,7 +807,7 @@ class ProfileCardView: NSView {
 
         randomButton.snp.makeConstraints { make in
             make.centerX.equalToSuperview()
-            make.top.equalTo(cardContainerView.snp.bottom).offset(Metrics.shadowPadding + 4)
+            make.top.equalTo(cardContainerView.snp.bottom).offset(Metrics.cardButtonSpacing)
             make.width.height.equalTo(24)
         }
 

@@ -57,8 +57,8 @@ final class HolographicCardView: NSView {
     var isPresentationActive = true { didSet { updateAnimationState() } }
 
     private let rotor = CATransformLayer()
-    private let front = HolographicCardFace(isBack: false)
-    private let back = HolographicCardFace(isBack: true)
+    private let front: HolographicCardFace
+    private let back: HolographicCardFace
     private var materialTask: Task<Void, Never>?
     private(set) var renderedStyle: HolographicCardStyle?
     private var tracking: NSTrackingArea?
@@ -81,8 +81,10 @@ final class HolographicCardView: NSView {
         self.init(frame: frameRect, style: .default)
     }
 
-    init(frame frameRect: NSRect = .zero, style: HolographicCardStyle) {
+    init(frame frameRect: NSRect = .zero, style: HolographicCardStyle, showsShadow: Bool = true) {
         self.style = style
+        front = HolographicCardFace(isBack: false, showsShadow: showsShadow)
+        back = HolographicCardFace(isBack: true, showsShadow: showsShadow)
         super.init(frame: frameRect)
         wantsLayer = true
         layer?.masksToBounds = false
@@ -314,7 +316,6 @@ private final class HolographicCardFace {
     private let material = CAGradientLayer()
     private let iridescenceGroup = CALayer()
     private let iridescence = CAGradientLayer()
-    private let radial = CAGradientLayer()
     private let foil = CALayer()
     private let grain = CALayer()
     private let sealGroove = CAGradientLayer()
@@ -332,12 +333,12 @@ private final class HolographicCardFace {
     private let isBack: Bool
     private let bounds = CGRect(origin: .zero, size: HolographicCardView.designSize)
 
-    init(isBack: Bool) {
+    init(isBack: Bool, showsShadow: Bool = true) {
         self.isBack = isBack
         layer.frame = bounds
         layer.isDoubleSided = false
         layer.shadowColor = NSColor.black.cgColor
-        layer.shadowOpacity = 0.24
+        layer.shadowOpacity = showsShadow ? 0.24 : 0
         layer.shadowRadius = 20
         layer.shadowOffset = CGSize(width: 0, height: 14)
         layer.shadowPath = CGPath(roundedRect: bounds, cornerWidth: 28, cornerHeight: 28, transform: nil)
@@ -351,12 +352,7 @@ private final class HolographicCardFace {
         material.frame = bounds
         iridescenceGroup.frame = bounds
         iridescence.frame = bounds
-        radial.frame = bounds
-        radial.type = .radial
-        radial.colors = [HolographicCardArtwork.hex(0xffffff, alpha: 85.0 / 255), NSColor.clear.cgColor]
-        radial.locations = [0, 0.52]
         iridescenceGroup.addSublayer(iridescence)
-        iridescenceGroup.addSublayer(radial)
         surface.addSublayer(iridescenceGroup)
         foil.frame = bounds
         surface.addSublayer(foil)
@@ -423,7 +419,6 @@ private final class HolographicCardFace {
         iridescenceGroup.isHidden = isBack
         iridescenceGroup.opacity = HolographicCardStyle.iridescenceOpacity
         iridescenceGroup.compositingFilter = silver ? "softLightBlendMode" : nil
-        radial.isHidden = silver
         foil.contents = artwork.foil
         foil.opacity = HolographicCardStyle.textureOpacity * (isBack ? 0.85 : 1)
         foil.compositingFilter = isBack ? "softLightBlendMode" : "overlayBlendMode"
@@ -523,12 +518,8 @@ private final class HolographicCardFace {
                  factor: style.palette == .silver ? 2 : 1.25, moving: true)
         position(sheen, angle: lightAngle, factor: 2.2, moving: true)
         position(logoSweep, angle: lightAngle, factor: 2.2, moving: true)
-        let mx = 0.5 + x * 0.35, my = 0.5 + y * 0.35
-        let width = bounds.width * 1.25, height = bounds.height * 1.25
-        let rx = max(abs(mx), abs(1 - mx)) * width * sqrt(2)
-        let ry = max(abs(my), abs(1 - my)) * height * sqrt(2)
-        radial.startPoint = CGPoint(x: mx, y: my)
-        radial.endPoint = CGPoint(x: mx + rx / bounds.width, y: my + ry / bounds.height)
+        // Keep the logo dark at rest and fade its reflection in as the card tilts.
+        logoSweep.opacity = Float(min(1, hypot(x, y) / 0.35))
         // Translate and rotate the SVG's 0,0 -> 100,100 gradient in local space.
         let rotation = (lightAngle - 135 + 12) * .pi / 180
         func sealPoint(_ p: CGFloat) -> CGPoint {
