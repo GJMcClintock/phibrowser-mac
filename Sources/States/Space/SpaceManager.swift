@@ -9569,17 +9569,11 @@ final class SpaceWindowSlot: ObservableObject {
 
         let previousSpaceId = activeSpaceId
 
-        // Agent Space post-hook: leaving an agent-owned Space orders its window
-        // out, and macOS occlusion then marks its WebContents hidden. Have the
-        // manager re-assert agent-mode visibility shortly after the swap so the
-        // agent's renderer keeps painting off screen.
-        if let previousSpaceId, previousSpaceId != spaceId {
-            MainActor.assumeIsolated {
-                AgentSpaceManager.shared.userDidLeave(spaceId: previousSpaceId)
-            }
-        }
-
-        timing.mark("leaving_agent_hook.end")
+        // Leaving an agent Space needs no hook here: the hide that concealing
+        // its page tree hands Chromium is undone on the Chromium side while the
+        // agent drives (PhiWindowState::IsAgentDriven), so the agent's renderer
+        // keeps painting off screen whenever and however the Space leaves the
+        // screen, a switch or not.
         if spaceId != activeSpaceId {
             if animated, let previousSpaceId {
                 preparedStrip = prepareNewIncognitoSelection(fromSpaceId: previousSpaceId,
