@@ -5828,7 +5828,27 @@ final class SpaceManager: ObservableObject {
     /// Kiosk supplies its single ephemeral page. Pinned / split /
     /// bookmark-backed tabs remain filtered because their per-Space persistence
     /// bindings would be stranded by a move.
+    ///
+    /// From a Kiosk while windowless it restores the session first
+    /// (`runAfterWindowlessRestore`, chromium ADR 0020). Any other source is
+    /// a window, so the app is not windowless and the move skips the gate. A
+    /// Kiosk closed while the move waits fails the source check below; one
+    /// still closing when the restore settles passes it, and the move acts on
+    /// a tab already detached and moves nothing.
     func moveTab(_ tab: Tab, toSpaceId targetSpaceId: String) {
+        guard SpaceSessionControllersManager.shared
+                .getBrowserState(for: tab.windowId)?.isKioskWindow == true else {
+            moveTabPastRestoreGate(tab, toSpaceId: targetSpaceId)
+            return
+        }
+        runAfterWindowlessRestore(
+            entry: "Kiosk open in Space \(targetSpaceId)"
+        ) { [weak self] in
+            self?.moveTabPastRestoreGate(tab, toSpaceId: targetSpaceId)
+        }
+    }
+
+    private func moveTabPastRestoreGate(_ tab: Tab, toSpaceId targetSpaceId: String) {
         guard let sourceState = SpaceSessionControllersManager.shared
                 .getBrowserState(for: tab.windowId) else {
             AppLogWarn("[SpaceManager] moveTab: no BrowserState for windowId \(tab.windowId)")
