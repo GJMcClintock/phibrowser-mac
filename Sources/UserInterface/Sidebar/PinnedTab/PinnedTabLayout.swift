@@ -30,6 +30,15 @@ class PinnedTabLayout: NSCollectionViewLayout {
     private enum Constants {
         static let spacing: CGFloat = 8
         static let insets = NSEdgeInsets(top: 8, left: 8, bottom: 8, right: 8)
+        /// The extension shelf belongs to the address bar above it, so it
+        /// moves most of the top inset below itself, setting it apart from the
+        /// pinned tabs. The 1 pt kept on top, together with the sidebar
+        /// header's bottom padding and the 5 pt spacer above this band, makes
+        /// the gap to the address bar match the gap between shelf rows. The
+        /// band keeps the height it has with uniform insets, so nothing below
+        /// it moves.
+        static let extensionShelfTopInset: CGFloat = 1
+        static let extensionShelfBottomSpacing = insets.top + spacing - extensionShelfTopInset
         static let tabHeight: CGFloat = 45
         static let extensionHeight: CGFloat = 28
         static let tabMinimumWidth: CGFloat = 53
@@ -132,26 +141,17 @@ private extension PinnedTabLayout {
         tabMetrics = metrics(for: input.tabCount, itemHeight: Constants.tabHeight, minimumWidth: Constants.tabMinimumWidth, contentWidth: input.contentWidth, columnLimit: tabMaxColumns)
 
         var yOffset: CGFloat = 0
-        let hasContent = (extensionMetrics.numberOfItems > 0 || tabMetrics.numberOfItems > 0)
-        if hasContent {
+        if extensionMetrics.numberOfItems > 0 {
+            yOffset = Constants.extensionShelfTopInset
+            layout(section: .extensions, metrics: extensionMetrics, yOffset: &yOffset)
+            yOffset += Constants.extensionShelfBottomSpacing
+        } else if tabMetrics.numberOfItems > 0 {
             yOffset = Constants.insets.top
         }
 
-        if extensionMetrics.numberOfItems > 0 {
-            layout(section: .extensions, metrics: extensionMetrics, yOffset: &yOffset)
-        }
-
         if tabMetrics.numberOfItems > 0 {
-            if extensionMetrics.numberOfItems > 0 {
-                yOffset += Constants.spacing
-            }
             layout(section: .tabs, metrics: tabMetrics, yOffset: &yOffset)
-        }
-
-        if hasContent {
             yOffset += Constants.insets.bottom
-        } else {
-            yOffset = 0
         }
 
         contentSize = NSSize(width: input.contentWidth, height: yOffset)
