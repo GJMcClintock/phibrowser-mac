@@ -99,6 +99,12 @@ changes. The service persists it under its data dir
 so a restart serves the library before the browser registers again. Until a
 folder is registered every library call answers `503 folder_unavailable`.
 
+`PUT /library` and `POST /imports` with an absolute `path` are the app's
+alone. The library page holds the same account token, so the service
+refuses both with `403 invalid_payload` (`native_only`) when the request
+carries `X-Phi-Extension-ID`, which the browser's broker bridge pins on
+every extension request and which the app's own calls never send.
+
 A browser Profile appears only where a hidden window is opened. A capture
 names the Profile whose cookies the page should load with (`profileId` in
 the request body, `Default` when absent), the item records it as

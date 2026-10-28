@@ -583,12 +583,6 @@ class SidebarTabListViewController: NSViewController {
         // deactivation would let the next `activate()` paint the
         // pre-absorption list. Its own release path and timeout still own its
         // lifetime, and both no-op while inactive.
-#if DEBUG
-        SidebarStaleRowDiagnostics.shared.noteSnapshotTransition(
-            from: lastAcceptedOutlineSnapshot, to: nil,
-            outlineRows: outlineView?.numberOfRows ?? -1, reason: "deactivate"
-        )
-#endif
         allItems = []
         lastAcceptedOutlineSnapshot = nil
         focusedBookmarkPresentation = nil
@@ -709,13 +703,6 @@ class SidebarTabListViewController: NSViewController {
                     self.outlineLayoutGeneration &+= 1
                 }
                 acceptedOutlineLayoutGeneration = self.outlineLayoutGeneration
-#if DEBUG
-                SidebarStaleRowDiagnostics.shared.noteSnapshotTransition(
-                    from: self.lastAcceptedOutlineSnapshot, to: snapshot,
-                    outlineRows: self.outlineView.numberOfRows,
-                    reason: "refresh animated=\(shouldAnimateOutlineMutation)"
-                )
-#endif
                 self.lastAcceptedOutlineSnapshot = snapshot
                 if shouldAnimateOutlineMutation && outlineStructureChanged {
                     self.suppressGroupAnimationsUntilOutlineSettles()
@@ -733,9 +720,6 @@ class SidebarTabListViewController: NSViewController {
             completion: { [weak self] in
                 guard let self else { return }
                 guard didUpdateDataSource else { return }
-#if DEBUG
-                self.debugCheckStaleRows(context: "reload-completion", fullScan: false)
-#endif
                 if let insertedRootTabForLayoutRepair,
                    let acceptedOutlineLayoutGeneration,
                    acceptedOutlineLayoutGeneration == self.outlineLayoutGeneration,
@@ -960,9 +944,6 @@ class SidebarTabListViewController: NSViewController {
         }
         if let item, item.isActive {
             let index = outlineView.row(forItem: item)
-#if DEBUG
-            debugCheckStaleRows(context: "selectItem(\(item.id)) row=\(index)", fullScan: true)
-#endif
             outlineView.selectRowIndexes(IndexSet(integer: index), byExtendingSelection: false)
         }
     }
@@ -1592,9 +1573,6 @@ extension SidebarTabListViewController: NSOutlineViewDataSource {
             assertionFailure("Invalid child index \(index), count \(children.count)")
             return separatorItem
         }
-#if DEBUG
-        SidebarStaleRowDiagnostics.shared.noteHandedOut(children[index], parent: item as? SidebarItem)
-#endif
         return children[index]
     }
     
@@ -2500,12 +2478,6 @@ extension SidebarTabListViewController: NSOutlineViewDataSource {
     }
     
     func outlineView(_ outlineView: NSOutlineView, acceptDrop info: NSDraggingInfo, item: Any?, childIndex index: Int) -> Bool {
-#if DEBUG
-        SidebarStaleRowDiagnostics.shared.noteEvent(
-            "acceptDrop index=\(index) item=\((item as? SidebarItem).map { "\($0.id)" } ?? "root") " +
-            "types=\(info.draggingPasteboard.types?.map(\.rawValue).prefix(3).joined(separator: ",") ?? "")"
-        )
-#endif
         AppLogDebug(
             "[TAB_GROUPS][INNER_DRAG] outline.acceptDrop item=\(String(describing: item)) " +
             "index=\(index) types=\(info.draggingPasteboard.types?.map(\.rawValue) ?? [])"
@@ -3941,9 +3913,6 @@ extension SidebarTabListViewController: NSOutlineViewDelegate {
     
     func outlineViewItemDidExpand(_ notification: Notification) {
         guard let bookmark = notification.userInfo?["NSObject"] as? Bookmark else { return }
-#if DEBUG
-        SidebarStaleRowDiagnostics.shared.noteEvent("didExpand \(bookmark.guid) rows=\(outlineView.numberOfRows)")
-#endif
         if userInitiatedToggleFolderGuid == bookmark.guid {
             bookmark.isExpanded = true
             userInitiatedToggleFolderGuid = nil
@@ -3959,9 +3928,6 @@ extension SidebarTabListViewController: NSOutlineViewDelegate {
     
     func outlineViewItemDidCollapse(_ notification: Notification) {
         guard let bookmark = notification.userInfo?["NSObject"] as? Bookmark else { return }
-#if DEBUG
-        SidebarStaleRowDiagnostics.shared.noteEvent("didCollapse \(bookmark.guid) rows=\(outlineView.numberOfRows)")
-#endif
         // Only update isExpanded for the folder the user explicitly toggled; descendant collapses
         // triggered by NSOutlineView should preserve their original expanded state for restoration.
         if userInitiatedToggleFolderGuid == bookmark.guid {
@@ -4267,11 +4233,6 @@ extension SidebarTabListViewController: TabSectionDelegate {
     }
 
     func focusingTabChanged(_ tab: Tab?) {
-#if DEBUG
-        SidebarStaleRowDiagnostics.shared.noteEvent(
-            "focusingTabChanged guid=\(tab.map { String(describing: $0.guid) } ?? "nil") active=\(isActive)"
-        )
-#endif
         guard isActive else { return }
         clearFloatingProxyIfTabClosed()
         applyFocusingSelection(for: tab)
@@ -5604,186 +5565,3 @@ extension SidebarTabListViewController: NSDraggingSource {
 /// - `shouldExpandItem` blocks expansion when `isDraggingTab == true`;
 ///   `expandFloatingBookmarkParentsIfNeeded` temporarily sets `allowExpandDuringDrag = true` to bypass.
 /// - Folders stay expanded after drag ends; no restoration needed.
-
-#if DEBUG
-// MARK: - Stale-row diagnostics (local Debug-only instrumentation, not for commit)
-
-/// Keeps every item handed to the sidebar outline alive, and reports outline
-/// rows whose object is no longer the object the accepted snapshot holds for
-/// that id. In Release those rows are what `rowForItem:` sends `isEqual:` to
-/// after the item has been freed.
-final class SidebarStaleRowDiagnostics {
-    typealias Snapshot = DiffableOutlineSnapshot<AnyHashable>
-
-    static let shared = SidebarStaleRowDiagnostics()
-
-    private var keepAlive: [ObjectIdentifier: AnyObject] = [:]
-    private var handoutRecords: [ObjectIdentifier: String] = [:]
-    private var dropRecords: [ObjectIdentifier: String] = [:]
-    private var reported = Set<ObjectIdentifier>()
-    private var recentEvents: [String] = []
-    private var sequence = 0
-    private var staleCount = 0
-
-    let logURL: URL = {
-        if let path = ProcessInfo.processInfo.environment["PHI_SIDEBAR_STALE_LOG"] {
-            return URL(fileURLWithPath: path)
-        }
-        return FileManager.default.temporaryDirectory.appendingPathComponent("phi-sidebar-stale.log")
-    }()
-
-    private init() {
-        write("=== session start pid=\(getpid()) \(Date())\n")
-        AppLogWarn("[SIDEBAR_STALE] diagnostics logging to \(logURL.path)")
-    }
-
-    func noteHandedOut(_ item: SidebarItem, parent: SidebarItem?) {
-        let key = ObjectIdentifier(item)
-        guard keepAlive[key] == nil else { return }
-        keepAlive[key] = item
-        handoutRecords[key] = "after event #\(sequence), parent=\(parent.map(Self.describe) ?? "root")\n"
-            + Self.stack()
-    }
-
-    func noteEvent(_ text: String) {
-        sequence += 1
-        recentEvents.append("#\(sequence) \(Self.timestamp()) \(text)")
-        if recentEvents.count > 40 {
-            recentEvents.removeFirst(recentEvents.count - 40)
-        }
-    }
-
-    func noteSnapshotTransition(from old: Snapshot?, to new: Snapshot?, outlineRows: Int, reason: String) {
-        let newObjects = Set(new?.nodes.values.map { ObjectIdentifier($0.item) } ?? [])
-        let dropped = (old?.nodes.values ?? [:].values).map(\.item).filter {
-            !newObjects.contains(ObjectIdentifier($0))
-        }
-        var summary = "\(reason) rows=\(outlineRows) nodes \(old?.nodes.count ?? 0)->\(new?.nodes.count ?? 0) " +
-            "roots \(old?.rootIDs.count ?? 0)->\(new?.rootIDs.count ?? 0) droppedObjects=\(dropped.count)"
-        if let old, let new {
-            let plan = DiffableOutlineDiffPlanner.plan(from: old, to: new)
-            let ops = plan.operations.prefix(10).map(Self.describe).joined(separator: " ")
-            let more = plan.operations.count > 10 ? " …+\(plan.operations.count - 10)" : ""
-            summary += " safe=\(plan.isSafe) ops=[\(ops)\(more)]"
-        }
-        noteEvent(summary)
-        guard !dropped.isEmpty else { return }
-        let record = "event #\(sequence): \(summary)\n" + Self.stack()
-        for object in dropped {
-            dropRecords[ObjectIdentifier(object)] = record
-        }
-    }
-
-    func check(
-        outlineView: NSOutlineView,
-        snapshot: Snapshot?,
-        liveContains: (AnyObject) -> Bool,
-        context: String,
-        fullScan: Bool
-    ) {
-        let rows: Range<Int>
-        if fullScan {
-            rows = 0..<outlineView.numberOfRows
-        } else {
-            let visible = outlineView.rows(in: outlineView.visibleRect)
-            guard visible.location != NSNotFound else { return }
-            rows = visible.location..<min(NSMaxRange(visible), outlineView.numberOfRows)
-        }
-        for row in rows {
-            guard let object = outlineView.item(atRow: row) as AnyObject? else { continue }
-            let key = ObjectIdentifier(object)
-            guard !reported.contains(key), let item = object as? SidebarItem else { continue }
-            let expected = snapshot?.item(for: item.id)
-            guard expected !== object else { continue }
-            reported.insert(key)
-            staleCount += 1
-            let parent = outlineView.parent(forItem: object) as? SidebarItem
-            let text = """
-
-            !!! STALE ROW #\(staleCount) at \(Self.timestamp()) context=\(context) fullScan=\(fullScan)
-            row \(row) of \(outlineView.numberOfRows), level \(outlineView.level(forRow: row)), \
-            outline parent=\(parent.map(Self.describe) ?? "root")
-            object: \(Self.describe(item)) ptr=\(Unmanaged.passUnretained(object).toOpaque()) \
-            retainCount=\(_getRetainCount(object)) (keep-alive holds 1)
-            snapshot holds for this id: \(expected.map { Self.describe($0) } ?? "nothing (id absent)")
-            live data source still contains this object: \(liveContains(object))
-            -- first handed to outline \(handoutRecords[key] ?? "(not recorded)")
-            -- dropped from snapshot \(dropRecords[key] ?? "(never dropped while tracked)")
-            -- recent events:
-            \(recentEvents.joined(separator: "\n"))
-            -- check call site:
-            \(Self.stack())
-
-            """
-            write(text)
-            AppLogWarn("[SIDEBAR_STALE] stale row \(row): \(Self.describe(item)) context=\(context)")
-        }
-    }
-
-    private func write(_ text: String) {
-        guard let data = text.data(using: .utf8) else { return }
-        if let handle = try? FileHandle(forWritingTo: logURL) {
-            defer { try? handle.close() }
-            _ = try? handle.seekToEnd()
-            try? handle.write(contentsOf: data)
-        } else {
-            try? data.write(to: logURL)
-        }
-    }
-
-    private static func describe(_ object: AnyObject) -> String {
-        guard let item = object as? SidebarItem else { return "\(type(of: object))" }
-        return describe(item)
-    }
-
-    private static func describe(_ item: SidebarItem) -> String {
-        "\(type(of: item)) id=\(item.id) title=\"\(item.title.prefix(40))\""
-    }
-
-    private static func describe(_ operation: DiffableOutlineOperation<AnyHashable>) -> String {
-        switch operation {
-        case .remove(let id, let parentID, let index): return "rm(\(id)@\(parentID.map { "\($0)" } ?? "root")[\(index)])"
-        case .insert(let id, let parentID, let index): return "ins(\(id)@\(parentID.map { "\($0)" } ?? "root")[\(index)])"
-        case .replace(let id, let parentID, let index): return "rep(\(id)@\(parentID.map { "\($0)" } ?? "root")[\(index)])"
-        case .move(let id, let parentID, let from, let to): return "mv(\(id)@\(parentID.map { "\($0)" } ?? "root")[\(from)->\(to)])"
-        case .reload(let id): return "reload(\(id))"
-        }
-    }
-
-    private static func stack() -> String {
-        Thread.callStackSymbols.dropFirst(2).prefix(22).joined(separator: "\n")
-    }
-
-    private static func timestamp() -> String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "HH:mm:ss.SSS"
-        return formatter.string(from: Date())
-    }
-}
-
-extension SidebarTabListViewController {
-    fileprivate func debugCheckStaleRows(context: String, fullScan: Bool) {
-        guard isActive, !outlineView.isApplyingSnapshotForDiagnostics else { return }
-        SidebarStaleRowDiagnostics.shared.check(
-            outlineView: outlineView,
-            snapshot: lastAcceptedOutlineSnapshot,
-            liveContains: { [unowned self] object in self.debugLiveDataSourceContains(object) },
-            context: context,
-            fullScan: fullScan
-        )
-    }
-
-    private func debugLiveDataSourceContains(_ target: AnyObject) -> Bool {
-        var pending: [SidebarItem?] = [nil]
-        while let parent = pending.popLast() {
-            for child in dataSourceChildren(of: parent) {
-                if child === target { return true }
-                if child.isExpandable, outlineView.isItemExpanded(child) {
-                    pending.append(child)
-                }
-            }
-        }
-        return false
-    }
-}
-#endif

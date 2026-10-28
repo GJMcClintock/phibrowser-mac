@@ -111,12 +111,19 @@ extension SaveForLaterService {
                         AppLogDebug("[SaveForLater] service available")
                     }
                     serviceAvailable = true
+                    let held = Date()
                     await holdEventStream()
                     guard !Task.isCancelled else { return }
                     serviceAvailable = false
-                    delay = 2
-                    elapsed = 0
-                    continue
+                    // A stream that held a while dropped with the service
+                    // (a restart): probe again at once. One that failed
+                    // straight away would spin probe, register and stream
+                    // with no pause, so it backs off like an unreachable one.
+                    if Date().timeIntervalSince(held) >= 30 {
+                        delay = 2
+                        elapsed = 0
+                        continue
+                    }
                 }
                 guard !Task.isCancelled else { return }
             case .notServed:
@@ -312,10 +319,14 @@ extension SaveForLaterService {
                                        windowId: Int, trigger: String, isWatch: Bool) async {
         let job: FolioServiceClient.Job
         do {
+            // The service joins a capture under the same key for ten
+            // minutes, so a watch keys apart from a save of the same URL:
+            // otherwise either one would join the other's job and land in
+            // the wrong place.
             job = try await FolioServiceClient.shared.capture(
                 url: url, profileId: profileId, trigger: trigger,
                 title: title, location: isWatch ? "watch" : nil,
-                key: url, locale: captureLocale)
+                key: isWatch ? "watch:\(url)" : url, locale: captureLocale)
         } catch {
             AppLogWarn("[SaveForLater] capture request failed: \(error)")
             showToast(title: failedToastTitle, message: "", windowId: windowId)
