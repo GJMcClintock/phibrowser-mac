@@ -51097,9 +51097,21 @@
         }
       }
     },
+    "oobe.guestPrivacy.aiFeatures" : {
+      "comment" : "Guest confirmation - AI features requiring sign-in",
+      "extractionState" : "extracted_with_value",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "AI features"
+          }
+        }
+      }
+    },
     "oobe.guestPrivacy.aiFeaturesUnavailable" : {
       "comment" : "Guest privacy confirmation - Notice that AI features require signing in",
-      "extractionState" : "extracted_with_value",
+      "extractionState" : "stale",
       "localizations" : {
         "de" : {
           "stringUnit" : {
@@ -51157,6 +51169,18 @@
         }
       }
     },
+    "oobe.guestPrivacy.availableNow" : {
+      "comment" : "Guest confirmation - Heading for features available without signing in",
+      "extractionState" : "extracted_with_value",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Available now"
+          }
+        }
+      }
+    },
     "oobe.guestPrivacy.beginButton" : {
       "comment" : "Guest privacy confirmation - Button that confirms the choices and enters Guest Mode",
       "extractionState" : "extracted_with_value",
@@ -51170,7 +51194,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "new",
-            "value" : "Let's Begin"
+            "value" : "Let’s begin"
           }
         },
         "es" : {
@@ -51217,9 +51241,33 @@
         }
       }
     },
+    "oobe.guestPrivacy.browserDescription" : {
+      "comment" : "Guest confirmation - Description of features available without signing in",
+      "extractionState" : "extracted_with_value",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "All browser features, including Tabs, Profiles, Spaces and Developer Tools"
+          }
+        }
+      }
+    },
+    "oobe.guestPrivacy.browserMemory" : {
+      "comment" : "Guest confirmation - Browser Memory feature requiring sign-in",
+      "extractionState" : "extracted_with_value",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Browser Memory"
+          }
+        }
+      }
+    },
     "oobe.guestPrivacy.browserMemoryUnavailable" : {
       "comment" : "Guest privacy confirmation - Notice that Browser Memory is unavailable without signing in",
-      "extractionState" : "extracted_with_value",
+      "extractionState" : "stale",
       "localizations" : {
         "de" : {
           "stringUnit" : {
@@ -51277,8 +51325,20 @@
         }
       }
     },
+    "oobe.guestPrivacy.browserTitle" : {
+      "comment" : "Guest confirmation - Title of the available browser features",
+      "extractionState" : "extracted_with_value",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Full-fledged browser"
+          }
+        }
+      }
+    },
     "oobe.guestPrivacy.legalAgreement" : {
-      "comment" : "Guest privacy confirmation - Required legal agreement; first placeholder is the Privacy Policy link and second is the Terms of Service link",
+      "comment" : "Guest privacy confirmation - Required legal agreement; first placeholder is the Privacy Policy link and second is the Terms of Use link",
       "extractionState" : "extracted_with_value",
       "localizations" : {
         "de" : {
@@ -51290,7 +51350,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "new",
-            "value" : "I agree to the %1$@ and %2$@"
+            "value" : "I agree to the %2$@ and %1$@"
           }
         },
         "es" : {
@@ -51397,6 +51457,18 @@
         }
       }
     },
+    "oobe.guestPrivacy.moreFeatures" : {
+      "comment" : "Guest confirmation - Additional features available after sign-in",
+      "extractionState" : "extracted_with_value",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "and much more"
+          }
+        }
+      }
+    },
     "oobe.guestPrivacy.privacyPolicyLink" : {
       "comment" : "Guest privacy confirmation - Link title for the Phi privacy policy",
       "extractionState" : "extracted_with_value",
@@ -51457,9 +51529,21 @@
         }
       }
     },
+    "oobe.guestPrivacy.requiresSignIn" : {
+      "comment" : "Guest confirmation - Heading for features that require signing in",
+      "extractionState" : "extracted_with_value",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Requires a Phi account and sign-in"
+          }
+        }
+      }
+    },
     "oobe.guestPrivacy.signInAnytime" : {
       "comment" : "Guest privacy confirmation - Notice that the user can sign in later",
-      "extractionState" : "extracted_with_value",
+      "extractionState" : "stale",
       "localizations" : {
         "de" : {
           "stringUnit" : {
@@ -51517,6 +51601,30 @@
         }
       }
     },
+    "oobe.guestPrivacy.signInInstead" : {
+      "comment" : "Guest confirmation - Button returning to the sign-in page",
+      "extractionState" : "extracted_with_value",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Sign in instead"
+          }
+        }
+      }
+    },
+    "oobe.guestPrivacy.sync" : {
+      "comment" : "Guest confirmation - Sync feature requiring sign-in",
+      "extractionState" : "extracted_with_value",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Sync"
+          }
+        }
+      }
+    },
     "oobe.guestPrivacy.termsOfServiceLink" : {
       "comment" : "Guest privacy confirmation - Link title for the Phi terms of service",
       "extractionState" : "extracted_with_value",
@@ -51530,7 +51638,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "new",
-            "value" : "Terms of Service"
+            "value" : "Terms of Use"
           }
         },
         "es" : {
@@ -51583,7 +51691,7 @@
       "localizations" : {
         "de" : {
           "stringUnit" : {
-            "state" : "translated",
+            "state" : "needs_review",
             "value" : "Bevor es losgeht"
           }
         },
@@ -51595,43 +51703,43 @@
         },
         "es" : {
           "stringUnit" : {
-            "state" : "translated",
+            "state" : "needs_review",
             "value" : "Antes de empezar"
           }
         },
         "fr" : {
           "stringUnit" : {
-            "state" : "translated",
+            "state" : "needs_review",
             "value" : "Avant de commencer"
           }
         },
         "ja" : {
           "stringUnit" : {
-            "state" : "translated",
+            "state" : "needs_review",
             "value" : "はじめる前に"
           }
         },
         "ko" : {
           "stringUnit" : {
-            "state" : "translated",
+            "state" : "needs_review",
             "value" : "시작하기 전에"
           }
         },
         "nl" : {
           "stringUnit" : {
-            "state" : "translated",
+            "state" : "needs_review",
             "value" : "Voordat we beginnen"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
-            "state" : "translated",
+            "state" : "needs_review",
             "value" : "开始之前"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
-            "state" : "translated",
+            "state" : "needs_review",
             "value" : "開始之前"
           }
         }
@@ -53737,6 +53845,18 @@
         }
       }
     },
+    "oobe.navigation.backButton" : {
+      "comment" : "OOBE navigation - Button to return to the previous step",
+      "extractionState" : "extracted_with_value",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Back"
+          }
+        }
+      }
+    },
     "oobe.navigation.continueButton" : {
       "comment" : "OOBE navigation - Button to continue to the next step",
       "extractionState" : "extracted_with_value",
@@ -53863,55 +53983,55 @@
       "localizations" : {
         "de" : {
           "stringUnit" : {
-            "state" : "translated",
+            "state" : "needs_review",
             "value" : "Los geht’s"
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "new",
-            "value" : "Let's Begin"
+            "value" : "Let's begin"
           }
         },
         "es" : {
           "stringUnit" : {
-            "state" : "translated",
+            "state" : "needs_review",
             "value" : "Empecemos"
           }
         },
         "fr" : {
           "stringUnit" : {
-            "state" : "translated",
+            "state" : "needs_review",
             "value" : "Commencer"
           }
         },
         "ja" : {
           "stringUnit" : {
-            "state" : "translated",
+            "state" : "needs_review",
             "value" : "はじめる"
           }
         },
         "ko" : {
           "stringUnit" : {
-            "state" : "translated",
+            "state" : "needs_review",
             "value" : "시작하기"
           }
         },
         "nl" : {
           "stringUnit" : {
-            "state" : "translated",
+            "state" : "needs_review",
             "value" : "Aan de slag"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
-            "state" : "translated",
+            "state" : "needs_review",
             "value" : "开始使用"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
-            "state" : "translated",
+            "state" : "needs_review",
             "value" : "開始使用"
           }
         }
@@ -54223,55 +54343,55 @@
       "localizations" : {
         "de" : {
           "stringUnit" : {
-            "state" : "translated",
+            "state" : "needs_review",
             "value" : "Datenschutzerklärung"
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "new",
-            "value" : "Privacy"
+            "value" : "Privacy Policy"
           }
         },
         "es" : {
           "stringUnit" : {
-            "state" : "translated",
+            "state" : "needs_review",
             "value" : "Privacidad"
           }
         },
         "fr" : {
           "stringUnit" : {
-            "state" : "translated",
+            "state" : "needs_review",
             "value" : "Politique de confidentialité"
           }
         },
         "ja" : {
           "stringUnit" : {
-            "state" : "translated",
+            "state" : "needs_review",
             "value" : "プライバシー"
           }
         },
         "ko" : {
           "stringUnit" : {
-            "state" : "translated",
+            "state" : "needs_review",
             "value" : "개인정보 처리방침"
           }
         },
         "nl" : {
           "stringUnit" : {
-            "state" : "translated",
+            "state" : "needs_review",
             "value" : "Privacy"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
-            "state" : "translated",
+            "state" : "needs_review",
             "value" : "隐私政策"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
-            "state" : "translated",
+            "state" : "needs_review",
             "value" : "隱私權政策"
           }
         }
@@ -54283,55 +54403,55 @@
       "localizations" : {
         "de" : {
           "stringUnit" : {
-            "state" : "translated",
+            "state" : "needs_review",
             "value" : "Nutzungsbedingungen"
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "new",
-            "value" : "Terms"
+            "value" : "Terms of Use"
           }
         },
         "es" : {
           "stringUnit" : {
-            "state" : "translated",
+            "state" : "needs_review",
             "value" : "Términos"
           }
         },
         "fr" : {
           "stringUnit" : {
-            "state" : "translated",
+            "state" : "needs_review",
             "value" : "Conditions d'utilisation"
           }
         },
         "ja" : {
           "stringUnit" : {
-            "state" : "translated",
+            "state" : "needs_review",
             "value" : "利用規約"
           }
         },
         "ko" : {
           "stringUnit" : {
-            "state" : "translated",
+            "state" : "needs_review",
             "value" : "이용약관"
           }
         },
         "nl" : {
           "stringUnit" : {
-            "state" : "translated",
+            "state" : "needs_review",
             "value" : "Voorwaarden"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
-            "state" : "translated",
+            "state" : "needs_review",
             "value" : "条款"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
-            "state" : "translated",
+            "state" : "needs_review",
             "value" : "服務條款"
           }
         }

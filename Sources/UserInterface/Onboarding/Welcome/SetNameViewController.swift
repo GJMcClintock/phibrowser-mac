@@ -12,12 +12,24 @@ class SetNameViewController: OnboardingBaseViewController {
     private var originalUserName: String?
     var credentials: Credentials? {
         didSet {
-            if let credentials {
+            if originalUserName == nil, let credentials {
                 let userInfo = AuthManager.retriveUserInfo(from: credentials)
-                originalUserName = userInfo.name
-                textField.stringValue = "\(userInfo.name ?? "")"
+                let account = LoginController.shared.accountForOnboarding
+                let profile: Profile? = account?.userDefaults.codableValue(
+                    forKey: AccountUserDefaults.DefaultsKey.cachedProfile.rawValue
+                )
+                let name = profile?.auth0_id == userInfo.sub ? profile?.name : userInfo.name
+                originalUserName = name
+                if textField.stringValue.isEmpty {
+                    textField.stringValue = name ?? ""
+                }
             }
         }
+    }
+
+    func applySavedName(_ name: String) {
+        originalUserName = name
+        textField.stringValue = name
     }
     
     lazy var titleView: NSView = {
@@ -112,7 +124,7 @@ class SetNameViewController: OnboardingBaseViewController {
     
     override func viewDidAppear() {
         super.viewDidAppear()
-        if credentials == nil {
+        if credentials == nil, originalUserName == nil {
             Task {
                 credentials = await AuthManager.shared.getActiveCredentials()
             }
@@ -147,7 +159,7 @@ class SetNameViewController: OnboardingBaseViewController {
                 }
                 let response = try await APIClient.shared
                     .updateOnboardingProfile(
-                        updates: .init(name: textField.stringValue),
+                        updates: .init(name: newUserName),
                         accountUserID: account.userID
                     )
                 if response.code == 0,
@@ -162,8 +174,9 @@ class SetNameViewController: OnboardingBaseViewController {
                 }
                 await MainActor.run {
                     isLoading = false
-                    UserDefaults.standard.set(textField.stringValue, forKey: PhiPreferences.preferedUserName.rawValue)
-                    newNameSettled?(textField.stringValue)
+                    applySavedName(newUserName)
+                    UserDefaults.standard.set(newUserName, forKey: PhiPreferences.preferedUserName.rawValue)
+                    newNameSettled?(newUserName)
                 }
             } catch {
                 await MainActor.run {

@@ -73,6 +73,7 @@ class OnboardingWelcomeViewController: OnboardingBaseViewController {
         do {
             let profile = try await APIClient.shared.getOnboardingAccountProfile(accountUserID: accountUserID).data
             guard !Task.isCancelled else { return }
+            // A profile read must not overwrite a name just saved in this flow.
             cardView.name = userName ?? profile.name
             cardView.joinedDate = HolographicCardView.formattedJoinDate(profile.created_at)
         } catch {
@@ -84,7 +85,14 @@ class OnboardingWelcomeViewController: OnboardingBaseViewController {
     // MARK: - Setup
     private func setupUI() {
         titleLabel.isHidden = true
-        skipButton.isHidden = true
+        configureFooterButtons(.init(
+            leftTitle: NSLocalizedString(
+                "oobe.navigation.backButton",
+                value: "Back",
+                comment: "OOBE navigation - Button to return to the previous step"
+            ),
+            rightTitle: nextButton.title
+        ))
         nextButton.backgroundColor = Color.white.opacity(0.05)
 
         view.addSubview(cardView)

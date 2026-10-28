@@ -89,6 +89,8 @@ class LoginViewController: NSViewController {
     
     private lazy var loginButton: GradientBorderButton = {
         let button = GradientBorderButton()
+        button.backgroundColor = .white.opacity(0.05)
+        button.hoverBackgroundColor = .white.opacity(0.12)
         button.title = NSLocalizedString("oobe.login.loginButton", value: "Sign in", comment: "Onboarding sign-in button title")
         button.clickAction = { [weak self] in
             self?.loginAction()
@@ -138,17 +140,10 @@ class LoginViewController: NSViewController {
         
         container.addSubview(waitingTitleLabel)
         waitingTitleLabel.snp.makeConstraints { make in
-            make.top.equalToSuperview()
+            make.top.bottom.equalToSuperview()
             make.centerX.equalToSuperview()
             make.leading.greaterThanOrEqualToSuperview().offset(40)
             make.trailing.lessThanOrEqualToSuperview().offset(-40)
-        }
-        
-        container.addSubview(retryHintView)
-        retryHintView.snp.makeConstraints { make in
-            make.top.equalTo(waitingTitleLabel.snp.bottom).offset(36)
-            make.centerX.equalToSuperview()
-            make.bottom.equalToSuperview()
         }
         
         container.alphaValue = 0
@@ -179,46 +174,34 @@ class LoginViewController: NSViewController {
         return label
     }()
     
-    /// Retry hint shown after a failed login attempt.
-    private lazy var retryHintView: NSView = {
-        let container = NSView()
-        container.wantsLayer = true
-        
-        let stackView = NSStackView()
-        stackView.orientation = .horizontal
-        stackView.spacing = 0
-        stackView.alignment = .centerY
-        
-        let hintLabel = NSTextField(labelWithString: NSLocalizedString("oobe.login.failureHintPrefix", value: "Something went wrong? ", comment: "Retry hint prefix text shown when login fails in onboarding"))
-        hintLabel.font = NSFont.systemFont(ofSize: 15)
-        hintLabel.textColor = NSColor.white.withAlphaComponent(0.5)
-        hintLabel.alignment = .center
-        
-        let retryLink = GradientColorLabel(
-            text: NSLocalizedString("oobe.login.failureLink", value: "Go back and try again", comment: "Retry link text shown when login fails in onboarding"),
-            gradientColors: [
-                Color(hexString: "#9452F9"),
-                Color(hexString: "#E8C0FF")
-            ],
-            fontSize: 15
-        )
-        retryLink.clickAction = { [weak self] in
+    private lazy var retryHintLabel: NSTextField = {
+        let label = NSTextField(labelWithString: NSLocalizedString("oobe.login.failureHintPrefix", value: "Something went wrong? ", comment: "Retry hint prefix text shown when login fails in onboarding"))
+        label.font = .systemFont(ofSize: 15)
+        label.textColor = .white.withAlphaComponent(0.5)
+        label.alignment = .center
+        label.alphaValue = 0
+        label.isHidden = true
+        return label
+    }()
+
+    /// Bottom action shown after sign-in fails or times out.
+    private lazy var retryButton: GradientBorderButton = {
+        let button = GradientBorderButton()
+        button.title = NSLocalizedString("oobe.login.failureLink", value: "Go back and try again", comment: "Retry link text shown when login fails in onboarding")
+        button.titleFont = .systemFont(ofSize: 18)
+        button.backgroundColor = .white.opacity(0.05)
+        button.hoverBackgroundColor = .white.opacity(0.1)
+        button.borderColors = [.white.opacity(0.3)]
+        button.hoverBorderColor = .white.opacity(0.5)
+        button.cornerRadius = 30
+        button.clickAction = { [weak self] in
             self?.handleRetryAction()
         }
-        
-        stackView.addArrangedSubview(hintLabel)
-        stackView.addArrangedSubview(retryLink)
-        
-        container.addSubview(stackView)
-        stackView.snp.makeConstraints { make in
-            make.edges.equalToSuperview()
-        }
-        
-        container.alphaValue = 0
-        container.isHidden = true
-        return container
+        button.alphaValue = 0
+        button.isHidden = true
+        return button
     }()
-    
+
     override func loadView() {
         self.view = NSView()
         self.view.wantsLayer = true
@@ -245,6 +228,8 @@ class LoginViewController: NSViewController {
     
     override func viewWillDisappear() {
         super.viewWillDisappear()
+        updateGuestButtonHover(false)
+        retryHintLabel.textColor = .white.withAlphaComponent(0.5)
         resetVideo()
     }
     
@@ -299,6 +284,58 @@ class LoginViewController: NSViewController {
             make.leading.greaterThanOrEqualToSuperview().offset(40)
             make.trailing.lessThanOrEqualToSuperview().offset(-40)
         }
+        view.addSubview(retryButton)
+        retryButton.snp.makeConstraints { make in
+            make.centerX.equalToSuperview()
+            make.bottom.equalToSuperview().offset(-91)
+            make.width.equalTo(385)
+            make.height.equalTo(40)
+        }
+        view.addSubview(retryHintLabel)
+        retryHintLabel.snp.makeConstraints { make in
+            make.centerX.equalTo(retryButton)
+            make.bottom.equalTo(retryButton.snp.top).offset(-16)
+            make.leading.greaterThanOrEqualToSuperview().offset(40)
+            make.trailing.lessThanOrEqualToSuperview().offset(-40)
+        }
+
+        for textView in [continueAsGuestButton as NSView, retryHintLabel] {
+            textView.addTrackingArea(NSTrackingArea(
+                rect: .zero,
+                options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect],
+                owner: self,
+                userInfo: ["guestButton": textView === continueAsGuestButton]
+            ))
+        }
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        updateTextHover(with: event, isHovered: true)
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        updateTextHover(with: event, isHovered: false)
+    }
+
+    private func updateTextHover(with event: NSEvent, isHovered: Bool) {
+        guard let isGuestButton = event.trackingArea?.userInfo?["guestButton"] as? Bool else { return }
+        if isGuestButton {
+            updateGuestButtonHover(isHovered && continueAsGuestButton.isEnabled && !continueAsGuestButton.isHiddenOrHasHiddenAncestor)
+        } else {
+            retryHintLabel.textColor = .white.withAlphaComponent(
+                isHovered && !retryHintLabel.isHiddenOrHasHiddenAncestor ? 1 : 0.5
+            )
+        }
+    }
+
+    private func updateGuestButtonHover(_ isHovered: Bool) {
+        let title = NSMutableAttributedString(attributedString: continueAsGuestButton.attributedTitle)
+        title.addAttribute(
+            .foregroundColor,
+            value: NSColor.white.withAlphaComponent(isHovered ? 1 : 0.65),
+            range: NSRange(location: 0, length: title.length)
+        )
+        continueAsGuestButton.attributedTitle = title
     }
 
     private func updateLoginPresentation() {
@@ -525,6 +562,7 @@ extension LoginViewController {
             }
             
         case .waiting:
+            updateGuestButtonHover(false)
             captureAndBlurVideoFrame()
             
             waitingView.isHidden = false
@@ -540,22 +578,27 @@ extension LoginViewController {
         }
     }
     
-    /// Shows the retry hint view with animation
+    /// Shows the retry hint and button with animation.
     func showRetryHint() {
-        retryHintView.isHidden = false
+        retryHintLabel.isHidden = false
+        retryButton.isHidden = false
         NSAnimationContext.runAnimationGroup { context in
             context.duration = 0.3
-            retryHintView.animator().alphaValue = 1.0
+            retryHintLabel.animator().alphaValue = 1.0
+            retryButton.animator().alphaValue = 1.0
         }
     }
     
-    /// Hides the retry hint view
+    /// Hides the retry hint and button.
     func hideRetryHint() {
+        retryHintLabel.textColor = .white.withAlphaComponent(0.5)
         NSAnimationContext.runAnimationGroup { context in
             context.duration = 0.3
-            retryHintView.animator().alphaValue = 0.0
+            retryHintLabel.animator().alphaValue = 0.0
+            retryButton.animator().alphaValue = 0.0
         } completionHandler: { [weak self] in
-            self?.retryHintView.isHidden = true
+            self?.retryHintLabel.isHidden = true
+            self?.retryButton.isHidden = true
         }
     }
     
