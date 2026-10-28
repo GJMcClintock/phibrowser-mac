@@ -1890,7 +1890,9 @@ final class SpaceManager: ObservableObject {
     private func beginWindowlessSessionRestore() -> Bool {
         guard let bridge = ChromiumLauncher.sharedInstance().bridge else {
             // No bridge to drive the restore; still open something.
-            return spawnPersistedSpaceWindow()
+            let spawned = spawnPersistedSpaceWindow()
+            releaseOpensWaitingForRestore(exit: "no bridge")
+            return spawned
         }
         // Re-arm the snapshot with the `restoredFromWindowId == 0` reattach
         // fallback disarmed — see `loadRestoreSnapshot(armReattachDeadline:)` for
@@ -2003,6 +2005,10 @@ final class SpaceManager: ObservableObject {
                 // see above).
                 self.endReopenLoadingPlacements()
                 self.recordReopenLoadingHandoff(.restoreSettled)
+                // Last: a held open must find the fallback window and the
+                // repaired slots above, and must not be pulled onto a loading
+                // window's forced frame.
+                self.releaseOpensWaitingForRestore(exit: "restore settled")
             }
         }
         return true
@@ -2189,8 +2195,8 @@ final class SpaceManager: ObservableObject {
     /// writing and the reopen never persists at all — for the life of the
     /// process, since nothing else rewrites the record until the next layout
     /// change — while writing before the clear is a write that refuses itself
-    /// (`mayPersistSlotsSnapshot`). Neither shows up in a test; no test in this
-    /// repo constructs a `SpaceManager`. Keeping them inseparable is the guard.
+    /// (`mayPersistSlotsSnapshot`). Neither shows up in a test. Keeping them
+    /// inseparable is the guard.
     ///
     /// Called once, from the completion that reports every profile settled.
     /// A reopen that never settles never calls it, and the last complete
@@ -2222,6 +2228,7 @@ final class SpaceManager: ObservableObject {
             // cannot see any other way.
             AppLogError("[SpaceManager] windowless reopen never settled within \(Self.sessionRestoreWatchdogDeadline)s — releasing the snapshot freeze without writing")
             self.isSessionRestoreInFlight = false
+            self.releaseOpensWaitingForRestore(exit: "watchdog")
         }
         sessionRestoreWatchdog = work
         DispatchQueue.main.asyncAfter(
@@ -2476,6 +2483,79 @@ final class SpaceManager: ObservableObject {
         guard isWindowlessWithHostedSlots, SessionRestorePreference.isEnabled,
               !isSessionRestoreInFlight else { return }
         beginWindowlessSessionRestore()
+    }
+
+    /// What the gate in front of a windowless open the user aimed at a Space
+    /// does with that open (chromium ADR 0020).
+    enum WindowlessOpenGate: Equatable {
+        /// Run the open at once.
+        case runNow
+        /// Hold the open until the restore in flight settles.
+        case waitForRestore
+        /// Start the restore a Dock click starts, and hold the open until it
+        /// settles.
+        case beginRestoreAndWait
+    }
+
+    /// The rule behind `runAfterWindowlessRestore`. Pure and static so it is
+    /// pinned by table (`WindowlessOpenRestoreGateTests`).
+    ///
+    /// A restore in flight holds the open even once a restored window exists:
+    /// the target Space's window can arrive after the first one, and acting
+    /// early opens a second window for that Space, while an armed lazy restore
+    /// drops Space switches until it settles. Windowless is read off the
+    /// slots, not off "about to mint a slot": with a leftover shell slot an
+    /// entry never reaches its mint.
+    static func windowlessOpenGate(isSessionRestoreInFlight: Bool,
+                                   isWindowlessWithHostedSlots: Bool,
+                                   isRestoreSwitchOn: Bool) -> WindowlessOpenGate {
+        if isSessionRestoreInFlight { return .waitForRestore }
+        return isWindowlessWithHostedSlots && isRestoreSwitchOn
+            ? .beginRestoreAndWait : .runNow
+    }
+
+    /// Opens `runAfterWindowlessRestore` holds until the restore ends.
+    private var opensWaitingForRestore: [() -> Void] = []
+
+    /// Runs `open`, an open the user aimed at a Space, once no windowless
+    /// session restore is pending: at once when there is nothing to restore,
+    /// otherwise after the restore in flight or after the one this starts,
+    /// which is the restore a Dock click starts. `entry` names the caller in
+    /// the log.
+    ///
+    /// A held open runs past this gate, so it never starts a second restore:
+    /// released by the watchdog while still windowless, it takes its ordinary
+    /// path (an existing slot, or a new one).
+    func runAfterWindowlessRestore(entry: String, _ open: @escaping () -> Void) {
+        switch Self.windowlessOpenGate(
+            isSessionRestoreInFlight: isSessionRestoreInFlight,
+            isWindowlessWithHostedSlots: isWindowlessWithHostedSlots,
+            isRestoreSwitchOn: SessionRestorePreference.isEnabled) {
+        case .runNow:
+            open()
+        case .waitForRestore:
+            opensWaitingForRestore.append(open)
+            AppLogInfo("[SpaceManager] \(entry) waits for the session restore in flight")
+        case .beginRestoreAndWait:
+            // Queued first: with no bridge the restore releases the queue
+            // before it returns.
+            opensWaitingForRestore.append(open)
+            AppLogInfo("[SpaceManager] \(entry) while windowless — starting a session restore and waiting for it")
+            beginWindowlessSessionRestore()
+        }
+    }
+
+    /// Runs every open `runAfterWindowlessRestore` holds. Called from each way
+    /// a windowless restore ends: it settles, its watchdog gives up, or there
+    /// is no bridge to run it. A way that does not call it leaves its opens
+    /// waiting for good. `exit` names the way in the log.
+    private func releaseOpensWaitingForRestore(exit: String) {
+        guard !opensWaitingForRestore.isEmpty else { return }
+        let opens = opensWaitingForRestore
+        // Cleared first, so an open is never run twice.
+        opensWaitingForRestore.removeAll()
+        AppLogInfo("[SpaceManager] releasing \(opens.count) open(s) that waited for the session restore (\(exit))")
+        opens.forEach { $0() }
     }
 
     /// True when an external open has no window to wait for: the app is
@@ -7663,8 +7743,28 @@ final class SpaceManager: ObservableObject {
     /// Opens external URLs directly in the Space selected by a URL Rule.
     /// This entry point deliberately bypasses Chromium's external-link Kiosk
     /// preference and exempts each created tab from being routed a second time.
+    /// While windowless it restores the session first
+    /// (`runAfterWindowlessRestore`); with the Kiosk preference off the
+    /// restore has already settled before the link got here.
     @MainActor
     func openExternalURLs(
+        _ urlStrings: [String],
+        inURLRuleTargetSpaceId targetSpaceId: String
+    ) {
+        runAfterWindowlessRestore(
+            entry: "external link for Space \(targetSpaceId)"
+        ) { [weak self] in
+            self?.openExternalURLsPastRestoreGate(
+                urlStrings,
+                inURLRuleTargetSpaceId: targetSpaceId
+            )
+        }
+    }
+
+    /// `openExternalURLs` without its gate, for a caller that has passed the
+    /// gate already.
+    @MainActor
+    func openExternalURLsPastRestoreGate(
         _ urlStrings: [String],
         inURLRuleTargetSpaceId targetSpaceId: String
     ) {

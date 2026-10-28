@@ -1101,12 +1101,31 @@ import PostHog
         )
     }
 
+    /// While windowless this restores the session before it looks for a
+    /// window, so that a restored window hosts the chooser. The path with the
+    /// Kiosk preference off already runs in that order (chromium ADR 0020).
     private func askForExternalURLRuleDestination(
         _ url: URL,
         defaultSpaceId: String,
         returnApplication: NSRunningApplication?
     ) {
         assert(Thread.isMainThread)
+        SpaceManager.shared.runAfterWindowlessRestore(
+            entry: "external link's Ask rule"
+        ) { [weak self] in
+            self?.askForExternalURLRuleDestinationPastRestoreGate(
+                url,
+                defaultSpaceId: defaultSpaceId,
+                returnApplication: returnApplication
+            )
+        }
+    }
+
+    private func askForExternalURLRuleDestinationPastRestoreGate(
+        _ url: URL,
+        defaultSpaceId: String,
+        returnApplication: NSRunningApplication?
+    ) {
         let controllers = SpaceSessionControllersManager.shared
             .getAllWindows()
         // A hosted shell is visible for every session of its slot; only the
@@ -1143,7 +1162,9 @@ import PostHog
                     }
                     return
                 }
-                SpaceManager.shared.openExternalURLs(
+                // Past the gate: this ask already passed it, and a second
+                // pass after the watchdog would restore again.
+                SpaceManager.shared.openExternalURLsPastRestoreGate(
                     [url.absoluteString],
                     inURLRuleTargetSpaceId: defaultSpaceId
                 )
