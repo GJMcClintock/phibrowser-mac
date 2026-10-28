@@ -336,6 +336,107 @@ final class BrowserStateMultiSelectionTests: XCTestCase {
         ))
     }
 
+    private func withTabSelectionLayouts(
+        _ body: (BrowserState, (Int, NSEvent.ModifierFlags) throws -> Void) throws -> Void
+    ) throws {
+        for horizontal in [false, true] {
+            let state = try makeState()
+            seed(state, guids: [1, 2, 3, 4, 5])
+            for tab in state.tabs { tab.title = "Tab \(tab.guid)" }
+            state.focuseTab(state.tabs[2])
+
+            if horizontal {
+                let strip = TabStrip(browserState: state)
+                strip.frame = NSRect(x: 0, y: 0, width: 1000, height: 48)
+                strip.setActive(true)
+                defer { strip.setActive(false) }
+                try body(state) { guid, flags in
+                    strip.setActive(true)
+                    strip.layoutSubtreeIfNeeded()
+                    func findTabView(in view: NSView) -> TabItemView? {
+                        if let tabView = view as? TabItemView,
+                           tabView.accessibilityLabel() == "Tab \(guid)" {
+                            return tabView
+                        }
+                        return view.subviews.lazy.compactMap { findTabView(in: $0) }.first
+                    }
+                    let tabView = try XCTUnwrap(findTabView(in: strip))
+                    let select = try XCTUnwrap(tabView.onSelect)
+                    select(flags)
+                }
+            } else {
+                let controller = SidebarTabListViewController(state: state)
+                controller.loadViewIfNeeded()
+                controller.setActive(true)
+                defer { controller.setActive(false) }
+                let scroll = try XCTUnwrap(controller.view.subviews.compactMap { $0 as? NSScrollView }.first)
+                let outline = try XCTUnwrap(scroll.documentView as? SideBarOutlineView)
+                try body(state) { guid, flags in
+                    controller.setActive(true)
+                    let row = try XCTUnwrap((0..<outline.numberOfRows).first {
+                        (outline.item(atRow: $0) as? Tab)?.guid == guid
+                    })
+                    controller.outlineView(outline, didClickRow: row, modifierFlags: flags)
+                }
+            }
+        }
+    }
+
+    func testShiftRangeStartsAtAutomaticallyFocusedTabAfterCloseInBothLayouts() throws {
+        try withTabSelectionLayouts { state, click in
+            try click(3, [])
+            state.tabs.removeAll { $0.guid == 3 }
+            state.updateNormalTabs()
+            state.focuseTab(try XCTUnwrap(state.tabs.first { $0.guid == 4 }))
+
+            try click(1, [.shift])
+
+            XCTAssertEqual(state.orderedMultiSelectedTabs.map(\.guid), [1, 2, 4])
+        }
+    }
+
+    func testShiftRangeStartsAtNewlyFocusedLinkTabInBothLayouts() throws {
+        try withTabSelectionLayouts { state, click in
+            state.focuseTab(state.tabs[1])
+            try click(2, [])
+            let linkTab = Tab(guid: 6, url: "https://link.example", isActive: false,
+                              index: 2, title: "Tab 6")
+            state.tabs.insert(linkTab, at: 2)
+            for (index, tab) in state.tabs.enumerated() { tab.setIndex(index) }
+            state.updateNormalTabs()
+            state.moveNormalTabsLocally(tabIds: [6], to: 2, syncChromiumOrder: false)
+            state.focuseTab(linkTab)
+
+            try click(3, [.shift])
+
+            XCTAssertEqual(state.orderedMultiSelectedTabs.map(\.guid), [6, 3])
+        }
+    }
+
+    func testRepeatedShiftClickKeepsRangeAnchorInBothLayouts() throws {
+        try withTabSelectionLayouts { state, click in
+            try click(3, [])
+            try click(1, [.shift])
+            XCTAssertEqual(state.orderedMultiSelectedTabs.map(\.guid), [1, 2, 3])
+
+            try click(5, [.shift])
+            XCTAssertEqual(state.orderedMultiSelectedTabs.map(\.guid), [3, 4, 5])
+        }
+    }
+
+    func testSameFocusPublicationPreservesCommandClickAnchorInBothLayouts() throws {
+        try withTabSelectionLayouts { state, click in
+            try click(3, [])
+            try click(1, [.command])
+            let focusedTab = state.focusingTab
+            state.focusingTab = focusedTab
+
+            try click(5, [.shift])
+
+            XCTAssertEqual(state.orderedMultiSelectedTabs.map(\.guid), [1, 2, 3, 4, 5])
+        }
+    }
+
     func testOrderedSelectionFollowsTabOrderNotClickOrder() throws {
         let state = try makeState()
         seed(state, guids: [10, 20, 30, 40])

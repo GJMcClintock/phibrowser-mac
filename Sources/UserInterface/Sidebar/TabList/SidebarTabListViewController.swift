@@ -458,6 +458,16 @@ class SidebarTabListViewController: NSViewController {
     
     private func setupBindings() {
         cancellables.removeAll()
+        // Focus can change without a tab click (close, link, keyboard navigation).
+        // Invalidate synchronously so a later Cmd/Shift click keeps its new anchor.
+        browserState.$focusingTab
+            .map { $0?.guid }
+            .removeDuplicates()
+            .sink { [weak self] _ in
+                self?.multiSelectionRangeAnchor = nil
+            }
+            .store(in: &cancellables)
+
         NotificationCenter.default.publisher(for: .bookmarkStartEditing)
             .receive(on: DispatchQueue.main)
             .sink { [weak self] notification in
