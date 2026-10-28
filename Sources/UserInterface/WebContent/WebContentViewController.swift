@@ -400,10 +400,10 @@ class WebContentViewController: NSViewController {
     /// The page card's and left container's fills (see `hasContentSurface`).
     private func applyFills() {
         let frameBackground: ThemedColor = isPageCardSeparated
-            ? .separatedContentFrameBackground : .contentOverlayBackground
+            ? .separatedContentFrameBackground : .extensionSurfaceBackground
         splitViewContainer.setFill(frameBackground.cgColorMapperOptional,
                                    overContentSurface: hasContentSurface)
-        leftContainerView.setFill(NSColor.white <> NSColor.black,
+        leftContainerView.setFill(ThemedColor.extensionSurfaceBackground.cgColorMapperOptional,
                                   overContentSurface: hasContentSurface)
     }
 

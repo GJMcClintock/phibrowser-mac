@@ -43,6 +43,11 @@ public extension ThemedColor {
     /// Neutral content overlay background, independent of Space theme colors.
     static let contentOverlayBackground = ThemedColor(lightHex: 0xFFFFFF, darkHex: 0x212121)
 
+    /// Default page backing and split gaps, matching the header's fallback surface.
+    static let extensionSurfaceBackground = ThemedColor { theme, appearance in
+        theme.extensionSurfaceBackground(for: appearance)
+    }
+
     /// Shared frame around separated page and Chat/panel cards.
     static let separatedContentFrameBackground = ThemedColor { _, appearance in
         appearance.isDark

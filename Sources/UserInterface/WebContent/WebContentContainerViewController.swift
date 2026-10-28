@@ -260,11 +260,11 @@ class WebContentContainerViewController: NSViewController {
     /// NSDraggingDestination callbacks never fire in that mode.
     var splitTabDropContainer: SplitTabDropContainer { contentContainer }
 
-    /// Neutral loading backdrop pinned under every other subview of
+    /// Header-matched loading backdrop pinned under every other subview of
     /// `contentContainer`, tracing the page panel's exact geometry
     /// (`WebContentViewController.splitViewContainer`: same insets, corner
-    /// radius). Uses `.windowBackground` so a custom theme's bright navigation
-    /// color does not flash while the first tab is mounting. Once a content
+    /// radius). Uses the header's default extension surface so the loading
+    /// area matches the header while the first tab is mounting. Once a content
     /// surface is installed the page card above it is clear, and this
     /// backdrop shows through wherever the page has not painted: before a
     /// cold page's first frame, under an evicted frame, in a split's gap
@@ -275,7 +275,7 @@ class WebContentContainerViewController: NSViewController {
         view.wantsLayer = true
         view.layer?.cornerCurve = .continuous
         view.layer?.cornerRadius = LiquidGlassCompatible.webContentContainerCornerRadius
-        view.phiLayer?.setBackgroundColor(ThemedColor.windowBackground)
+        view.phiLayer?.setBackgroundColor(ThemedColor.extensionSurfaceBackground)
         return view
     }()
 
@@ -647,7 +647,7 @@ class WebContentContainerViewController: NSViewController {
             // keep this backing opaque so the black alpha is not applied twice.
             self.pageAreaBackdrop.phiLayer?.setBackgroundColor(
                 separated && self.hasContentSurface
-                    ? .separatedContentFrameBackground : .windowBackground
+                    ? .separatedContentFrameBackground : .extensionSurfaceBackground
             )
         }
         guard let controller = currentWebContentController else {
