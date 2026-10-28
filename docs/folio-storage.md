@@ -573,7 +573,7 @@ tags: [ai, python]
 | --- | --- | --- |
 | `url` | feed URL | what is polled; `source` is not used, a subscription is not a page |
 | `schedule` | `hourly` \| `daily` \| `weekly` \| `off` | poll interval; `off` keeps the entries and stops polling |
-| `fetch` | `entry` \| `page` | `page` opens each entry URL in the shadow window and saves it like a manual save, article and `.mhtml` both, the newest uncaptured entries first and at most 10 per poll (the rest keep the feed's text until a later poll reaches them); `entry` writes only what the feed carries (title, summary or content) and no webpage copy. Default `page` |
+| `fetch` | `entry` \| `page` | `page` opens each entry URL in the shadow window and saves it like a manual save, article and `.mhtml` both, for the five newest entries by `published` (older ones keep the feed's text; a video among the five also gets its article from the video gist); `entry` writes only what the feed carries (title, summary or content) and no webpage copy. Default `page` |
 | `keep` | `30d`, `90d`, `forever` | how long an entry stays before it is trashed. Default `30d` |
 | `subscribed` | stamp | when it was created |
 

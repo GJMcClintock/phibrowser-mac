@@ -257,6 +257,12 @@ final class ExtensionMessageRouter {
             SaveForLaterService.handleOpenOriginal(context)
             return "{}"
         }
+        // A link that leaves the library page: as Folio's own window it has
+        // no way back, so the link opens in a regular window instead.
+        register(type: "saveForLater.openURL") { context in
+            SaveForLaterService.handleOpenURL(context)
+            return "{}"
+        }
         // The library page's Settings sheet points at the browser's own
         // preferences for the folder and the saving behaviour.
         register(type: "saveForLater.openSettings") { context in

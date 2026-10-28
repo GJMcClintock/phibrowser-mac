@@ -65,6 +65,7 @@ highlight      { ... }                             -> {}
 delete         { ... }                             -> {}
 reveal         { path, tabId? }                    -> {}
 openOriginal   { path, tabId? }                    -> {}
+openURL        { url, tabId? }                     -> {}
 openSettings   {}                                  -> {}
 windowChrome   { background, text }                -> {}
 fs.*           (the legacy pipeline's file access, kept for one release)
@@ -79,6 +80,12 @@ saveResult, toast, videoGist, videoArticles        (unchanged)
 - `openOriginal` opens a `.pdf` or `.mhtml` as a tab of a regular window
   (never the Folio kiosk, which has no way back) and hands an `.epub` to
   the system.
+- `openURL` opens an http(s) link from the library page as a tab of a
+  regular window the same way: the page sends every link that leaves it
+  (the source link, Open page, a link inside an article) through this
+  when it runs as Folio's own window, since a tab beside it in the kiosk
+  would trap the window on the page. As a pane of a regular window the
+  page opens a tab beside the user's own itself.
 - `openSettings` opens the browser's General settings, where the Folio
   folder lives.
 - `windowChrome` carries the page's sidebar colours as `#rrggbb` (an

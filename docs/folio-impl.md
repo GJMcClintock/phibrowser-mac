@@ -210,9 +210,9 @@ Everything that opens a browser window or outlives a request is a job:
 POST   /capture        { url, profileId?, location?, trigger, title?, key?, locale? } -> 202 Job
 POST   /recapture      { location, basename }                               -> 202 Job
 POST   /watch/check    { location, basename }                               -> 202 Job
-POST   /feeds          { url, folder?, title?, schedule?, fetch?, keep?, tags?, profileId? } -> 201 record + first poll Job
+POST   /feeds          { url, folder?, title?, schedule?, fetch?, keep?, tags?, profileId? } -> 201 record + first poll Job (`url` may be a feed, or a Reddit or YouTube page address, which is stored as its feed and named after it)
 POST   /feeds/poll     { path } | /feeds/poll-all                           -> 202 Job(s)
-POST   /feeds/discover { pageUrl }                                          -> { feeds: [{url,title}] }
+POST   /feeds/discover { pageUrl }                                          -> { feeds: [{url,title}] } (a subreddit or YouTube channel, handle, playlist or video answers from its URL and the channel id on its page; anything else from `<link rel=alternate>` and the conventional paths)
 POST   /feeds/unsubscribe { paths }
 POST   /feeds/mark-read { path, guids }
 GET    /jobs?active=1 | /jobs/{id}                                          -> Job
@@ -487,15 +487,39 @@ lists them in Move to… after the Inbox tree, and titles the scope
 
 ### Feed entries as pages
 
-A subscription defaults to `fetch: page`: every poll lists the feed's
-entries without a `captured` stamp, newest by `published` first, and
-sends up to `PAGE_CAPTURES_PER_POLL` (10) of them to the capture queue,
-new or not, so a feed switched to page mode fills in on its next poll and
-a first poll of a busy feed does not open dozens of windows at once. The
-captures are the ordinary durable background jobs (retried when the
-browser is away), landing on the entry file by `source`: the body becomes
-the article, the `.mhtml` is written beside it, and `extraction` flips
-from `feed` to `page`. `fetch: entry` keeps the feed's text only.
+A subscription defaults to `fetch: page`: every poll looks at the feed's
+`PAGE_CAPTURE_WINDOW` (5) newest entries by `published` and sends those
+without a `captured` stamp to the capture queue, new or not, so a feed
+switched to page mode fills in on its next poll, a first poll of a busy
+feed does not open dozens of windows at once, and the backlog beyond the
+window keeps the feed's own text for good. The captures are the ordinary
+durable background jobs (retried when the browser is away), landing on the
+entry file by `source`: the body becomes the article, the `.mhtml` is
+written beside it, and `extraction` flips from `feed` to `page`.
+`fetch: entry` keeps the feed's text only.
+
+When YouTube's feed endpoint refuses a channel feed (it answers
+`/feeds/videos.xml` with a 404 for some network exits while the channel
+pages keep loading), the fetcher reads the channel's `/videos` page
+instead: the newest thirty videos from its `ytInitialData`, keyed as the
+feed keys them (`yt:video:<id>`) so the two never double up, dated by the
+page's coarse age ("4d ago") and so approximate, with no ETag. The real
+feed takes over again the moment it answers.
+
+A YouTube video in the window gets its article too. Its capture keeps the
+webpage copy and leaves a pending note for a body, and a `video_article`
+job (lane `network`) follows: the article comes from the worker's video
+gist, read by name as `ctx.phiVideoArticles` (the contract is
+`@phi-ai/dsh-lib-shared/video-articles`; the worker's `phi-ports-ai` row
+provides it, under the same cache and quota as `POST /api/video-gist`;
+with no request to borrow a bearer from, the generation runs on the
+signed-in user's token from the Sentinel runner, as a scheduled task does).
+The job writes the body as a save from the page would, `type: video`,
+`extraction: video`, the "Original video" line first. A failure about the
+video (too long) is final and the entry says why; one about the service
+(quota, offline, switched off) fails the job, and the next poll queues it
+again while the entry is still in the window. The same follows any capture
+of a video page, such as a site import's.
 
 ### PDF and EPUB items
 

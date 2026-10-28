@@ -535,6 +535,29 @@ extension SaveForLaterService {
         }
     }
 
+    private struct OpenURLPayload: Decodable {
+        let url: String
+        let tabId: Int?
+    }
+
+    /// `saveForLater.openURL { url }`: a link that leaves the library page.
+    /// As Folio's own window the page has no tab strip or address bar, so
+    /// the link goes to a regular window, the way an original does. Only
+    /// http(s) is opened; anything else is dropped.
+    nonisolated static func handleOpenURL(_ context: ExtensionMessageContext) {
+        guard libraryGate(context),
+              let data = context.payload.data(using: .utf8),
+              let payload = try? JSONDecoder().decode(OpenURLPayload.self, from: data),
+              let url = URL(string: payload.url),
+              ["http", "https"].contains(url.scheme?.lowercased() ?? "") else {
+            AppLogDebug("[SaveForLater] openURL refused")
+            return
+        }
+        Task { @MainActor in
+            openOriginalTab(url.absoluteString, requestedBy: payload.tabId)
+        }
+    }
+
     /// Shows an original in a window that can leave it again. The page's
     /// own tab sits in the Folio kiosk, which has no tab strip or address
     /// bar, so a tab opened there would trap the window on the file: the
