@@ -93,6 +93,7 @@ class OmniBoxViewController: NSViewController {
     
     var openningFromCurrenTab: Bool { viewModel.opennedFromCurrentTab }
     var showsSwitchToTabHintForTesting: Bool { showsSwitchToTabHint }
+    var switchToTabAddsSplitForTesting: Bool { suggestionView.switchToTabAddsSplit }
     
     private weak var browserState: BrowserState?
     private let showsSwitchToTabHint: Bool
@@ -302,6 +303,7 @@ class OmniBoxViewController: NSViewController {
 
     func prepareForPresentation() {
         viewModel.refreshSearchEngineSpaceShortcut()
+        suggestionView.switchToTabAddsSplit = viewModel.isChoosingSplitPane
     }
 
     func handleKeywordSearchSpaceKeyDown(_ event: NSEvent) -> Bool {

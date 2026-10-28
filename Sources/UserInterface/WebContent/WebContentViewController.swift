@@ -785,6 +785,17 @@ class WebContentViewController: NSViewController {
         // split host — otherwise two controllers in the same split race
         // to re-parent each other's webContentView. Inactive controllers
         // refresh on switch via refreshSplitContentIfNeeded().
+        browserState?.$pendingSplitPreview
+            .removeDuplicates()
+            .dropFirst()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                guard let self, let tab = self.associatedTab,
+                      self.browserState?.focusingTab?.guid == tab.guid else { return }
+                self.updateContentForTab(tab)
+            }
+            .store(in: &cancellables)
+
         browserState?.$splits
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
@@ -1811,6 +1822,14 @@ class WebContentViewController: NSViewController {
             updateLeftContainerStyleForCurrentAIChatState()
             return
         }
+        if browserState?.pendingSplitPreview?.partnerTabId == tabId,
+           associatedTab?.devToolsAttached != true {
+            installSplitPreview(ownNativeView: contentView)
+            contentMode = .webContent
+            updateLeftContainerStyleForCurrentAIChatState()
+            return
+        }
+        removeSplitPreview(keeping: contentView)
         // Tear down any leftover split host before re-mounting single content.
         if let existing = currentSplitHost {
             existing.removeFromSuperview()
@@ -2154,6 +2173,43 @@ class WebContentViewController: NSViewController {
             tab.makeSelfActive()
         }
     }
+
+    /// "Split with New Tab" preview: this tab beside a blank pane, with no
+    /// Chromium split behind it (`BrowserState.pendingSplitPreview`).
+    private func installSplitPreview(ownNativeView: NSView) {
+        let host: SplitPaneHostView
+        if let existing = splitPreviewHost, existing.superview === hostView {
+            host = existing
+        } else {
+            // Mounted before the panes move in, as in `installSplitContent`.
+            host = SplitPaneHostView(layout: .vertical, ratio: 0.5,
+                                     layoutMode: PhiPreferences.GeneralSettings.loadLayoutMode())
+            host.hasContentSurface = hasContentSurface
+            host.translatesAutoresizingMaskIntoConstraints = false
+            hostView.addSubview(host)
+            host.snp.makeConstraints { $0.edges.equalToSuperview() }
+            splitPreviewHost = host
+        }
+        host.update(primary: ownNativeView, secondary: splitPreviewPane)
+        host.focusedPane = .secondary
+    }
+
+    private func removeSplitPreview(keeping contentView: NSView) {
+        guard let host = splitPreviewHost else { return }
+        if contentView.isDescendant(of: host) {
+            // A same-window move keeps the page's renderer attached; see
+            // `SplitPaneHostView.init`.
+            hostView.addSubview(contentView)
+            contentView.translatesAutoresizingMaskIntoConstraints = true
+            contentView.autoresizingMask = []
+            contentView.frame = hostView.contentFrame
+        }
+        host.removeFromSuperview()
+        splitPreviewHost = nil
+    }
+
+    private weak var splitPreviewHost: SplitPaneHostView?
+    private lazy var splitPreviewPane = NSView()
 
     private weak var currentSplitHost: SplitPaneHostView? {
         didSet {

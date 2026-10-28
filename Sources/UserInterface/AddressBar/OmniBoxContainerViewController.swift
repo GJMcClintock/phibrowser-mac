@@ -270,7 +270,15 @@ final class OmniBoxContainerViewController: NSViewController {
                                         userInfo: ["visible": true, "surface": "omnibox",
                                                    "windowId": browserState?.windowId as Any])
     }
-    
+
+    /// Turns an omnibox that is already up into the centered pane picker of
+    /// `BrowserState.pendingSplitPreview`, as a fresh open would present it.
+    /// Bypasses `hideOmniBox`, which would end the preview.
+    func representAsSplitPanePicker() {
+        omniBoxController?.reset()
+        showOmniBox(fromAddressBar: false)
+    }
+
     func hideOmniBox(fromAddressBar: Bool = false) {
         // At hide START, not completion: the overlay is on its way out, and
         // anything that deferred to it may take key back behind the fade.
@@ -279,6 +287,7 @@ final class OmniBoxContainerViewController: NSViewController {
                                         userInfo: ["visible": false, "surface": "omnibox",
                                                    "windowId": browserState?.windowId as Any])
         focusingTabObserver = nil
+        browserState?.endSplitPreview()
         guard animationOn else {
            hideOmniBoxWithoutAnimation()
             return

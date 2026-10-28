@@ -252,6 +252,11 @@ class BrowserState {
     /// `handleSplitCreated`, which then relocates the pair to the drop index.
     var pendingSplitMoveToNormalIndexByCreateId: [String: Int] = [:]
 
+    /// "Split with New Tab" under the Omnibox new-tab behavior: the focused
+    /// tab is shown beside a blank pane while the omnibox picks the partner.
+    /// No tab exists for that pane until the omnibox submits.
+    @Published var pendingSplitPreview: PendingSplitPreview?
+
     private var nativeRelationGraph: NativeTabRelationGraph = .empty
     private var pendingSelectionOverride: NativePendingSelectionOverride?
 

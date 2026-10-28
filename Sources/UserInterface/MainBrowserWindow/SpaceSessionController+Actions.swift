@@ -115,6 +115,19 @@ extension SpaceSessionController {
         toggleOmniBox(fromAddressBar: true, addressView: addressView)
     }
     
+    /// The omnibox that picks the pane of `BrowserState.pendingSplitPreview`.
+    /// Without it nothing could end the preview, so it ends here instead.
+    func presentSplitPreviewOmniBox() {
+        if omniBoxContainerViewController?.hasShown == true {
+            omniBoxContainerViewController?.representAsSplitPanePicker()
+        } else {
+            toggleOmniBox(fromAddressBar: false)
+        }
+        if omniBoxContainerViewController?.hasShown != true {
+            browserState.endSplitPreview()
+        }
+    }
+
     @IBAction func selectTabWithIndex(_ index: Int) {
         browserState.selectTabWithIndex(index)
     }
