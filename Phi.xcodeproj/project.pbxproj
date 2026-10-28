@@ -536,7 +536,6 @@
 		CC4351BD2EC73223009D8FC3 /* OnboardingWelcomeViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC4351BC2EC73223009D8FC3 /* OnboardingWelcomeViewController.swift */; };
 		CC4351BF2EC7327A009D8FC3 /* SetNameViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC4351BE2EC7327A009D8FC3 /* SetNameViewController.swift */; };
 		CC4351C12EC73509009D8FC3 /* GradientMapper.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC4351C02EC73509009D8FC3 /* GradientMapper.swift */; };
-		CC4351C92ECAD209009D8FC3 /* CustomSlider.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC4351C82ECAD209009D8FC3 /* CustomSlider.swift */; };
 		CC4351CC2ECAD650009D8FC3 /* OnboardingWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC4351CA2ECAD650009D8FC3 /* OnboardingWindowController.swift */; };
 		CC450ACD2EA251D3004EE144 /* HoverableButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC450ACC2EA251D3004EE144 /* HoverableButton.swift */; };
 		CC450AE42EA74AD5004EE144 /* CommandDispatcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC450AE32EA74AD5004EE144 /* CommandDispatcher.swift */; };
@@ -1381,7 +1380,6 @@
 		CC4351BC2EC73223009D8FC3 /* OnboardingWelcomeViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingWelcomeViewController.swift; sourceTree = "<group>"; };
 		CC4351BE2EC7327A009D8FC3 /* SetNameViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SetNameViewController.swift; sourceTree = "<group>"; };
 		CC4351C02EC73509009D8FC3 /* GradientMapper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GradientMapper.swift; sourceTree = "<group>"; };
-		CC4351C82ECAD209009D8FC3 /* CustomSlider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CustomSlider.swift; sourceTree = "<group>"; };
 		CC4351CA2ECAD650009D8FC3 /* OnboardingWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingWindowController.swift; sourceTree = "<group>"; };
 		CC450ACC2EA251D3004EE144 /* HoverableButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HoverableButton.swift; sourceTree = "<group>"; };
 		CC450AE32EA74AD5004EE144 /* CommandDispatcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandDispatcher.swift; sourceTree = "<group>"; };
@@ -2912,7 +2910,6 @@
 				A197CA000000000000000003 /* HolographicCardMaterials.swift */,
 				CC4351BE2EC7327A009D8FC3 /* SetNameViewController.swift */,
 				CC4351C02EC73509009D8FC3 /* GradientMapper.swift */,
-				CC4351C82ECAD209009D8FC3 /* CustomSlider.swift */,
 			);
 			path = Welcome;
 			sourceTree = "<group>";
@@ -3630,7 +3627,6 @@
 				8E0A10052FEA000000000001 /* OverlayToastModels.swift in Sources */,
 				8E0A10062FEA000000000001 /* OverlayToastCenter.swift in Sources */,
 				8E0A10072FEA000000000001 /* OverlayToastView.swift in Sources */,
-				CC4351C92ECAD209009D8FC3 /* CustomSlider.swift in Sources */,
 				375B2D4F2ED07C780053FECC /* ConchFrameAnimationBaseViewController.swift in Sources */,
 				A197CA000000000000000001 /* HolographicCardView.swift in Sources */,
 				A197CA000000000000000006 /* HolographicCardDebugViewController.swift in Sources */,
