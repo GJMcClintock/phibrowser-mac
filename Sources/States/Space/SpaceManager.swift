@@ -10307,7 +10307,14 @@ final class SpaceWindowSlot: ObservableObject {
                                 onSwapSettled: (() -> Void)?) {
         let timing = timingForSpaceSwitch(spaceId: spaceId)
         timing?.mark("hosted.begin")
-        let transition: HostedTransition? = animated
+        // An empty slot has nothing to slide from, and on the cold path a
+        // transition would settle inside the window's registration, ahead of
+        // the spawn's seed: a caller that puts a page in the window there
+        // (a Kiosk moved into a fresh window) is still unknown to
+        // `BrowserState`, so the seed lands on top and takes focus. Without
+        // a transition the cold path settles after the seed; the live and
+        // dormant paths settle at once from an empty slot either way.
+        let transition: HostedTransition? = animated && visibleController != nil
             ? HostedTransition(direction: direction, onSwapSettled: onSwapSettled)
             : nil
         if windowsBySpaceId[spaceId] == nil, dormantSessionsBySpaceId[spaceId] == nil {
