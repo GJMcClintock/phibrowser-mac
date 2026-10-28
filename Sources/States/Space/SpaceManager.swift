@@ -3933,7 +3933,8 @@ final class SpaceManager: ObservableObject {
     /// it was parked from, so only the slot that inherited that entry may
     /// claim it. A slot that claimed no entry — Cmd+N, a spawn, a
     /// materialization — owns no ghosts and spawns fresh. Read by
-    /// `SpaceWindowSlot.activate` (the F4 ghost row).
+    /// `SpaceWindowSlot.activate` (the F4 ghost row), and by `openWindow` to
+    /// tell a materialized ghost from a fresh window.
     func parkedGhostWindowId(forSpaceId spaceId: String,
                              in slot: SpaceWindowSlot) -> Int? {
         Self.parkedGhostWindowId(in: parkedGhostEntries(for: slot),
@@ -5709,17 +5710,46 @@ final class SpaceManager: ObservableObject {
     /// rather than made key (`SpaceWindowSlot.orderBackSpawnedWindow`).
     /// `activate: true` is `activateInFocusedWindow` with a slot minted when
     /// there is none — the same path the AppleScript "new window" verb takes.
+    /// While windowless it restores the session first
+    /// (`runAfterWindowlessRestore`, chromium ADR 0020) and then lands in the
+    /// restored window that shows the Space, or switches the restored key
+    /// window to it. `activate: false` skips that gate: a background open is
+    /// not one the user aimed at, and must not bring their windows back.
     ///
     /// `completion` fires once with the windowId, or with an error code:
     /// `unknown_space` for a Space this side does not know, `create_failed`
     /// for a spawn the slot refused or that never registered (a spawn for
     /// the Space already in flight, a profile that failed to load, an
-    /// activation the slot dropped).
+    /// activation the slot dropped). `windowOpened` is true only for a
+    /// window this call opened fresh — seeded with one New Tab and holding
+    /// nothing of the user's. A window that already showed the Space, or a
+    /// parked ghost this call materialized, holds the user's restored tabs
+    /// and answers false.
     func openWindow(forSpaceId spaceId: String,
                     activate: Bool,
-                    completion: @escaping (_ windowId: Int?, _ error: String?) -> Void) {
+                    completion: @escaping (_ windowId: Int?, _ windowOpened: Bool,
+                                           _ error: String?) -> Void) {
+        guard activate else {
+            openWindowPastRestoreGate(forSpaceId: spaceId, activate: false,
+                                      completion: completion)
+            return
+        }
+        runAfterWindowlessRestore(
+            entry: "agent open in Space \(spaceId)"
+        ) { [weak self] in
+            self?.openWindowPastRestoreGate(forSpaceId: spaceId, activate: true,
+                                            completion: completion)
+        }
+    }
+
+    private func openWindowPastRestoreGate(
+        forSpaceId spaceId: String,
+        activate: Bool,
+        completion: @escaping (_ windowId: Int?, _ windowOpened: Bool,
+                               _ error: String?) -> Void
+    ) {
         guard spaces.contains(where: { $0.spaceId == spaceId }) else {
-            completion(nil, "unknown_space")
+            completion(nil, false, "unknown_space")
             return
         }
         let hosting = slots.filter { $0.windowsBySpaceId[spaceId] != nil }
@@ -5728,22 +5758,26 @@ final class SpaceManager: ObservableObject {
             if activate {
                 slot.activate(spaceId: spaceId)
             }
-            completion(live.windowId, nil)
+            completion(live.windowId, false, nil)
             return
         }
         let existing = keySlot ?? slots.first
         let slot = existing ?? createSlot(initialSpaceId: spaceId)
         let minted = existing == nil
-        AppLogInfo("[SpaceManager] openWindow(\(spaceId)) activate=\(activate) minted=\(minted)")
+        // Only `activate` materializes a ghost; a hidden spawn always opens
+        // fresh.
+        let materializesGhost = activate
+            && parkedGhostWindowId(forSpaceId: spaceId, in: slot) != nil
+        AppLogInfo("[SpaceManager] openWindow(\(spaceId)) activate=\(activate) minted=\(minted) ghost=\(materializesGhost)")
         let finish: (SpaceSessionController?) -> Void = { [weak self, weak slot] registered in
             guard let registered else {
                 if minted, let self, let slot {
                     _ = self.reclaimMintedSlot(slot, mintedForThisAttempt: true)
                 }
-                completion(nil, "create_failed")
+                completion(nil, false, "create_failed")
                 return
             }
-            completion(registered.windowId, nil)
+            completion(registered.windowId, !materializesGhost, nil)
         }
         if activate {
             slot.activate(
