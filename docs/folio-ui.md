@@ -229,8 +229,10 @@ inbox.
 
 ## Feeds
 
-A subscription is a scope in the nav. Selecting it lists its entries,
-unread first with a dot, read below; opening an entry marks it read.
+A subscription is a scope in the nav. Selecting it lists its entries
+newest first, the unread ones with a dot, and an **Unread** chip beside
+the usual filter pills narrows the list to them; opening an entry marks
+it read.
 Selecting the subscription's own name in the list header opens the
 **record** on the stage:
 
