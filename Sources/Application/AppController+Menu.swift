@@ -2675,7 +2675,8 @@ extension AppController {
         url: String = "about:blank",
         bringToFront: Bool,
         profileId: String? = nil,
-        preferredSpaceId: String? = nil
+        preferredSpaceId: String? = nil,
+        returnApplication: NSRunningApplication? = nil
     ) -> Bool {
         let manager = SpaceSessionControllersManager.shared
         let bridge = ChromiumLauncher.sharedInstance().bridge
@@ -2734,6 +2735,7 @@ extension AppController {
             return false
         }
 
+        kioskController.returnApplication = returnApplication
         let windowId = kioskController.windowId
         if let state = kioskController.browserState as? KioskBrowserState {
             state.preferredSpaceId = preferredSpaceId

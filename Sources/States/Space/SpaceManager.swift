@@ -4278,7 +4278,7 @@ final class SpaceManager: ObservableObject {
     /// `persistSlotsSnapshot` would otherwise rewrite the snapshot with the
     /// dismantled (eventually empty) layout — wiping the healthy grouping the
     /// next launch needs to reattach restored windows. Freeze persistence here.
-    private var isTerminating = false
+    private(set) var isTerminating = false
 
     /// Called when quit begins, from `AppController`'s handler for
     /// `PhiWillTryToTerminateApplicationNotification` — posted by
