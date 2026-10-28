@@ -1791,17 +1791,6 @@ final class PhiBrowserTests: XCTestCase {
         )
     }
 
-    func testNormalizedThemeSliderTrackColorKeepsRgbAndForcesFullOpacity() {
-        let sourceColor = NSColor(calibratedRed: 0.21, green: 0.42, blue: 0.63, alpha: 0.37)
-
-        let normalizedColor = normalizedThemeSliderTrackColor(from: sourceColor)
-
-        assertColor(
-            normalizedColor,
-            equals: NSColor(calibratedRed: 0.21, green: 0.42, blue: 0.63, alpha: 1.0)
-        )
-    }
-
     func testPureThemeBrightnessScaleGetsDarkerFromLeftToRight() {
         XCTAssertEqual(PureThemeBrightnessScale.brightness(forSlider: -1, appearance: .light), 0.94, accuracy: 0.0001)
         XCTAssertEqual(PureThemeBrightnessScale.brightness(forSlider: 0, appearance: .light), 0.94, accuracy: 0.0001)

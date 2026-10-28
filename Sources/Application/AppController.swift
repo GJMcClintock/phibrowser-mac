@@ -172,6 +172,7 @@ import PostHog
         #endif
         
         MemoryUsageMonitor.shared.start()
+        ThemeEditorPaletteRenderer.prewarmFields()
 
         DefaultExtensionManifestWriter.start()
         FeedbackOutboxUploader.shared.start()
