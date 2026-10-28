@@ -1650,9 +1650,15 @@ final class SpaceManager: ObservableObject {
     /// `reopenSettleOutcome`), and the only one where this window may claim a
     /// saved entry instead of standing alone — see `reopenFallbackWindowPlan`.
     /// Every other caller leaves it false and gets exactly today's plain spawn.
+    ///
+    /// `onSettled` runs once, a turn after the window registers or its spawn
+    /// fails, or after `sessionRestoreWatchdogDeadline` when neither is
+    /// reported; its argument names which. It never runs when this returns
+    /// false.
     @discardableResult
     private func spawnPersistedSpaceWindow(
-        restoreProducedNoWindow: Bool = false
+        restoreProducedNoWindow: Bool = false,
+        onSettled: ((_ outcome: String) -> Void)? = nil
     ) -> Bool {
         // Same resolution shape as `handleSpacesUpdate`'s fallback: the
         // persisted id when it names a live, automatically-switchable Space,
@@ -1735,9 +1741,36 @@ final class SpaceManager: ObservableObject {
                 slot.seedRememberedGeometry(frame: restoreEntries[landingIndex].frame)
             }
         }
+        // `activate` promises neither callback exactly once: a transition
+        // replaced mid-spawn reports nothing, a dormant repeat reports both.
+        // Hence the guard, and the deadline for "nothing". A turn later, so
+        // the caller never runs inside the spawn.
+        //
+        // Not animated when someone waits: a fresh slot has nothing to slide
+        // from either way, and without a transition the cold path settles
+        // once the spawn has also seeded its first tab rather than inside
+        // the window's registration. The caller then queues behind that
+        // tab's arrival in `BrowserState`; ahead of it, an `activate` of this
+        // Space reads the window as empty and seeds a second New Tab. That
+        // also leaves the deadline nearly nothing to cover, so it can be as
+        // long as the restore's own: one that fired mid-spawn would run the
+        // caller into the very collision it waits to avoid.
+        var settled = false
+        let settleOnce = { (outcome: String) in
+            guard !settled, let onSettled else { return }
+            settled = true
+            DispatchQueue.main.async { onSettled(outcome) }
+        }
+        if onSettled != nil {
+            DispatchQueue.main.asyncAfter(deadline: .now() + Self.sessionRestoreWatchdogDeadline) {
+                settleOnce("not reported within \(Self.sessionRestoreWatchdogDeadline)s")
+            }
+        }
         slot.activate(
             spaceId: spaceId,
+            animated: onSettled == nil,
             onActivationFailed: { [weak self] in
+                defer { settleOnce("failed") }
                 guard let self else { return }
                 // Order is load-bearing, and this is the same order
                 // `performColdStartRepair` unwinds its own claim in. The
@@ -1760,9 +1793,7 @@ final class SpaceManager: ObservableObject {
                 // reopen into it.
                 _ = self.reclaimMintedSlot(slot, mintedForThisAttempt: true)
             },
-            // Only on the claim, and only because of it: claiming inherits the
-            // entry's fullscreen marker (`slotForRestoreIndex`), and
-            onSwapSettled: nil)
+            onSwapSettled: { settleOnce("registered") })
         return true
     }
 
@@ -1978,8 +2009,18 @@ final class SpaceManager: ObservableObject {
                     // spawn because it decides one more thing there — whether
                     // that window may claim the saved entry it stands for
                     // (`reopenFallbackWindowPlan`).
+                    // Raised before the call, so a settle reported from
+                    // inside it cannot be overwritten afterwards.
+                    self.isAwaitingRestoreFallbackWindow = true
                     let spawned = self.spawnPersistedSpaceWindow(
-                        restoreProducedNoWindow: restoreProducedNoWindow)
+                        restoreProducedNoWindow: restoreProducedNoWindow,
+                        onSettled: { [weak self] outcome in
+                            self?.isAwaitingRestoreFallbackWindow = false
+                            self?.releaseOpensWaitingForRestore(exit: "fallback window \(outcome)")
+                        })
+                    if !spawned {
+                        self.isAwaitingRestoreFallbackWindow = false
+                    }
                     if restoreProducedNoWindow {
                         // Loud, and the only trace this leaves: the restore
                         // succeeded on chromium's terms while not one window
@@ -2005,10 +2046,14 @@ final class SpaceManager: ObservableObject {
                 // see above).
                 self.endReopenLoadingPlacements()
                 self.recordReopenLoadingHandoff(.restoreSettled)
-                // Last: a held open must find the fallback window and the
-                // repaired slots above, and must not be pulled onto a loading
-                // window's forced frame.
-                self.releaseOpensWaitingForRestore(exit: "restore settled")
+                // Last: a held open must find the repaired slots above, and
+                // must not be pulled onto a loading window's forced frame. A
+                // fallback window lands a turn later at the earliest, and an
+                // open run before it activates that Space again and is refused
+                // as a repeat spawn, so its opens wait for it instead.
+                if !self.isAwaitingRestoreFallbackWindow {
+                    self.releaseOpensWaitingForRestore(exit: "restore settled")
+                }
             }
         }
         return true
@@ -2517,6 +2562,10 @@ final class SpaceManager: ObservableObject {
     /// Opens `runAfterWindowlessRestore` holds until the restore ends.
     private var opensWaitingForRestore: [() -> Void] = []
 
+    /// True from a settle that spawned a fallback window until that window
+    /// lands. Opens keep waiting meanwhile, as while the restore is in flight.
+    private var isAwaitingRestoreFallbackWindow = false
+
     /// Runs `open`, an open the user aimed at a Space, once no windowless
     /// session restore is pending: at once when there is nothing to restore,
     /// otherwise after the restore in flight or after the one this starts,
@@ -2528,7 +2577,8 @@ final class SpaceManager: ObservableObject {
     /// path (an existing slot, or a new one).
     func runAfterWindowlessRestore(entry: String, _ open: @escaping () -> Void) {
         switch Self.windowlessOpenGate(
-            isSessionRestoreInFlight: isSessionRestoreInFlight,
+            isSessionRestoreInFlight: isSessionRestoreInFlight
+                || isAwaitingRestoreFallbackWindow,
             isWindowlessWithHostedSlots: isWindowlessWithHostedSlots,
             isRestoreSwitchOn: SessionRestorePreference.isEnabled) {
         case .runNow:
@@ -2546,7 +2596,8 @@ final class SpaceManager: ObservableObject {
     }
 
     /// Runs every open `runAfterWindowlessRestore` holds. Called from each way
-    /// a windowless restore ends: it settles, its watchdog gives up, or there
+    /// a windowless restore ends: it settles (or, when the settle spawned a
+    /// fallback window, that window lands), its watchdog gives up, or there
     /// is no bridge to run it. A way that does not call it leaves its opens
     /// waiting for good. `exit` names the way in the log.
     private func releaseOpensWaitingForRestore(exit: String) {
@@ -10609,6 +10660,20 @@ final class SpaceWindowSlot: ObservableObject {
         }
         guard let manager else {
             onActivationFailed?()
+            return
+        }
+        // Both callers spawn only for a Space with no window, a turn before
+        // this runs. A window registered in that turn came from a second
+        // activation whose profile was loaded, so its spawn registered
+        // synchronously; spawning again would replace that window in
+        // `registerWindow` and close it with whatever was just moved into it.
+        if let registered = windowsBySpaceId[spaceId] {
+            AppLogInfo("[SpaceWindowSlot] spawnHostedSession(\(spaceId)): window \(registered.windowId) already registered, not spawning again")
+            if activeSpaceId == spaceId {
+                onSpawned(registered)
+            } else {
+                onActivationFailed?()
+            }
             return
         }
         if pendingSpawnSpaceIds.contains(spaceId) {
