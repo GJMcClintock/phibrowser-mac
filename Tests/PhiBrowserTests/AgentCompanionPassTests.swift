@@ -126,4 +126,49 @@ final class AgentCompanionPassTests: XCTestCase {
             forExecutablePath: "/nonexistent/Folio.app/Contents/Resources/node"))
         XCTAssertNil(AgentPeerIdentity.appBundleRoot(forExecutablePath: "/usr/local/bin/node"))
     }
+    // MARK: - How the helper was started
+
+    private let script = "/Applications/Folio.app/Contents/Resources/folio-service/folio-service.mjs"
+
+    func testTheAppsOwnLaunchIsAccepted() {
+        XCTAssertTrue(AgentCompanion.launchIsUntampered(
+            argv: ["/Applications/Folio.app/Contents/Resources/node", script],
+            env: ["HOME=/Users/x", "NODE_ENV=production", "FOLIO_SOCKET_PATH=/tmp/f.sock"],
+            expectedScript: script))
+    }
+
+    /// `NODE_OPTIONS=--require …` (or any other NODE_* the runtime reads) would
+    /// run someone else's code as the signed helper.
+    func testNodeVariablesInTheEnvironmentAreRefused() {
+        for variable in ["NODE_OPTIONS=--require /tmp/x.js", "NODE_PATH=/tmp", "DYLD_INSERT_LIBRARIES=/tmp/x.dylib"] {
+            XCTAssertFalse(AgentCompanion.launchIsUntampered(
+                argv: ["/Applications/Folio.app/Contents/Resources/node", script],
+                env: ["HOME=/Users/x", variable], expectedScript: script), variable)
+        }
+    }
+
+    func testAnyOtherArgumentsAreRefused() {
+        let node = "/Applications/Folio.app/Contents/Resources/node"
+        for argv in [[node, "/tmp/evil.mjs"], [node, "--import", "/tmp/x.mjs", script],
+                     [node, script, "--inspect"]] {
+            XCTAssertFalse(AgentCompanion.launchIsUntampered(
+                argv: argv, env: [], expectedScript: script), argv.joined(separator: " "))
+        }
+    }
+
+    /// A native helper runs with no arguments.
+    func testANativeHelpersBareLaunchIsAccepted() {
+        XCTAssertTrue(AgentCompanion.launchIsUntampered(
+            argv: ["/Applications/Folio.app/Contents/Helpers/folio-service"],
+            env: ["HOME=/Users/x"], expectedScript: script))
+    }
+
+    /// The app itself is native code: Node's variables mean nothing to it,
+    /// a dynamic-loader one does.
+    func testTheAppsEnvironmentIgnoresRuntimeVariablesButNotTheLoader() {
+        XCTAssertTrue(AgentCompanion.environmentIsClean(
+            ["HOME=/Users/x", "NODE_OPTIONS=--inspect"], runtimeVariables: false))
+        XCTAssertFalse(AgentCompanion.environmentIsClean(
+            ["DYLD_INSERT_LIBRARIES=/tmp/x.dylib"], runtimeVariables: false))
+    }
 }

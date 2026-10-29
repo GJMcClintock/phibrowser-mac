@@ -18,7 +18,22 @@ must hold for one channel of an `AgentCompanion` entry:
 2. the process macOS holds responsible for it
    (`responsibility_get_pid_responsible_for_pid`) is an app whose code
    satisfies the same requirement with the channel's app identifier;
-3. the peer's executable lies inside that app's bundle.
+3. the peer's executable lies inside that app's bundle;
+4. it was started the way its app starts it (`AgentCompanion.launchIsUntampered`):
+   argv is the helper alone (a native helper) or exactly the runtime plus the
+   bundled script (`Contents/Resources/folio-service/folio-service.mjs`), and
+   its exec-time environment has no `NODE_*` variable but `NODE_ENV` and no
+   `DYLD_*`. A runtime helper's signature says nothing about the code it
+   runs, and anyone can choose the app's environment (`open --env`,
+   `launchctl setenv`); a `NODE_OPTIONS=--require …` would otherwise run
+   their code as the signed helper.
+
+Folio.app may also connect itself, with its backend in the app rather than a
+helper: a peer whose audit token satisfies the requirement with the app
+identifier and that runs as that bundle's main executable is admitted, whoever
+launched it, as long as its exec-time environment has no `DYLD_*` (Node's
+variables mean nothing to native code). So Phi and the Runner accept either
+shape of Folio without further change.
 
 | Phi bundle id | App identifier | Helper identifier |
 | --- | --- | --- |
