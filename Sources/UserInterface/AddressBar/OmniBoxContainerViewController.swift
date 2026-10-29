@@ -393,13 +393,22 @@ final class OmniBoxContainerViewController: NSViewController {
                 needsShowAnimation = false
                 hasShown = true
             }
+        } else if !view.bounds.isEmpty {
+            // A restored/reconfigured header may not have a usable anchor yet.
+            // Keep the address-bar navigation target, but present a centered box.
+            showFromAddressBar = false
+            self.addressView = nil
+            updateOmniBoxFrame(size)
+            omniBoxView.alphaValue = 1
+            hasShown = true
         }
 
     }
     
     private func calculateFrameRelativeToAddressView(size: NSSize, addressView: NSView) -> NSRect? {
         let parentBounds = view.bounds
-        guard parentBounds.width > 0, parentBounds.height > 0 else { return nil }
+        guard parentBounds.width > 0, parentBounds.height > 0,
+              !addressView.bounds.isEmpty else { return nil }
 
         // The overlay lives in a child panel while the address bar lives in
         // the browser window — `NSView.convert` is only defined within one

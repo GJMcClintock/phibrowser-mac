@@ -75,7 +75,10 @@ class OmniBoxSuggestionView: NSView {
             make.leading.equalToSuperview()
             make.trailing.equalToSuperview()
             make.top.equalToSuperview().offset(Self.topPadding)
-            make.bottom.equalToSuperview().offset(-Self.bottomPadding)
+            // The suggestion area collapses to zero when empty. Its padding
+            // must yield instead of requiring a negative scroll-view height.
+            make.bottom.equalToSuperview().offset(-Self.bottomPadding).priority(.high)
+            make.height.greaterThanOrEqualTo(0)
         }
     }
     

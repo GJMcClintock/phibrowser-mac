@@ -111,7 +111,9 @@ class OmniBoxViewController: NSViewController {
     // MARK: - Lifecycle
     
     override func loadView() {
-        view = NSView()
+        // The box is frame-sized by its host. Give its required input-row
+        // constraints room before the first attachment/layout pass.
+        view = NSView(frame: NSRect(origin: .zero, size: contentSize))
     }
     
     override func viewDidLoad() {
@@ -327,6 +329,7 @@ class OmniBoxViewController: NSViewController {
     }
     
     func focusTextField() {
+        view.layoutSubtreeIfNeeded()
         view.window?.makeFirstResponder(textField)
     }
     
